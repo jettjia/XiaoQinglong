@@ -1,0 +1,28 @@
+{
+    "endpoint": "http://localhost:18080/run",
+    "model": {
+        "provider": "openai",
+        "name": "${OPENAI_MODEL}",
+        "api_key": "${OPENAI_API_KEY}",
+        "api_base": "${OPENAI_BASE_URL}"
+    },
+    "system_prompt": "你是一个语音合成助手，将文本转换为语音。返回音频URL或base64。",
+    "user_message": "将以下订单信息转为语音：您的订单ORD-20240315-001已发货，预计2天后送达。",
+    "tools": [],
+    "a2a": [],
+    "mcps": [],
+    "sandbox": {
+        "enabled": false
+    },
+    "options": {
+        "temperature": 0.7,
+        "max_tokens": 2000,
+        "max_iterations": 10,
+        "stream": false,
+        "response_schema": {
+            "type": "audio"
+        }
+    },
+    "skills": [],
+    "context": {}
+}

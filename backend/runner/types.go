@@ -110,6 +110,16 @@ type RetryConfig struct {
 	RetryableErrors   []string `json:"retryable_errors"`
 }
 
+// ResponseSchemaConfig 响应格式配置
+// 支持的响应类型 (type):
+//   - text: 纯文本
+//   - markdown: Markdown 格式
+//   - a2ui: A2UI 结构化格式（通过 schema 定义组件）
+//   - json: JSON 格式（通过 schema 定义结构）
+//   - image: 图片 (url 或 base64)
+//   - audio: 音频 (url 或 base64)
+//   - video: 视频 (url 或 base64)
+//   - multipart: 多格式混合
 type ResponseSchemaConfig struct {
 	Type     string         `json:"type"`
 	Version  string         `json:"version"`

@@ -530,26 +530,57 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 	}, nil
 }
 
-// formatResponse 根据 response_format 或 response_schema 配置格式化响应
+// formatResponse 根据 response_schema 配置格式化响应
 func (d *Dispatcher) formatResponse(content string) (string, []json.RawMessage) {
-	if d.request.Options == nil {
+	if d.request.Options == nil || d.request.Options.ResponseSchema == nil {
 		return content, nil
 	}
 
-	// 优先使用 response_schema
-	if d.request.Options.ResponseSchema != nil {
-		rs := d.request.Options.ResponseSchema
-		log.Printf("[Dispatcher] formatResponse: using ResponseSchema, type=%s, schema=%+v", rs.Type, rs.Schema)
-		if rs.Type == "a2ui" {
-			// 使用 schema 构建 A2UI 格式
-			msgs := d.buildA2UIMessagesFromSchema(content, rs.Schema)
-			log.Printf("[Dispatcher] formatResponse: built %d a2ui messages", len(msgs))
-			return "", msgs
-		}
-	}
+	rs := d.request.Options.ResponseSchema
+	log.Printf("[Dispatcher] formatResponse: type=%s", rs.Type)
 
-	// 没有配置 response_schema，返回原始内容
-	return content, nil
+	switch rs.Type {
+	case "a2ui":
+		// 使用 schema 构建 A2UI 格式
+		msgs := d.buildA2UIMessagesFromSchema(content, rs.Schema)
+		log.Printf("[Dispatcher] formatResponse: built %d a2ui messages", len(msgs))
+		return "", msgs
+
+	case "markdown", "text":
+		// 直接返回 markdown 或文本内容
+		return content, nil
+
+	case "json":
+		// 尝试解析 content 为 JSON 并美化输出
+		var data any
+		if err := json.Unmarshal([]byte(content), &data); err == nil {
+			if prettyJSON, err := json.MarshalIndent(data, "", "  "); err == nil {
+				return string(prettyJSON), nil
+			}
+		}
+		return content, nil
+
+	case "image", "audio", "video":
+		// 多媒体格式 - 从 content 中解析 URL 或 base64
+		// content 应该是 JSON 格式: {"url": "..."} 或 {"base64": "..."}
+		var data map[string]any
+		if err := json.Unmarshal([]byte(content), &data); err == nil {
+			// 返回原始 JSON 作为 content
+			if jsonStr, err := json.Marshal(data); err == nil {
+				return string(jsonStr), nil
+			}
+		}
+		return content, nil
+
+	case "multipart":
+		// 多格式混合 - content 应该是 JSON 数组格式
+		return content, nil
+
+	default:
+		// 未知格式，返回原始内容
+		log.Printf("[Dispatcher] formatResponse: unknown type %s, returning raw content", rs.Type)
+		return content, nil
+	}
 }
 
 // buildA2UIMessagesFromSchema 根据 response_schema 构建 A2UI 格式消息
