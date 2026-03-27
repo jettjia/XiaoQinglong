@@ -1,0 +1,108 @@
+{
+    "endpoint": "http://localhost:18080/run",
+    "model": {
+        "provider": "openai",
+        "name": "${OPENAI_MODEL}",
+        "api_key": "${OPENAI_API_KEY}",
+        "api_base": "${OPENAI_BASE_URL}"
+    },
+    "system_prompt": "你是一个智能助手，擅长使用工具和技能来回答用户问题。如果需要查询订单，请使用 get_order_detail 工具。如果需要上传文件到S3，可以使用 s3-upload 技能。",
+    "user_message": "把当前目录下的 test.json 上传到 S3",
+    "tools": [
+        {
+            "type": "http",
+            "name": "get_order_detail",
+            "description": "根据订单号获取订单详情",
+            "endpoint": "http://localhost:28081/v1/orders/{order_no}",
+            "method": "GET",
+            "headers": {
+                "Content-Type": "application/json"
+            },
+            "risk_level": "medium"
+        },
+        {
+            "type": "http",
+            "name": "get_product_info",
+            "description": "获取产品信息",
+            "endpoint": "http://localhost:8081/products/{product_id}",
+            "method": "GET",
+            "headers": {},
+            "risk_level": "low"
+        }
+    ],
+    "a2a": [
+        {
+            "name": "payment_agent",
+            "endpoint": "http://localhost:28080/a2a",
+            "headers": {}
+        }
+    ],
+    "mcps": [
+        {
+            "name": "weather",
+            "command": "go",
+            "args": [
+                "run",
+                "/home/jett/aishu/XiaoQinglong/mock/mcp"
+            ],
+            "env": {}
+        }
+    ],
+    "sandbox": {
+        "enabled": true,
+        "mode": "docker",
+        "image": "sandbox-code-interpreter:v1.0.3",
+        "workdir": "/workspace",
+        "timeout_ms": 120000,
+        "env": {
+            "PATH": "/usr/local/bin:/usr/bin:/bin"
+        }
+    },
+    "options": {
+        "temperature": 0.7,
+        "max_tokens": 2000,
+        "max_iterations": 10,
+        "stream": true,
+        "retry": {
+            "max_attempts": 3,
+            "initial_delay_ms": 1000,
+            "max_delay_ms": 10000,
+            "backoff_multiplier": 2.0,
+            "retryable_errors": [
+                "timeout",
+                "rate_limit",
+                "server_error"
+            ]
+        }
+    },
+    "skills": [
+        {
+            "id": "s3-upload",
+            "name": "S3上传下载",
+            "description": "用于上传和下载S3对象存储中的文件",
+            "instruction": "你是一个S3操作助手，可以帮助用户上传文件到S3或从S3下载文件。",
+            "scope": "both",
+            "trigger": "manual",
+            "entry_script": "python3 scripts/s3_upload.py",
+            "file_path": "s3-upload"
+        }
+    ],
+    "context": {
+        "session_id": "sess_abc123def456",
+        "user_id": "user_001",
+        "channel_id": "feishu",
+        "variables": {
+            "last_query_time": "2024-03-15T10:30:00Z",
+            "user_preference": "express_shipping",
+            "cart_items_count": 3
+        }
+    },
+    "knowledge": [
+        {
+            "id": "product_info",
+            "name": "产品信息",
+            "content": "我们的产品分为三个系列：基础版、专业版、企业版。基础版免费，专业版99元/月，企业版299元/月。",
+            "score": 0.95
+        }
+    ]
+}

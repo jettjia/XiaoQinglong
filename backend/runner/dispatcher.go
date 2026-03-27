@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/model"
@@ -21,6 +24,8 @@ type DispatchResult struct {
 	ToolCalls    []ToolCall
 	A2AResults   []A2AResult
 	FinishReason string
+	A2UIMessages []json.RawMessage
+	TokensUsed   int
 }
 
 // ========== Dispatcher ==========
@@ -29,12 +34,13 @@ type Dispatcher struct {
 	request *RunRequest
 
 	// 组件
-	defaultModel model.ToolCallingChatModel
-	models       map[string]model.ToolCallingChatModel
-	tools        []tool.BaseTool
-	a2aRunners   map[string]*adk.Runner
+	defaultModel   model.ToolCallingChatModel
+	models         map[string]model.ToolCallingChatModel
+	tools          []tool.BaseTool
+	a2aRunners     map[string]*adk.Runner
 	internalAgents map[string]adk.Agent
-	skillRunner  *SkillRunner
+	skillRunner    *SkillRunner
+	a2aCallCount   int
 }
 
 func NewDispatcher(req *RunRequest) *Dispatcher {
@@ -156,7 +162,13 @@ func (d *Dispatcher) initA2A(ctx context.Context) error {
 			}
 		}
 		if len(clients) > 0 {
-			d.tools = append(d.tools, NewA2ATool(clients))
+			// 重置计数器并使用带计数限制的 A2A tool
+			d.a2aCallCount = 0
+			maxA2ACalls := 0
+			if d.request.Options != nil {
+				maxA2ACalls = d.request.Options.MaxA2ACalls
+			}
+			d.tools = append(d.tools, NewA2AToolWithCounter(clients, &d.a2aCallCount, maxA2ACalls))
 		}
 	}
 
@@ -348,6 +360,40 @@ func (d *Dispatcher) buildMessages(systemPrompt string) []adk.Message {
 	return messages
 }
 
+// buildModelRetryConfig converts RetryConfig to adk.ModelRetryConfig
+func (d *Dispatcher) buildModelRetryConfig() *adk.ModelRetryConfig {
+	if d.request.Options == nil || d.request.Options.Retry == nil {
+		return nil
+	}
+	retry := d.request.Options.Retry
+	if retry.MaxAttempts <= 0 {
+		return nil
+	}
+
+	return &adk.ModelRetryConfig{
+		MaxRetries: retry.MaxAttempts,
+		IsRetryAble: func(ctx context.Context, err error) bool {
+			if len(retry.RetryableErrors) == 0 {
+				return true // 默认全部可重试
+			}
+			errStr := err.Error()
+			for _, e := range retry.RetryableErrors {
+				if strings.Contains(errStr, e) {
+					return true
+				}
+			}
+			return false
+		},
+		BackoffFunc: func(ctx context.Context, attempt int) time.Duration {
+			delay := float64(retry.InitialDelayMs) * math.Pow(retry.BackoffMultiplier, float64(attempt-1))
+			if delay > float64(retry.MaxDelayMs) {
+				delay = float64(retry.MaxDelayMs)
+			}
+			return time.Duration(delay) * time.Millisecond
+		},
+	}
+}
+
 func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*DispatchResult, error) {
 	// 计算最大迭代次数
 	maxIterations := 10
@@ -362,6 +408,7 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 		Instruction:    d.buildSystemPrompt(),
 		Model:          d.defaultModel,
 		MaxIterations:  maxIterations,
+		ModelRetryConfig: d.buildModelRetryConfig(),
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
 				Tools: d.tools,
@@ -391,6 +438,13 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 	var toolCalls []ToolCall
 	var finishReason string
 
+	// 工具调用计数
+	toolCallCount := 0
+	maxToolCalls := 0
+	if d.request.Options != nil && d.request.Options.MaxToolCalls > 0 {
+		maxToolCalls = d.request.Options.MaxToolCalls
+	}
+
 	events := runner.Run(ctx, messages)
 	for {
 		event, ok := events.Next()
@@ -406,6 +460,14 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 		if msg, err := event.Output.MessageOutput.GetMessage(); err == nil {
 			finalContent = msg.Content
 			for _, tc := range msg.ToolCalls {
+				toolCallCount++
+				if maxToolCalls > 0 && toolCallCount > maxToolCalls {
+					return &DispatchResult{
+						Content:      finalContent,
+						ToolCalls:    toolCalls,
+						FinishReason: "max_tool_calls_exceeded",
+					}, nil
+				}
 				toolCalls = append(toolCalls, ToolCall{
 					Tool:   tc.Function.Name,
 					Input:  tc.Function.Arguments,
@@ -432,6 +494,14 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 				}
 				finalContent += chunk.Content
 				for _, tc := range chunk.ToolCalls {
+					toolCallCount++
+					if maxToolCalls > 0 && toolCallCount > maxToolCalls {
+						return &DispatchResult{
+							Content:      finalContent,
+							ToolCalls:    toolCalls,
+							FinishReason: "max_tool_calls_exceeded",
+						}, nil
+					}
 					toolCalls = append(toolCalls, ToolCall{
 						Tool:   tc.Function.Name,
 						Input:  tc.Function.Arguments,
@@ -449,9 +519,120 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 		finishReason = "stop"
 	}
 
+	// 应用响应格式配置
+	formattedContent, a2uiMsgs := d.formatResponse(finalContent)
+
 	return &DispatchResult{
-		Content:      finalContent,
+		Content:      formattedContent,
 		ToolCalls:    toolCalls,
 		FinishReason: finishReason,
+		A2UIMessages: a2uiMsgs,
 	}, nil
+}
+
+// formatResponse 根据 response_format 配置格式化响应
+func (d *Dispatcher) formatResponse(content string) (string, []json.RawMessage) {
+	if d.request.Options == nil || d.request.Options.ResponseFormat == nil {
+		return content, nil
+	}
+
+	rf := d.request.Options.ResponseFormat
+	switch rf.Type {
+	case "a2ui":
+		// 构建 A2UI 格式消息
+		msgs := d.buildA2UIMessages(content)
+		return "", msgs
+	case "json":
+		// JSON 格式化 - 将 content 作为 JSON 解析后返回
+		return d.buildJSONResponse(content, rf)
+	case "markdown", "text", "":
+		return content, nil
+	default:
+		if rf.Fallback != "" {
+			return rf.Fallback, nil
+		}
+		return content, nil
+	}
+}
+
+// buildA2UIMessages 构建 A2UI 格式消息
+func (d *Dispatcher) buildA2UIMessages(content string) []json.RawMessage {
+	msgs := []json.RawMessage{}
+
+	// 创建默认 surface
+	surfaceID := "default_surface"
+	if d.request.Options != nil && d.request.Options.ResponseFormat != nil {
+		if templates, ok := d.request.Options.ResponseFormat.Templates["default"]; ok {
+			if t, ok := templates.(map[string]any); ok {
+				if sid, ok := t["surfaceId"].(string); ok {
+					surfaceID = sid
+				}
+			}
+		}
+	}
+
+	// createSurface 消息
+	createSurface, _ := json.Marshal(map[string]any{
+		"createSurface": map[string]any{
+			"surfaceId":  surfaceID,
+			"catalogId": "standard",
+		},
+	})
+	msgs = append(msgs, createSurface)
+
+	// updateComponents 消息 - 文本组件
+	textContent := content
+	if textContent == "" {
+		textContent = " "
+	}
+
+	updateComponents, _ := json.Marshal(map[string]any{
+		"updateComponents": map[string]any{
+			"surfaceId": surfaceID,
+			"components": []map[string]any{
+				{
+					"id":         "root",
+					"component":  "Column",
+					"children":   []string{"text_content"},
+					"justify":    "start",
+					"align":     "start",
+				},
+				{
+					"id":        "text_content",
+					"component": "Text",
+					"text":      map[string]any{"text": textContent},
+				},
+			},
+		},
+	})
+	msgs = append(msgs, updateComponents)
+
+	return msgs
+}
+
+// buildJSONResponse 构建 JSON 格式响应
+func (d *Dispatcher) buildJSONResponse(content string, rf *ResponseFormatConfig) (string, []json.RawMessage) {
+	// 尝试解析 content 为 JSON
+	var data any
+	if err := json.Unmarshal([]byte(content), &data); err != nil {
+		// 解析失败，返回原始内容
+		return content, nil
+	}
+
+	// 包装为标准响应格式
+	resp := map[string]any{
+		"result": data,
+	}
+
+	if rf.Strict && len(rf.Templates) > 0 {
+		// 使用模板进行严格格式化
+		for name, template := range rf.Templates {
+			if t, ok := template.(map[string]any); ok {
+				resp[name] = t
+			}
+		}
+	}
+
+	result, _ := json.Marshal(resp)
+	return string(result), nil
 }

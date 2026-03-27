@@ -97,6 +97,7 @@ type RunOptions struct {
 	MaxIterations  int                   `json:"max_iterations"`
 	MaxToolCalls   int                   `json:"max_tool_calls"`
 	MaxA2ACalls    int                   `json:"max_a2a_calls"`
+	MaxTotalTokens int                   `json:"max_total_tokens"`
 	Retry          *RetryConfig          `json:"retry"`
 	ResponseFormat *ResponseFormatConfig `json:"response_format"`
 }
@@ -186,11 +187,13 @@ func (r *Runner) Run(ctx context.Context) (*RunResponse, error) {
 		Content:      result.Content,
 		ToolCalls:    result.ToolCalls,
 		A2AResults:   result.A2AResults,
+		TokensUsed:   result.TokensUsed,
 		FinishReason: result.FinishReason,
 		Metadata: ResponseMetadata{
 			Model:     r.getDefaultModelName(),
 			LatencyMs: latencyMs,
 		},
+		A2UIMessages: result.A2UIMessages,
 	}
 
 	return resp, nil

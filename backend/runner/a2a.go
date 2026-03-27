@@ -168,12 +168,23 @@ func (a *A2AClient) CreateA2ARunner(ctx context.Context, model model.ToolCalling
 // ========== A2A Tool ==========
 
 type A2ATool struct {
-	clients map[string]*A2AClient
+	clients    map[string]*A2AClient
+	callCount  *int // shared counter pointer
+	maxCalls   int  // max allowed calls
 }
 
 func NewA2ATool(clients map[string]*A2AClient) *A2ATool {
 	return &A2ATool{
 		clients: clients,
+	}
+}
+
+// NewA2AToolWithCounter creates an A2ATool with call counting and limits
+func NewA2AToolWithCounter(clients map[string]*A2AClient, counter *int, maxCalls int) *A2ATool {
+	return &A2ATool{
+		clients:   clients,
+		callCount: counter,
+		maxCalls:  maxCalls,
 	}
 }
 
@@ -210,6 +221,14 @@ func (t *A2ATool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 }
 
 func (t *A2ATool) InvokableRun(ctx context.Context, argumentsInJSON string, opt ...tool.Option) (string, error) {
+	// Check and increment call count
+	if t.callCount != nil {
+		*t.callCount++
+		if t.maxCalls > 0 && *t.callCount > t.maxCalls {
+			return "", fmt.Errorf("max a2a calls exceeded: %d", t.maxCalls)
+		}
+	}
+
 	type a2aInput struct {
 		Agent string `json:"agent"`
 		Query string `json:"query"`
