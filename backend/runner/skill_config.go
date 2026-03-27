@@ -51,6 +51,7 @@ func (m *SkillConfigManager) Parse(data []byte) error {
 	// 支持两种格式：
 	// 1. 全局配置：key: value
 	// 2. 按 skill 分组：skillName.key: value
+	// 3. 嵌套格式：skills.skillName.env.KEY: value
 
 	type rawConfig map[string]any
 
@@ -66,10 +67,23 @@ func (m *SkillConfigManager) Parse(data []byte) error {
 			parts := strings.SplitN(k, ".", 2)
 			skillName := parts[0]
 			key := parts[1]
-			if m.configs[skillName] == nil {
-				m.configs[skillName] = make(map[string]string)
+
+			// 检查是否是嵌套的 skills 格式：skills.skillName.env.KEY
+			if skillName == "skills" {
+				if m.configs[key] == nil {
+					m.configs[key] = make(map[string]string)
+				}
+				if envMap, ok := v.(map[string]any); ok {
+					for envK, envV := range envMap {
+						m.configs[key][envK] = toString(envV)
+					}
+				}
+			} else {
+				if m.configs[skillName] == nil {
+					m.configs[skillName] = make(map[string]string)
+				}
+				m.configs[skillName][key] = toString(v)
 			}
-			m.configs[skillName][key] = toString(v)
 		} else {
 			// 全局配置
 			if m.configs["_global"] == nil {
@@ -177,12 +191,12 @@ func toString(v any) string {
 // DefaultSkillConfigPath 返回默认的 skill 配置路径
 func DefaultSkillConfigPath() string {
 	// 依次查找：
-	// 1. ./skills-config.yaml
-	// 2. ./config/skills-config.yaml
-	// 3. /etc/skills-config.yaml
+	// 1. ./dev-skills-config.yaml (开发环境配置，优先)
+	// 2. ./skills-config.yaml (默认配置)
+	// 3. ./config/skills-config.yaml
 	paths := []string{
-		"skills-config.yaml",
 		"dev-skills-config.yaml",
+		"skills-config.yaml",
 		"config/skills-config.yaml",
 		filepath.Join(os.Getenv("HOME"), ".skills-config.yaml"),
 	}

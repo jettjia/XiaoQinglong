@@ -209,6 +209,12 @@ func (d *Dispatcher) initSkills(ctx context.Context) error {
 		configMgr,
 	)
 
+	// 设置 session ID（从 context 中获取）
+	if sessionID, ok := d.request.Context["session_id"].(string); ok && sessionID != "" {
+		d.skillRunner.CurrentSessionID = sessionID
+		log.Printf("[Dispatcher] Using session_id: %s for skill execution", sessionID)
+	}
+
 	// 创建 skill tool 并添加到 tools
 	skillTool := d.skillRunner.BuildSkillTool()
 	if skillTool != nil {

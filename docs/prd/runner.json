@@ -1,0 +1,222 @@
+{
+    "prompt": "你是一个专业的智能客服助手，擅长解答用户关于订单、物流、产品等问题。你的回复要友好、专业、有耐心。",
+    "models": {
+        "default": {
+            "provider": "openai",
+            "name": "gpt-4o",
+            "api_base": "https://api.openai.com/v1",
+            "api_key": "sk-xxxx",
+            "temperature": 0.7,
+            "max_tokens": 2000,
+            "top_p": 0.9
+        },
+        "rewrite": {
+            "provider": "openai",
+            "name": "gpt-4o-mini",
+            "api_key": "sk-xxxx",
+            "temperature": 0.3,
+            "max_tokens": 500
+        },
+        "skill": {
+            "provider": "openai",
+            "name": "gpt-4o",
+            "api_key": "sk-xxxx",
+            "temperature": 0.7,
+            "max_tokens": 4000
+        },
+        "summarize": {
+            "provider": "anthropic",
+            "name": "claude-haiku-4-20250501",
+            "api_key": "sk-ant-xxxx",
+            "temperature": 0.5,
+            "max_tokens": 1000
+        }
+    },
+    "messages": [
+        {
+            "role": "system",
+            "content": "你是客服助手"
+        },
+        {
+            "role": "user",
+            "content": "你好，我想查一下我的订单"
+        },
+        {
+            "role": "assistant",
+            "content": "您好！很高兴为您服务。请问您的订单号是多少？或者您可以提供下单时使用的手机号/邮箱，我来帮您查询。"
+        },
+        {
+            "role": "user",
+            "content": "订单号是 20240315001"
+        }
+    ],
+    "context": {
+        "session_id": "sess_abc123def456",
+        "user_id": "user_001",
+        "channel_id": "feishu",
+        "variables": {
+            "last_query_time": "2024-03-15T10:30:00Z",
+            "user_preference": "express_shipping",
+            "cart_items_count": 3
+        }
+    },
+    "knowledge": [
+        {
+            "id": "kb_001",
+            "name": "订单查询政策",
+            "content": "订单查询说明：用户可以通过订单号、手机号、邮箱查询订单。订单状态包括：待付款、已付款、已发货、已完成、已取消。",
+            "score": 0.92
+        },
+        {
+            "id": "kb_002",
+            "name": "物流配送政策",
+            "content": "配送政策：普通快递2-3天送达，次日达当天下午6点前下单当天发货，急速达1小时送达。",
+            "score": 0.85
+        }
+    ],
+    "skills": [
+        {
+            "id": "skill_order_query",
+            "name": "订单查询",
+            "description": "帮助用户查询订单状态、订单详情",
+            "instruction": "你是一个订单查询专家，可以通过订单号查询订单的详细信息，包括订单状态、商品信息、物流信息等。",
+            "scope": "chat",
+            "trigger": "auto",
+            "entry_script": "main.py",
+            "file_path": "./skills/order_query"
+        },
+        {
+            "id": "skill_logistics",
+            "name": "物流查询",
+            "description": "查询快递物流信息",
+            "instruction": "你是一个物流查询专家，可以根据快递单号查询物流轨迹。",
+            "scope": "chat",
+            "trigger": "auto",
+            "entry_script": "main.py",
+            "file_path": "./skills/logistics"
+        }
+    ],
+    "mcps": [
+        {
+            "name": "order_system",
+            "command": "npx",
+            "args": [
+                "-y",
+                "@myorg/order-mcp-server"
+            ],
+            "env": {
+                "API_ENDPOINT": "https://api.example.com/orders"
+            }
+        },
+        {
+            "name": "product_catalog",
+            "command": "python",
+            "args": [
+                "./mcp/product_server.py"
+            ],
+            "env": {
+                "DB_HOST": "localhost",
+                "DB_PORT": "5432"
+            }
+        }
+    ],
+    "a2a": [
+        {
+            "name": "payment_agent",
+            "endpoint": "http://a2a-server:8000/agent/payment",
+            "headers": {
+                "Authorization": "Bearer sk-test-xxx"
+            }
+        },
+        {
+            "name": "refund_agent",
+            "endpoint": "http://a2a-server:8000/agent/refund",
+            "headers": {
+                "Authorization": "Bearer sk-test-xxx"
+            }
+        }
+    ],
+    "tools": [
+        {
+            "type": "http",
+            "name": "get_order_detail",
+            "description": "根据订单号获取订单详情",
+            "endpoint": "https://api.example.com/v1/orders/{order_id}",
+            "method": "GET",
+            "headers": {
+                "Authorization": "Bearer {api_token}",
+                "Content-Type": "application/json"
+            },
+            "risk_level": "medium"
+        },
+        {
+            "type": "http",
+            "name": "get_express_info",
+            "description": "查询快递物流信息",
+            "endpoint": "https://api.example.com/v1/logistics/{tracking_number}",
+            "method": "GET",
+            "headers": {
+                "Authorization": "Bearer {api_token}"
+            },
+            "risk_level": "low"
+        }
+    ],
+    "internal_agents": [
+        {
+            "id": "planner",
+            "name": "规划Agent",
+            "prompt": "你是一个任务规划Agent。当用户提出复杂问题时，你需要将问题分解为多个步骤，并确定每个步骤应该使用哪个技能或工具。",
+            "model": {
+                "provider": "anthropic",
+                "name": "claude-sonnet-4-6",
+                "api_key": "sk-ant-xxxx"
+            }
+        },
+        {
+            "id": "summarizer",
+            "name": "总结Agent",
+            "prompt": "你是一个总结Agent，负责将多轮对话和工具调用结果整理成简洁、清晰的回复。",
+            "model": {
+                "provider": "openai",
+                "name": "gpt-4o-mini",
+                "api_key": "sk-xxxx"
+            }
+        }
+    ],
+    "options": {
+        "temperature": 0.7,
+        "max_tokens": 2000,
+        "stream": false,
+        "top_p": 0.9,
+        "stop": null,
+        "timeout_ms": 60000,
+        "retry": {
+            "max_attempts": 3,
+            "initial_delay_ms": 1000,
+            "max_delay_ms": 10000,
+            "backoff_multiplier": 2.0,
+            "retryable_errors": [
+                "timeout",
+                "rate_limit",
+                "server_error"
+            ]
+        },
+        "response_format": {
+            "type": "a2ui",
+            "version": "1.0",
+            "strict": true,
+            "fallback": "markdown"
+        }
+    },
+    "sandbox": {
+        "enabled": true,
+        "mode": "auto",
+        "image": "eino-sandbox:latest",
+        "workdir": "/workspace",
+        "network": "none",
+        "timeout_ms": 30000,
+        "env": {
+            "NODE_ENV": "production"
+        }
+    }
+}

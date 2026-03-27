@@ -76,16 +76,6 @@
             "file_path": "s3-upload"
         }
     ],
-    "context": {
-        "session_id": "sess_abc123def456",
-        "user_id": "user_001",
-        "channel_id": "feishu",
-        "variables": {
-            "last_query_time": "2024-03-15T10:30:00Z",
-            "user_preference": "express_shipping",
-            "cart_items_count": 3
-        }
-    },
     "knowledge": [
         {
             "id": "product_info",

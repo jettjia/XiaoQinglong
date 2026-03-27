@@ -216,7 +216,7 @@ func main() {
 		Options:   config.Options,
 		Knowledge: config.Knowledge,
 		Context: map[string]any{
-			"skills_dir": "./skills",
+			"skills_dir": "/home/jett/aishu/XiaoQinglong/skills",
 		},
 	}
 
@@ -240,7 +240,7 @@ func main() {
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 120 * time.Second}
+	client := &http.Client{Timeout: 300 * time.Second}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		log.Fatalf("发送请求失败: %v", err)

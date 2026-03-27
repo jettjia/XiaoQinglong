@@ -24,10 +24,17 @@ import (
 // SkillRunner runs skills progressively with sliding-window approach
 type SkillRunner struct {
 	skills     map[string]Skill
-	skillsDir  string          // 存储所有 skill 脚本的目录
+	skillsDir  string // 存储所有 skill 脚本的目录
 	sandboxCfg *SandboxConfig
 	model      model.ToolCallingChatModel // 用于执行 skill 的模型
 	configMgr  *SkillConfigManager        // skill 配置管理器
+
+	// session 管理：多步骤 skill 执行时共享工作目录
+	// key: sessionID, value: sessionWorkDir
+	sessions map[string]string
+
+	// CurrentSessionID 由 dispatcher 设置，标识当前请求的 session
+	CurrentSessionID string
 }
 
 // NewSkillRunner creates a new skill runner
@@ -41,18 +48,19 @@ func NewSkillRunner(skills []Skill, skillsDir string, sandboxCfg *SandboxConfig,
 		skillsDir:  skillsDir,
 		sandboxCfg: sandboxCfg,
 		model:      model,
-		configMgr: configMgr,
+		configMgr:  configMgr,
 	}
 }
 
 // RunSkill runs a skill with given input using sliding-window approach
-func (r *SkillRunner) RunSkill(ctx context.Context, name string, input map[string]any) (string, error) {
+// sessionID 用于标识同一个请求中的多次 skill 调用，实现工作目录共享
+func (r *SkillRunner) RunSkill(ctx context.Context, name string, input map[string]any, sessionID string) (string, error) {
 	skill, ok := r.skills[name]
 	if !ok {
 		return "", fmt.Errorf("skill not found: %s", name)
 	}
 
-	log.Printf("[Skill] Running skill: %s, input: %v", name, input)
+	log.Printf("[Skill] Running skill: %s, input: %v, sessionID: %s", name, input, sessionID)
 
 	// 转换 input 为字符串
 	var inputStr string
@@ -72,7 +80,7 @@ func (r *SkillRunner) RunSkill(ctx context.Context, name string, input map[strin
 
 	if hasScript && r.sandboxCfg != nil && r.sandboxCfg.Enabled {
 		// 使用沙箱执行 skill
-		return r.runSkillWithSandbox(ctx, skill, inputStr)
+		return r.runSkillWithSandbox(ctx, skill, inputStr, sessionID)
 	}
 
 	// 无沙箱时，使用简单的模型调用方式执行 skill
@@ -80,27 +88,44 @@ func (r *SkillRunner) RunSkill(ctx context.Context, name string, input map[strin
 }
 
 // runSkillWithSandbox 在沙箱中执行 skill（滑动窗口模式）
-func (r *SkillRunner) runSkillWithSandbox(ctx context.Context, skill Skill, input string) (string, error) {
+// sessionID 用于标识同一个请求中的多次 skill 调用，实现工作目录共享
+func (r *SkillRunner) runSkillWithSandbox(ctx context.Context, skill Skill, input string, sessionID string) (string, error) {
 	// 1. 准备 skill 文件目录
 	skillDir := r.getSkillDir(skill.ID)
 	if skillDir == "" {
 		return "", fmt.Errorf("skill directory not found for: %s", skill.ID)
 	}
 
-	// 2. 创建临时工作目录
-	tmpDir, err := os.MkdirTemp("", "skill-*")
-	if err != nil {
-		return "", fmt.Errorf("create temp dir failed: %w", err)
+	// 2. 初始化 sessions map
+	if r.sessions == nil {
+		r.sessions = make(map[string]string)
 	}
-	defer os.RemoveAll(tmpDir)
 
-	// 3. 复制 skill 文件到工作目录
+	// 3. 创建或复用 session 工作目录
+	var tmpDir string
+	var err error
+
+	if existingDir, ok := r.sessions[sessionID]; ok {
+		// 复用已有 session 目录
+		tmpDir = existingDir
+		log.Printf("[Skill] Reusing session workdir: %s for session: %s", tmpDir, sessionID)
+	} else {
+		// 首次创建 session 工作目录
+		tmpDir, err = os.MkdirTemp("", "skill-session-*")
+		if err != nil {
+			return "", fmt.Errorf("create session dir failed: %w", err)
+		}
+		r.sessions[sessionID] = tmpDir
+		log.Printf("[Skill] Created new session workdir: %s for session: %s", tmpDir, sessionID)
+	}
+
+	// 4. 复制 skill 文件到工作目录
 	if err := r.copySkillFiles(skillDir, tmpDir); err != nil {
 		return "", fmt.Errorf("copy skill files failed: %w", err)
 	}
 
-	// 4. 创建沙箱工具：list_skill_files, read_skill_file, exec_skill_command
-	tools := r.buildSkillSandboxTools(tmpDir, skill)
+	// 5. 创建沙箱工具：list_skill_files, read_skill_file, exec_skill_command
+	tools := r.buildSkillSandboxTools(tmpDir, skill, input)
 
 	// 5. 构建执行 instruction
 	instruction := r.buildSkillInstruction(skill, input)
@@ -117,10 +142,10 @@ func (r *SkillRunner) runSkillWithAgent(ctx context.Context, instruction string,
 
 	// 创建 skill 执行 agent
 	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
-		Name:        "skill_executor",
-		Description: "渐进式 Skill 执行器",
-		Instruction: instruction,
-		Model:       r.model,
+		Name:          "skill_executor",
+		Description:   "渐进式 Skill 执行器",
+		Instruction:   instruction,
+		Model:         r.model,
 		MaxIterations: 30,
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
@@ -206,7 +231,7 @@ func (r *SkillRunner) copySkillFiles(srcDir, dstDir string) error {
 }
 
 // buildSkillSandboxTools 构建沙箱工具
-func (r *SkillRunner) buildSkillSandboxTools(workDir string, skill Skill) []tool.BaseTool {
+func (r *SkillRunner) buildSkillSandboxTools(workDir string, skill Skill, skillInput string) []tool.BaseTool {
 	files := r.listSkillFiles(workDir)
 
 	// list_skill_files 工具
@@ -227,6 +252,7 @@ func (r *SkillRunner) buildSkillSandboxTools(workDir string, skill Skill) []tool
 		dockerBin:  "docker",
 		skillName:  skill.ID,
 		configMgr:  r.configMgr,
+		skillInput: skillInput,
 	}
 
 	return []tool.BaseTool{listTool, readTool, execTool}
@@ -334,8 +360,9 @@ type skillExecCommandTool struct {
 	baseDir    string
 	sandboxCfg *SandboxConfig
 	dockerBin  string
-	skillName  string           // skill 名称，用于获取配置
+	skillName  string              // skill 名称，用于获取配置
 	configMgr  *SkillConfigManager // 配置管理器
+	skillInput string              // skill 输入参数，会传递给 SKILL_INPUT 环境变量
 }
 
 func (t *skillExecCommandTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
@@ -454,13 +481,18 @@ func (t *skillExecCommandTool) execInSandbox(ctx context.Context, command string
 			if k == "" {
 				continue
 			}
-			// 添加 SKILL_ 前缀以区分
-			args = append(args, "-e", "SKILL_"+k+"="+v)
+			// 直接传递环境变量，不加前缀
+			args = append(args, "-e", k+"="+v)
 		}
 	}
 
+	// 添加 SKILL_INPUT 环境变量
+	if t.skillInput != "" {
+		args = append(args, "-e", "SKILL_INPUT="+t.skillInput)
+	}
+
 	args = append(args, "-v", fmt.Sprintf("%s:%s", t.workDir, workdir))
-	args = append(args, "--entrypoint", "/bin/sh", image, "-lc", command)
+	args = append(args, "--entrypoint", "", image, "sh", "-c", command)
 
 	// 执行命令
 	callCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMs)*time.Millisecond)
@@ -560,8 +592,8 @@ func (t *skillTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 
 func (t *skillTool) InvokableRun(ctx context.Context, argumentsInJSON string, opt ...tool.Option) (string, error) {
 	type skillInput struct {
-		Name  string         `json:"name"`
-		Input map[string]any `json:"input"`
+		Name  string `json:"name"`
+		Input any    `json:"input"`
 	}
 
 	var input skillInput
@@ -569,7 +601,20 @@ func (t *skillTool) InvokableRun(ctx context.Context, argumentsInJSON string, op
 		return "", err
 	}
 
-	return t.runner.RunSkill(ctx, input.Name, input.Input)
+	// 转换 input 为 map[string]any
+	var inputMap map[string]any
+	if input.Input != nil {
+		if m, ok := input.Input.(map[string]any); ok {
+			inputMap = m
+		} else if s, ok := input.Input.(string); ok && s != "" {
+			// 如果是字符串，尝试解析为 JSON
+			if err := json.Unmarshal([]byte(s), &inputMap); err != nil {
+				inputMap = map[string]any{"query": s}
+			}
+		}
+	}
+
+	return t.runner.RunSkill(ctx, input.Name, inputMap, t.runner.CurrentSessionID)
 }
 
 // BuildLoadSkillTool creates a tool for loading skill details on-demand
