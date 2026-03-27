@@ -88,19 +88,18 @@ type InternalAgentConfig struct {
 }
 
 type RunOptions struct {
-	Temperature    float64               `json:"temperature"`
-	MaxTokens      int                   `json:"max_tokens"`
-	Stream         bool                  `json:"stream"`
-	TopP           float64               `json:"top_p"`
-	Stop           []string              `json:"stop"`
-	TimeoutMs      int                   `json:"timeout_ms"`
-	MaxIterations  int                   `json:"max_iterations"`
-	MaxToolCalls   int                   `json:"max_tool_calls"`
-	MaxA2ACalls    int                   `json:"max_a2a_calls"`
-	MaxTotalTokens int                   `json:"max_total_tokens"`
-	Retry          *RetryConfig          `json:"retry"`
-	ResponseFormat *ResponseFormatConfig `json:"response_format"`
-	ResponseSchema *ResponseSchemaConfig `json:"response_schema"`
+	Temperature     float64               `json:"temperature"`
+	MaxTokens       int                   `json:"max_tokens"`
+	Stream          bool                  `json:"stream"`
+	TopP            float64               `json:"top_p"`
+	Stop            []string              `json:"stop"`
+	TimeoutMs       int                   `json:"timeout_ms"`
+	MaxIterations   int                   `json:"max_iterations"`
+	MaxToolCalls    int                   `json:"max_tool_calls"`
+	MaxA2ACalls     int                   `json:"max_a2a_calls"`
+	MaxTotalTokens  int                   `json:"max_total_tokens"`
+	Retry           *RetryConfig          `json:"retry"`
+	ResponseSchema  *ResponseSchemaConfig `json:"response_schema"`
 }
 
 type RetryConfig struct {
@@ -109,14 +108,6 @@ type RetryConfig struct {
 	MaxDelayMs        int      `json:"max_delay_ms"`
 	BackoffMultiplier float64  `json:"backoff_multiplier"`
 	RetryableErrors   []string `json:"retryable_errors"`
-}
-
-type ResponseFormatConfig struct {
-	Type      string                 `json:"type"`
-	Version   string                 `json:"version"`
-	Strict    bool                   `json:"strict"`
-	Fallback  string                 `json:"fallback"`
-	Templates map[string]any         `json:"templates"`
 }
 
 type ResponseSchemaConfig struct {

@@ -548,84 +548,8 @@ func (d *Dispatcher) formatResponse(content string) (string, []json.RawMessage) 
 		}
 	}
 
-	// 回退到 response_format
-	if d.request.Options.ResponseFormat == nil {
-		return content, nil
-	}
-
-	rf := d.request.Options.ResponseFormat
-	log.Printf("[Dispatcher] formatResponse: using ResponseFormat, type=%s", rf.Type)
-	switch rf.Type {
-	case "a2ui":
-		// 构建 A2UI 格式消息
-		msgs := d.buildA2UIMessages(content)
-		return "", msgs
-	case "json":
-		// JSON 格式化 - 将 content 作为 JSON 解析后返回
-		return d.buildJSONResponse(content, rf)
-	case "markdown", "text", "":
-		return content, nil
-	default:
-		if rf.Fallback != "" {
-			return rf.Fallback, nil
-		}
-		return content, nil
-	}
-}
-
-// buildA2UIMessages 构建 A2UI 格式消息
-func (d *Dispatcher) buildA2UIMessages(content string) []json.RawMessage {
-	msgs := []json.RawMessage{}
-
-	// 创建默认 surface
-	surfaceID := "default_surface"
-	if d.request.Options != nil && d.request.Options.ResponseFormat != nil {
-		if templates, ok := d.request.Options.ResponseFormat.Templates["default"]; ok {
-			if t, ok := templates.(map[string]any); ok {
-				if sid, ok := t["surfaceId"].(string); ok {
-					surfaceID = sid
-				}
-			}
-		}
-	}
-
-	// createSurface 消息
-	createSurface, _ := json.Marshal(map[string]any{
-		"createSurface": map[string]any{
-			"surfaceId":  surfaceID,
-			"catalogId": "standard",
-		},
-	})
-	msgs = append(msgs, createSurface)
-
-	// updateComponents 消息 - 文本组件
-	textContent := content
-	if textContent == "" {
-		textContent = " "
-	}
-
-	updateComponents, _ := json.Marshal(map[string]any{
-		"updateComponents": map[string]any{
-			"surfaceId": surfaceID,
-			"components": []map[string]any{
-				{
-					"id":         "root",
-					"component":  "Column",
-					"children":   []string{"text_content"},
-					"justify":    "start",
-					"align":     "start",
-				},
-				{
-					"id":        "text_content",
-					"component": "Text",
-					"text":      map[string]any{"text": textContent},
-				},
-			},
-		},
-	})
-	msgs = append(msgs, updateComponents)
-
-	return msgs
+	// 没有配置 response_schema，返回原始内容
+	return content, nil
 }
 
 // buildA2UIMessagesFromSchema 根据 response_schema 构建 A2UI 格式消息
@@ -706,31 +630,4 @@ func (d *Dispatcher) buildA2UIMessagesFromSchema(content string, schema map[stri
 	msgs = append(msgs, updateComponents)
 
 	return msgs
-}
-
-// buildJSONResponse 构建 JSON 格式响应
-func (d *Dispatcher) buildJSONResponse(content string, rf *ResponseFormatConfig) (string, []json.RawMessage) {
-	// 尝试解析 content 为 JSON
-	var data any
-	if err := json.Unmarshal([]byte(content), &data); err != nil {
-		// 解析失败，返回原始内容
-		return content, nil
-	}
-
-	// 包装为标准响应格式
-	resp := map[string]any{
-		"result": data,
-	}
-
-	if rf.Strict && len(rf.Templates) > 0 {
-		// 使用模板进行严格格式化
-		for name, template := range rf.Templates {
-			if t, ok := template.(map[string]any); ok {
-				resp[name] = t
-			}
-		}
-	}
-
-	result, _ := json.Marshal(resp)
-	return string(result), nil
 }
