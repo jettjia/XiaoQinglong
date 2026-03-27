@@ -61,16 +61,6 @@ Like doubao coze and openclaw
 ├─────────────────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                             │
 │  ┌─────────────────────────────────────────────────────────────────────────────────────┐    │
-│  │                              Intent 路由层                                           │    │
-│  │                                                                                      │    │
-│  │    asknum ──► AskNum Agent    │    weather ──► Weather Agent                       │    │
-│  │    travel ──► Travel Agent    │    orchestrator ──► User Orchestrator               │    │
-│  │    report ──► Report Agent    │    more ──► ...                                    │    │
-│  │                                                                                      │    │
-│  └─────────────────────────────────────────────────────────────────────────────────────┘    │
-│                                              │                                              │
-│                                              ▼                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────────────────┐    │
 │  │                              执行层                                                   │    │
 │  │                                                                                      │    │
 │  │  ┌─────────────────────────────────────────────────────────────────────────────┐  │    │
@@ -124,12 +114,12 @@ Like doubao coze and openclaw
 ### 多模型路由
 支持按角色选择不同模型，优化成本和性能:
 
-| 角色 | 说明 | 用途 |
-|------|------|------|
-| `default` | 默认主对话模型 | 主对话流程 |
-| `rewrite` | Query 改写模型 | 用户 Query 优化 |
-| `skill` | Skill 执行模型 | 技能执行 |
-| `summarize` | 总结模型 | 内容摘要 |
+| 角色        | 说明           | 用途            |
+| ----------- | -------------- | --------------- |
+| `default`   | 默认主对话模型 | 主对话流程      |
+| `rewrite`   | Query 改写模型 | 用户 Query 优化 |
+| `skill`     | Skill 执行模型 | 技能执行        |
+| `summarize` | 总结模型       | 内容摘要        |
 
 ```json
 "options": {
@@ -144,14 +134,14 @@ Like doubao coze and openclaw
 ### 响应格式 (response_schema)
 支持多种输出格式，可通过 `response_schema.type` 指定:
 
-| 类型 | 说明 | 用途 |
-|------|------|------|
-| `text` | 纯文本 | 简单文本回复 |
-| `markdown` | Markdown 格式 | 富文本回复 |
-| `json` | JSON 结构化 | structured data |
-| `a2ui` | A2UI 组件化格式 | 前端组件渲染 |
-| `image/audio/video` | 多媒体 | 媒体生成 |
-| `multipart` | 多格式混合 | 复合响应 |
+| 类型                | 说明            | 用途            |
+| ------------------- | --------------- | --------------- |
+| `text`              | 纯文本          | 简单文本回复    |
+| `markdown`          | Markdown 格式   | 富文本回复      |
+| `json`              | JSON 结构化     | structured data |
+| `a2ui`              | A2UI 组件化格式 | 前端组件渲染    |
+| `image/audio/video` | 多媒体          | 媒体生成        |
+| `multipart`         | 多格式混合      | 复合响应        |
 
 ```json
 "response_schema": {
@@ -197,16 +187,16 @@ Like doubao coze and openclaw
 ### 执行 Metadata
 响应包含完整执行详情:
 
-| 字段 | 说明 |
-|------|------|
-| `model` | 使用的模型 |
-| `latency_ms` | 总延迟(毫秒) |
-| `prompt_tokens` | Prompt token 消耗 |
-| `completion_tokens` | Completion token 消耗 |
-| `tool_calls_count` | 工具调用次数 |
-| `a2a_calls_count` | A2A 调用次数 |
-| `skill_calls_count` | Skill 调用次数 |
-| `iterations` | 迭代次数 |
+| 字段                | 说明                                       |
+| ------------------- | ------------------------------------------ |
+| `model`             | 使用的模型                                 |
+| `latency_ms`        | 总延迟(毫秒)                               |
+| `prompt_tokens`     | Prompt token 消耗                          |
+| `completion_tokens` | Completion token 消耗                      |
+| `tool_calls_count`  | 工具调用次数                               |
+| `a2a_calls_count`   | A2A 调用次数                               |
+| `skill_calls_count` | Skill 调用次数                             |
+| `iterations`        | 迭代次数                                   |
 | `tool_calls_detail` | 工具调用详情(名称/输入/输出/延迟/成功状态) |
 
 ## data flow
