@@ -1,0 +1,87 @@
+{
+    "endpoint": "http://localhost:18080/run",
+    "model": {
+        "provider": "openai",
+        "name": "${OPENAI_MODEL}",
+        "api_key": "${OPENAI_API_KEY}",
+        "api_base": "${OPENAI_BASE_URL}"
+    },
+    "system_prompt": "你是一个智能助手，擅长使用工具来回答用户问题。如果需要查询订单，请使用 get_order_detail 工具。",
+    "user_message": "查询订单号 ORD-20240315-001 的详情",
+    "tools": [
+        {
+            "type": "http",
+            "name": "get_order_detail",
+            "description": "根据订单号获取订单详情",
+            "endpoint": "http://localhost:28081/v1/orders/{order_no}",
+            "method": "GET",
+            "headers": {
+                "Content-Type": "application/json"
+            },
+            "risk_level": "medium"
+        },
+        {
+            "type": "http",
+            "name": "get_product_info",
+            "description": "获取产品信息",
+            "endpoint": "http://localhost:8081/products/{product_id}",
+            "method": "GET",
+            "headers": {},
+            "risk_level": "low"
+        }
+    ],
+    "a2a": [
+        {
+            "name": "payment_agent",
+            "endpoint": "http://localhost:28080/a2a",
+            "headers": {}
+        }
+    ],
+    "mcps": [
+        {
+            "name": "weather",
+            "command": "go",
+            "args": [
+                "run",
+                "/home/jett/aishu/XiaoQinglong/mock/mcp"
+            ],
+            "env": {}
+        }
+    ],
+    "sandbox": {
+        "enabled": true,
+        "mode": "docker",
+        "image": "sandbox-code-interpreter:v1.0.3",
+        "workdir": "/workspace",
+        "timeout_ms": 60000,
+        "env": {
+            "PATH": "/usr/local/bin:/usr/bin:/bin"
+        }
+    },
+    "options": {
+        "temperature": 0.7,
+        "max_tokens": 2000,
+        "max_iterations": 10,
+        "stream": true
+    },
+    "skills": [
+        {
+            "id": "s3-skill",
+            "name": "S3上传下载",
+            "description": "用于上传和下载S3对象存储中的文件",
+            "instruction": "你是一个S3操作助手，可以帮助用户上传文件到S3或从S3下载文件。",
+            "scope": "both",
+            "trigger": "manual",
+            "entry_script": "python3 s3_tool.py",
+            "file_path": "s3-skill"
+        }
+    ],
+    "knowledge": [
+        {
+            "id": "product_info",
+            "name": "产品信息",
+            "content": "我们的产品分为三个系列：基础版、专业版、企业版。基础版免费，专业版99元/月，企业版299元/月。",
+            "score": 0.95
+        }
+    ]
+}

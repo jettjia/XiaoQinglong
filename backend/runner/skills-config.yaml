@@ -1,0 +1,44 @@
+# Skill 全局配置文件
+# 支持两种格式：
+# 1. 全局配置：key: value
+# 2. 按 skill 分组：skillName.key: value
+
+# ========== 全局配置 ==========
+# 这些配置会被所有 skill 读取
+# AWS 全局配置
+aws.region: us-east-1
+aws.timeout: 30
+
+# 日志配置
+log.level: info
+
+# ========== Skill 专用配置 ==========
+# S3 Skill 配置
+s3-skill.bucket: my-bucket
+s3-skill.region: cn-north-1
+s3-skill.secret: your-aws-secret-key
+s3-skill.access_key: your-aws-access-key
+s3-skill.endpoint: https://s3.cn-north-1.amazonaws.com.cn
+
+# PDF Skill 配置
+pdf-skill.output_dir: /tmp/pdf-output
+pdf-skill.quality: high
+
+# PPTX Skill 配置
+pptx-skill.template_dir: /workspace/templates
+pptx-skill.output_dir: /workspace/outputs
+
+# ========== 沙箱环境配置 ==========
+# 为特定 skill 配置沙箱环境变量
+skills:
+  s3-skill:
+    env:
+      AWS_REGION: cn-north-1
+      AWS_ACCESS_KEY_ID: your-access-key
+      AWS_SECRET_ACCESS_KEY: your-secret-key
+      S3_BUCKET: my-bucket
+      S3_ENDPOINT: https://s3.cn-north-1.amazonaws.com.cn
+  pdf-skill:
+    env:
+      OUTPUT_DIR: /tmp/pdf-output
+      PDF_QUALITY: high
