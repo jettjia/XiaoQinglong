@@ -100,6 +100,7 @@ type RunOptions struct {
 	MaxTotalTokens int                   `json:"max_total_tokens"`
 	Retry          *RetryConfig          `json:"retry"`
 	ResponseFormat *ResponseFormatConfig `json:"response_format"`
+	ResponseSchema *ResponseSchemaConfig `json:"response_schema"`
 }
 
 type RetryConfig struct {
@@ -116,6 +117,14 @@ type ResponseFormatConfig struct {
 	Strict    bool                   `json:"strict"`
 	Fallback  string                 `json:"fallback"`
 	Templates map[string]any         `json:"templates"`
+}
+
+type ResponseSchemaConfig struct {
+	Type     string         `json:"type"`
+	Version  string         `json:"version"`
+	Strict   bool           `json:"strict"`
+	Schema   map[string]any `json:"schema"`
+	Fallback string         `json:"fallback"`
 }
 
 type SandboxConfig struct {

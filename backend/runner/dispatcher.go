@@ -530,13 +530,31 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 	}, nil
 }
 
-// formatResponse 根据 response_format 配置格式化响应
+// formatResponse 根据 response_format 或 response_schema 配置格式化响应
 func (d *Dispatcher) formatResponse(content string) (string, []json.RawMessage) {
-	if d.request.Options == nil || d.request.Options.ResponseFormat == nil {
+	if d.request.Options == nil {
+		return content, nil
+	}
+
+	// 优先使用 response_schema
+	if d.request.Options.ResponseSchema != nil {
+		rs := d.request.Options.ResponseSchema
+		log.Printf("[Dispatcher] formatResponse: using ResponseSchema, type=%s, schema=%+v", rs.Type, rs.Schema)
+		if rs.Type == "a2ui" {
+			// 使用 schema 构建 A2UI 格式
+			msgs := d.buildA2UIMessagesFromSchema(content, rs.Schema)
+			log.Printf("[Dispatcher] formatResponse: built %d a2ui messages", len(msgs))
+			return "", msgs
+		}
+	}
+
+	// 回退到 response_format
+	if d.request.Options.ResponseFormat == nil {
 		return content, nil
 	}
 
 	rf := d.request.Options.ResponseFormat
+	log.Printf("[Dispatcher] formatResponse: using ResponseFormat, type=%s", rf.Type)
 	switch rf.Type {
 	case "a2ui":
 		// 构建 A2UI 格式消息
@@ -603,6 +621,86 @@ func (d *Dispatcher) buildA2UIMessages(content string) []json.RawMessage {
 					"text":      map[string]any{"text": textContent},
 				},
 			},
+		},
+	})
+	msgs = append(msgs, updateComponents)
+
+	return msgs
+}
+
+// buildA2UIMessagesFromSchema 根据 response_schema 构建 A2UI 格式消息
+func (d *Dispatcher) buildA2UIMessagesFromSchema(content string, schema map[string]any) []json.RawMessage {
+	msgs := []json.RawMessage{}
+
+	// 解析 schema 获取 properties
+	properties, _ := schema["properties"].(map[string]any)
+
+	// 创建默认 surface
+	surfaceID := "default_surface"
+
+	createSurface, _ := json.Marshal(map[string]any{
+		"createSurface": map[string]any{
+			"surfaceId":  surfaceID,
+			"catalogId": "standard",
+		},
+	})
+	msgs = append(msgs, createSurface)
+
+	// 构建组件列表
+	var components []map[string]any
+
+	// 处理 content 字段 - 如果 schema 中定义了 content 字段，就使用它
+	if properties != nil {
+		if _, ok := properties["content"]; ok {
+			// content 字段存在于 schema 中，添加文本组件
+			components = append(components, map[string]any{
+				"id":        "content",
+				"component": "Text",
+				"text":      map[string]any{"text": content},
+			})
+		}
+
+		// 处理 action 字段
+		if actionProp, ok := properties["action"].(map[string]any); ok {
+			if actionType, _ := actionProp["type"].(string); actionType != "" {
+				components = append(components, map[string]any{
+					"id":         "action",
+					"component":  "Action",
+					"actionType": actionType,
+				})
+			}
+		}
+
+		// 处理 card 字段
+		if cardProp, ok := properties["card"].(map[string]any); ok {
+			if cardSchema, ok := cardProp["properties"].(map[string]any); ok {
+				card := map[string]any{
+					"id":        "card",
+					"component": "Card",
+				}
+				if title, _ := cardSchema["title"].(string); title != "" {
+					card["title"] = title
+				}
+				components = append(components, card)
+			}
+		}
+	}
+
+	// 如果没有从 schema 解析到组件，使用默认文本组件
+	if len(components) == 0 {
+		components = []map[string]any{
+			{
+				"id":        "text_content",
+				"component": "Text",
+				"text":      map[string]any{"text": content},
+			},
+		}
+	}
+
+	updateComponents, _ := json.Marshal(map[string]any{
+		"updateComponents": map[string]any{
+			"surfaceId":  surfaceID,
+			"components": components,
 		},
 	})
 	msgs = append(msgs, updateComponents)

@@ -108,15 +108,24 @@ type SandboxConfig struct {
 
 // RunOptions 运行选项
 type RunOptions struct {
-	Temperature   float64  `json:"temperature"`
-	MaxTokens     int      `json:"max_tokens"`
-	Stream        bool     `json:"stream"`
-	TopP          float64  `json:"top_p"`
-	Stop          []string `json:"stop"`
-	TimeoutMs     int      `json:"timeout_ms"`
-	MaxIterations int      `json:"max_iterations"`
-	MaxToolCalls  int      `json:"max_tool_calls"`
-	MaxA2ACalls   int      `json:"max_a2a_calls"`
+	Temperature     float64               `json:"temperature"`
+	MaxTokens       int                    `json:"max_tokens"`
+	Stream          bool                   `json:"stream"`
+	TopP            float64               `json:"top_p"`
+	Stop            []string               `json:"stop"`
+	TimeoutMs       int                    `json:"timeout_ms"`
+	MaxIterations   int                    `json:"max_iterations"`
+	MaxToolCalls    int                    `json:"max_tool_calls"`
+	MaxA2ACalls     int                    `json:"max_a2a_calls"`
+	ResponseSchema  *ResponseSchemaConfig  `json:"response_schema"`
+}
+
+// ResponseSchemaConfig A2UI响应格式配置
+type ResponseSchemaConfig struct {
+	Type    string         `json:"type"`
+	Version string         `json:"version"`
+	Strict  bool           `json:"strict"`
+	Schema  map[string]any `json:"schema"`
 }
 
 // KnowledgeItem 知识库条目
@@ -163,6 +172,7 @@ type RunResponse struct {
 	TokensUsed   int              `json:"tokens_used,omitempty"`
 	FinishReason string           `json:"finish_reason"`
 	Metadata     ResponseMetadata `json:"metadata"`
+	A2UIMessages []any            `json:"a2ui_messages,omitempty"`
 }
 
 type ToolCall struct {
@@ -185,7 +195,7 @@ type ResponseMetadata struct {
 
 func main() {
 	// 读取测试配置
-	configPath := "test.json"
+	configPath := "test-a2ui.json"
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]
 	}
@@ -312,6 +322,13 @@ func main() {
 		log.Println("----------- Metadata -----------")
 		log.Printf("Model: %s", result.Metadata.Model)
 		log.Printf("Latency: %dms", result.Metadata.LatencyMs)
+	}
+
+	if len(result.A2UIMessages) > 0 {
+		log.Println()
+		log.Println("----------- A2UI Messages -----------")
+		a2uiJSON, _ := json.MarshalIndent(result.A2UIMessages, "", "  ")
+		log.Printf("%s", string(a2uiJSON))
 	}
 
 	log.Println()
