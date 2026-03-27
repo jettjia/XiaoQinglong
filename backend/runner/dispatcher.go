@@ -104,8 +104,11 @@ func (d *Dispatcher) Run(ctx context.Context) (*DispatchResult, error) {
 	// 6. 构建系统 prompt
 	systemPrompt := d.buildSystemPrompt()
 
-	// 7. 构建消息
-	messages := d.buildMessages(systemPrompt)
+	// 7. 构建消息（如果配置了rewrite模型，则对用户query进行改写）
+	messages, err := d.buildMessagesWithRewrite(ctx, systemPrompt)
+	if err != nil {
+		return nil, fmt.Errorf("build messages failed: %w", err)
+	}
 
 	// 8. 创建 Agent 并运行
 	return d.runAgent(ctx, messages)
@@ -385,6 +388,36 @@ func (d *Dispatcher) buildSystemPrompt() string {
 	return prompt
 }
 
+// buildMessagesWithRewrite builds messages and optionally rewrites the last user query
+func (d *Dispatcher) buildMessagesWithRewrite(ctx context.Context, systemPrompt string) ([]adk.Message, error) {
+	messages := d.buildMessages(systemPrompt)
+
+	// 检查是否需要rewrite：如果有rewrite模型且最后一条是user message
+	routingCfg := d.getRoutingConfig()
+	if routingCfg != nil && d.modelsByRole[ModelRoleRewrite] != nil {
+		// 找到最后一条user message
+		for i := len(messages) - 1; i >= 0; i-- {
+			if messages[i].Role == "user" {
+				// 调用rewrite模型改写query
+				rewritten, err := d.rewriteQuery(ctx, messages[i].Content)
+				if err != nil {
+					log.Printf("[Dispatcher] rewriteQuery failed: %v, using original", err)
+					break
+				}
+				log.Printf("[Dispatcher] query rewritten: %s -> %s", messages[i].Content, rewritten)
+				messages[i].Content = rewritten
+				break
+			}
+			// 遇到其他类型的message就停止查找
+			if messages[i].Role == "system" || messages[i].Role == "assistant" {
+				break
+			}
+		}
+	}
+
+	return messages, nil
+}
+
 func (d *Dispatcher) buildMessages(systemPrompt string) []adk.Message {
 	var messages []adk.Message
 
@@ -519,6 +552,16 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 		maxIterations = d.request.Options.MaxIterations
 	}
 
+	// MaxTotalTokens 限制
+	maxTotalTokens := 0
+	if d.request.Options != nil && d.request.Options.MaxTotalTokens > 0 {
+		maxTotalTokens = d.request.Options.MaxTotalTokens
+	}
+
+	// Token 使用量追踪
+	var totalPromptTokens int
+	var totalCompletionTokens int
+
 	// 构建 Agent 配置
 	agentConfig := &adk.ChatModelAgentConfig{
 		Name:           "main_agent",
@@ -578,6 +621,31 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 		// 处理消息输出
 		if msg, err := event.Output.MessageOutput.GetMessage(); err == nil {
 			finalContent = msg.Content
+
+			// 累计 token 使用量
+			if msg.ResponseMeta != nil && msg.ResponseMeta.Usage != nil {
+				totalPromptTokens += msg.ResponseMeta.Usage.PromptTokens
+				totalCompletionTokens += msg.ResponseMeta.Usage.CompletionTokens
+			}
+
+			// 检查 maxTotalTokens 限制
+			if maxTotalTokens > 0 && (totalPromptTokens+totalCompletionTokens) > maxTotalTokens {
+				return &DispatchResult{
+					Content:      finalContent,
+					ToolCalls:    toolCalls,
+					FinishReason: "max_total_tokens_exceeded",
+					Metadata: &ResultMetadata{
+						Model:             d.defaultModelName,
+						TotalLatencyMs:    time.Since(startTime).Milliseconds(),
+						ToolCallsCount:    toolCallCount,
+						Iterations:        toolCallCount,
+						PromptTokens:      totalPromptTokens,
+						CompletionTokens:  totalCompletionTokens,
+						ToolCallsDetail:   toolCallsDetail,
+					},
+				}, nil
+			}
+
 			for _, tc := range msg.ToolCalls {
 				toolCallCount++
 				if maxToolCalls > 0 && toolCallCount > maxToolCalls {
@@ -675,11 +743,13 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 		FinishReason: finishReason,
 		A2UIMessages: a2uiMsgs,
 		Metadata: &ResultMetadata{
-			Model:          d.defaultModelName,
-			TotalLatencyMs: time.Since(startTime).Milliseconds(),
-			ToolCallsCount: toolCallCount,
-			Iterations:     toolCallCount,
-			ToolCallsDetail: toolCallsDetail,
+			Model:             d.defaultModelName,
+			TotalLatencyMs:    time.Since(startTime).Milliseconds(),
+			ToolCallsCount:    toolCallCount,
+			Iterations:        toolCallCount,
+			PromptTokens:      totalPromptTokens,
+			CompletionTokens:  totalCompletionTokens,
+			ToolCallsDetail:   toolCallsDetail,
 		},
 	}, nil
 }
