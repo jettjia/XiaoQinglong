@@ -26,6 +26,30 @@ type DispatchResult struct {
 	FinishReason string
 	A2UIMessages []json.RawMessage
 	TokensUsed   int
+	Metadata     *ResultMetadata
+}
+
+type ResultMetadata struct {
+	Model           string
+	LatencyMs       int64
+	TotalLatencyMs  int64
+	PromptTokens    int
+	CompletionTokens int
+	ToolCallsCount  int
+	A2ACallsCount   int
+	SkillCallsCount int
+	Iterations      int
+	ToolCallsDetail []ToolCallMetadata
+	Error           string
+}
+
+type ToolCallMetadata struct {
+	Tool      string
+	Input     any
+	Output    any
+	LatencyMs int64
+	Success   bool
+	Error     string
 }
 
 // ========== Dispatcher ==========
@@ -34,8 +58,10 @@ type Dispatcher struct {
 	request *RunRequest
 
 	// 组件
-	defaultModel   model.ToolCallingChatModel
-	models         map[string]model.ToolCallingChatModel
+	defaultModel     model.ToolCallingChatModel
+	defaultModelName string
+	models          map[string]model.ToolCallingChatModel
+	modelsByRole    map[ModelRole]model.ToolCallingChatModel
 	tools          []tool.BaseTool
 	a2aRunners     map[string]*adk.Runner
 	internalAgents map[string]adk.Agent
@@ -87,6 +113,7 @@ func (d *Dispatcher) Run(ctx context.Context) (*DispatchResult, error) {
 
 func (d *Dispatcher) initModels(ctx context.Context) error {
 	d.models = make(map[string]model.ToolCallingChatModel)
+	d.modelsByRole = make(map[ModelRole]model.ToolCallingChatModel)
 
 	for key, cfg := range d.request.Models {
 		cm, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
@@ -99,9 +126,30 @@ func (d *Dispatcher) initModels(ctx context.Context) error {
 		}
 		d.models[key] = cm
 
-		// 设置 default model
-		if key == "default" {
+		// 设置 by role
+		switch ModelRole(key) {
+		case ModelRoleDefault:
 			d.defaultModel = cm
+			d.defaultModelName = cfg.Name
+			d.modelsByRole[ModelRoleDefault] = cm
+		case ModelRoleRewrite:
+			d.modelsByRole[ModelRoleRewrite] = cm
+		case ModelRoleSkill:
+			d.modelsByRole[ModelRoleSkill] = cm
+		case ModelRoleSummarize:
+			d.modelsByRole[ModelRoleSummarize] = cm
+		default:
+			// 如果 key 不是已知的 role，也添加到 byRole map
+			d.modelsByRole[ModelRole(key)] = cm
+		}
+	}
+
+	// 如果没有配置 default，使用第一个模型
+	if d.defaultModel == nil && len(d.models) > 0 {
+		for key, cm := range d.models {
+			d.defaultModel = cm
+			d.defaultModelName = d.request.Models[key].Name
+			break
 		}
 	}
 
@@ -360,6 +408,74 @@ func (d *Dispatcher) buildMessages(systemPrompt string) []adk.Message {
 	return messages
 }
 
+// getModel returns the model for the given role, falls back to default if not found
+func (d *Dispatcher) getModel(role ModelRole) model.ToolCallingChatModel {
+	if m, ok := d.modelsByRole[role]; ok {
+		return m
+	}
+	return d.defaultModel
+}
+
+// rewriteQuery uses the rewrite model to enhance/improve the user query
+func (d *Dispatcher) rewriteQuery(ctx context.Context, query string) (string, error) {
+	rewriteModel := d.getModel(ModelRoleRewrite)
+	if rewriteModel == nil {
+		return query, nil // no rewrite model, return original
+	}
+
+	routingCfg := d.getRoutingConfig()
+	prompt := routingCfg.RewritePrompt
+	if prompt == "" {
+		prompt = "请优化以下用户Query，使其更加清晰、准确，便于理解和执行。只返回优化后的Query，不要其他内容。"
+	}
+
+	messages := []adk.Message{
+		schema.SystemMessage(prompt),
+		schema.UserMessage(query),
+	}
+
+	resp, err := rewriteModel.Generate(ctx, messages)
+	if err != nil {
+		return query, fmt.Errorf("rewrite failed: %w", err)
+	}
+
+	return resp.Content, nil
+}
+
+// summarizeContent uses the summarize model to summarize content
+func (d *Dispatcher) summarizeContent(ctx context.Context, content string) (string, error) {
+	summarizeModel := d.getModel(ModelRoleSummarize)
+	if summarizeModel == nil {
+		return content, nil // no summarize model, return original
+	}
+
+	routingCfg := d.getRoutingConfig()
+	prompt := routingCfg.SummarizePrompt
+	if prompt == "" {
+		prompt = "请总结以下内容，提取关键信息，保持简洁。只返回总结内容，不要其他内容。"
+	}
+
+	messages := []adk.Message{
+		schema.SystemMessage(prompt),
+		schema.UserMessage(content),
+	}
+
+	resp, err := summarizeModel.Generate(ctx, messages)
+	if err != nil {
+		return content, fmt.Errorf("summarize failed: %w", err)
+	}
+
+	return resp.Content, nil
+}
+
+// getRoutingConfig returns the routing configuration
+func (d *Dispatcher) getRoutingConfig() *RoutingConfig {
+	if d.request.Options != nil && d.request.Options.Routing != nil {
+		return d.request.Options.Routing
+	}
+	return nil
+}
+
 // buildModelRetryConfig converts RetryConfig to adk.ModelRetryConfig
 func (d *Dispatcher) buildModelRetryConfig() *adk.ModelRetryConfig {
 	if d.request.Options == nil || d.request.Options.Retry == nil {
@@ -395,6 +511,8 @@ func (d *Dispatcher) buildModelRetryConfig() *adk.ModelRetryConfig {
 }
 
 func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*DispatchResult, error) {
+	startTime := time.Now()
+
 	// 计算最大迭代次数
 	maxIterations := 10
 	if d.request.Options != nil && d.request.Options.MaxIterations > 0 {
@@ -437,6 +555,7 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 	var finalContent string
 	var toolCalls []ToolCall
 	var finishReason string
+	var toolCallsDetail []ToolCallMetadata
 
 	// 工具调用计数
 	toolCallCount := 0
@@ -466,13 +585,28 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 						Content:      finalContent,
 						ToolCalls:    toolCalls,
 						FinishReason: "max_tool_calls_exceeded",
+						Metadata: &ResultMetadata{
+							Model:          d.defaultModelName,
+							TotalLatencyMs: time.Since(startTime).Milliseconds(),
+							ToolCallsCount: toolCallCount,
+							Iterations:     toolCallCount,
+							ToolCallsDetail: toolCallsDetail,
+						},
 					}, nil
 				}
+				tcStart := time.Now()
 				toolCalls = append(toolCalls, ToolCall{
 					Tool:   tc.Function.Name,
 					Input:  tc.Function.Arguments,
 					Output: nil,
 				})
+				toolCallsDetail = append(toolCallsDetail, ToolCallMetadata{
+					Tool:      tc.Function.Name,
+					Input:     tc.Function.Arguments,
+					LatencyMs: 0, // 将在工具执行后更新
+					Success:   true,
+				})
+				_ = tcStart // 用于后续精确计时
 			}
 			if len(msg.ToolCalls) > 0 {
 				finishReason = "tool"
@@ -500,12 +634,25 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 							Content:      finalContent,
 							ToolCalls:    toolCalls,
 							FinishReason: "max_tool_calls_exceeded",
+							Metadata: &ResultMetadata{
+								Model:          d.defaultModelName,
+								TotalLatencyMs: time.Since(startTime).Milliseconds(),
+								ToolCallsCount: toolCallCount,
+								Iterations:     toolCallCount,
+								ToolCallsDetail: toolCallsDetail,
+							},
 						}, nil
 					}
 					toolCalls = append(toolCalls, ToolCall{
 						Tool:   tc.Function.Name,
 						Input:  tc.Function.Arguments,
 						Output: nil,
+					})
+					toolCallsDetail = append(toolCallsDetail, ToolCallMetadata{
+						Tool:      tc.Function.Name,
+						Input:     tc.Function.Arguments,
+						LatencyMs: 0,
+						Success:   true,
 					})
 				}
 				if len(chunk.ToolCalls) > 0 {
@@ -527,6 +674,13 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 		ToolCalls:    toolCalls,
 		FinishReason: finishReason,
 		A2UIMessages: a2uiMsgs,
+		Metadata: &ResultMetadata{
+			Model:          d.defaultModelName,
+			TotalLatencyMs: time.Since(startTime).Milliseconds(),
+			ToolCallsCount: toolCallCount,
+			Iterations:     toolCallCount,
+			ToolCallsDetail: toolCallsDetail,
+		},
 	}, nil
 }
 

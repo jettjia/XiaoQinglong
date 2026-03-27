@@ -100,6 +100,7 @@ type RunOptions struct {
 	MaxTotalTokens  int                   `json:"max_total_tokens"`
 	Retry           *RetryConfig          `json:"retry"`
 	ResponseSchema  *ResponseSchemaConfig `json:"response_schema"`
+	Routing        *RoutingConfig       `json:"routing"`
 }
 
 type RetryConfig struct {
@@ -108,6 +109,26 @@ type RetryConfig struct {
 	MaxDelayMs        int      `json:"max_delay_ms"`
 	BackoffMultiplier float64  `json:"backoff_multiplier"`
 	RetryableErrors   []string `json:"retryable_errors"`
+}
+
+// ModelRole 模型角色，用于多模型路由
+type ModelRole string
+
+const (
+	ModelRoleDefault    ModelRole = "default"    // 默认模型，用于主对话
+	ModelRoleRewrite    ModelRole = "rewrite"    // 改写模型，用于query改写
+	ModelRoleSkill      ModelRole = "skill"      // 技能模型，用于skill执行
+	ModelRoleSummarize  ModelRole = "summarize"  // 总结模型，用于内容总结
+)
+
+// RoutingConfig 多模型路由配置
+type RoutingConfig struct {
+	// DefaultModel 默认使用的模型角色
+	DefaultModel ModelRole `json:"default_model"`
+	// RewritePrompt 改写使用的提示词模板
+	RewritePrompt string `json:"rewrite_prompt"`
+	// SummarizePrompt 总结使用的提示词模板
+	SummarizePrompt string `json:"summarize_prompt"`
 }
 
 // ResponseSchemaConfig 响应格式配置
@@ -164,8 +185,17 @@ type A2AResult struct {
 }
 
 type ResponseMetadata struct {
-	Model     string `json:"model"`
-	LatencyMs int64  `json:"latency_ms"`
+	Model            string             `json:"model"`
+	LatencyMs        int64              `json:"latency_ms"`
+	TokensUsed       int                `json:"tokens_used,omitempty"`
+	PromptTokens     int                `json:"prompt_tokens,omitempty"`
+	CompletionTokens int                `json:"completion_tokens,omitempty"`
+	ToolCallsCount   int                `json:"tool_calls_count,omitempty"`
+	A2ACallsCount    int                `json:"a2a_calls_count,omitempty"`
+	SkillCallsCount  int                `json:"skill_calls_count,omitempty"`
+	Iterations       int                `json:"iterations,omitempty"`
+	ToolCallsDetail  []ToolCallMetadata `json:"tool_calls_detail,omitempty"`
+	Error            string             `json:"error,omitempty"`
 }
 
 // ========== Runner ==========
@@ -193,16 +223,34 @@ func (r *Runner) Run(ctx context.Context) (*RunResponse, error) {
 
 	latencyMs := time.Since(startTime).Milliseconds()
 
+	// 构建响应元数据
+	metadata := ResponseMetadata{
+		Model:     r.getDefaultModelName(),
+		LatencyMs: latencyMs,
+	}
+
+	// 如果有更详细的 metadata，则合并
+	if result.Metadata != nil {
+		metadata.TokensUsed = result.TokensUsed
+		metadata.PromptTokens = result.Metadata.PromptTokens
+		metadata.CompletionTokens = result.Metadata.CompletionTokens
+		metadata.ToolCallsCount = result.Metadata.ToolCallsCount
+		metadata.A2ACallsCount = result.Metadata.A2ACallsCount
+		metadata.SkillCallsCount = result.Metadata.SkillCallsCount
+		metadata.Iterations = result.Metadata.Iterations
+		metadata.ToolCallsDetail = result.Metadata.ToolCallsDetail
+		if result.Metadata.Error != "" {
+			metadata.Error = result.Metadata.Error
+		}
+	}
+
 	resp := &RunResponse{
 		Content:      result.Content,
 		ToolCalls:    result.ToolCalls,
 		A2AResults:   result.A2AResults,
 		TokensUsed:   result.TokensUsed,
 		FinishReason: result.FinishReason,
-		Metadata: ResponseMetadata{
-			Model:     r.getDefaultModelName(),
-			LatencyMs: latencyMs,
-		},
+		Metadata:     metadata,
 		A2UIMessages: result.A2UIMessages,
 	}
 

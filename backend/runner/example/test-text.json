@@ -33,6 +33,11 @@
         "stream": false,
         "response_schema": {
             "type": "text"
+        },
+        "routing": {
+            "default_model": "default",
+            "rewrite_prompt": "优化以下用户Query，使其更加清晰准确。只返回优化后的Query，不要其他内容。",
+            "summarize_prompt": "请总结以下内容，提取关键信息，保持简洁。只返回总结内容。"
         }
     },
     "skills": [],
