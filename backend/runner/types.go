@@ -47,14 +47,17 @@ type KnowledgeItem struct {
 }
 
 type Skill struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Instruction string `json:"instruction"`
-	Scope       string `json:"scope"`
-	Trigger     string `json:"trigger"`
-	EntryScript string `json:"entry_script"`
-	FilePath    string `json:"file_path"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Instruction string   `json:"instruction"`
+	Scope       string   `json:"scope"`
+	Trigger     string   `json:"trigger"`
+	EntryScript string   `json:"entry_script"`
+	FilePath    string   `json:"file_path"`
+	// 数据流描述 - 用于依赖分析
+	Inputs  []string `json:"inputs"`  // 该 skill 需要什么数据 (如: "order_id", "user_info")
+	Outputs []string `json:"outputs"` // 该 skill 产生什么数据 (如: "order_detail", "inventory_status")
 }
 
 type MCPConfig struct {
