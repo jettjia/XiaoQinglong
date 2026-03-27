@@ -671,6 +671,93 @@ func (t *loadSkillTool) InvokableRun(ctx context.Context, argumentsInJSON string
 	return fmt.Sprintf("<skill name=\"%s\">\n%s\n</skill>", skill.Name, skill.Instruction), nil
 }
 
+// BuildSkillOrchestratorTool creates a tool for orchestrating multiple skills with LLM planning
+func (r *SkillRunner) BuildSkillOrchestratorTool(planner *SkillPlanner) tool.BaseTool {
+	return &skillOrchestratorTool{
+		runner:  r,
+		planner: planner,
+	}
+}
+
+type skillOrchestratorTool struct {
+	runner  *SkillRunner
+	planner *SkillPlanner
+}
+
+func (t *skillOrchestratorTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
+	var skillNames []string
+	for name := range t.runner.skills {
+		skillNames = append(skillNames, name)
+	}
+
+	params := schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+		"task": {
+			Type:     schema.String,
+			Desc:     "用户需求任务描述，系统会自动规划需要执行哪些 skill 以及顺序",
+			Required: true,
+		},
+		"context": {
+			Type:     schema.Object,
+			Desc:     "执行任务时需要的上下文信息 (可选)",
+			Required: false,
+		},
+	})
+
+	desc := "智能编排多个 skill：系统会根据用户需求自动分析需要哪些 skill，以最优顺序执行。支持并行执行无依赖的 skill。"
+
+	return &schema.ToolInfo{
+		Name:        "orchestrate_skills",
+		Desc:        desc,
+		ParamsOneOf: params,
+	}, nil
+}
+
+func (t *skillOrchestratorTool) InvokableRun(ctx context.Context, argumentsInJSON string, opt ...tool.Option) (string, error) {
+	type req struct {
+		Task    string         `json:"task"`
+		Context map[string]any `json:"context"`
+	}
+
+	var r req
+	if err := json.Unmarshal([]byte(argumentsInJSON), &r); err != nil {
+		return "", err
+	}
+
+	if r.Context == nil {
+		r.Context = make(map[string]any)
+	}
+
+	// 1. LLM 规划执行计划
+	plan, err := t.planner.PlanWithLLM(ctx, r.Task, r.Context)
+	if err != nil {
+		return "", fmt.Errorf("skill planning failed: %w", err)
+	}
+
+	if len(plan.Stages) == 0 {
+		return "未找到需要执行的 skills", nil
+	}
+
+	// 2. 执行计划
+	results, err := t.planner.Execute(ctx, plan)
+	if err != nil {
+		return "", fmt.Errorf("skill execution failed: %w", err)
+	}
+
+	// 3. 汇总结果
+	return formatSkillResults(results), nil
+}
+
+func formatSkillResults(results map[string]any) string {
+	var lines []string
+	for k, v := range results {
+		lines = append(lines, fmt.Sprintf("%s: %v", k, v))
+	}
+	if len(lines) == 0 {
+		return "执行完成，无结果"
+	}
+	return joinStrings(lines, "\n")
+}
+
 // SkillListText 生成 Layer 1 的简短 skill 列表
 func (r *SkillRunner) SkillListText() string {
 	if len(r.skills) == 0 {

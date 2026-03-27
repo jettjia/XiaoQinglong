@@ -66,6 +66,7 @@ type Dispatcher struct {
 	a2aRunners     map[string]*adk.Runner
 	internalAgents map[string]adk.Agent
 	skillRunner    *SkillRunner
+	skillPlanner   *SkillPlanner // LLM 驱动的技能规划器
 	a2aCallCount   int
 }
 
@@ -292,6 +293,17 @@ func (d *Dispatcher) initSkills(ctx context.Context) error {
 
 	log.Printf("[Dispatcher] initSkills: %d skills registered, config: %s",
 		len(d.request.Skills), DefaultSkillConfigPath())
+
+	// 创建技能规划器 (SkillPlanner)
+	d.skillPlanner = NewSkillPlanner(d.request.Skills, d.skillRunner, d.defaultModel)
+	log.Printf("[Dispatcher] SkillPlanner created")
+
+	// 创建技能编排工具 (当需要多 skill 协同时使用)
+	skillOrchestratorTool := d.skillRunner.BuildSkillOrchestratorTool(d.skillPlanner)
+	if skillOrchestratorTool != nil {
+		d.tools = append(d.tools, skillOrchestratorTool)
+		log.Printf("[Dispatcher] SkillOrchestrator tool registered")
+	}
 
 	return nil
 }

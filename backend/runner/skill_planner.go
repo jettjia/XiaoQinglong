@@ -34,10 +34,11 @@ type SkillPlanner struct {
 }
 
 // NewSkillPlanner 创建技能规划器
-func NewSkillPlanner(skills []Skill, skillRunner *SkillRunner) *SkillPlanner {
+func NewSkillPlanner(skills []Skill, skillRunner *SkillRunner, model model.ToolCallingChatModel) *SkillPlanner {
 	return &SkillPlanner{
 		skills:      skills,
 		skillRunner: skillRunner,
+		model:      model,
 	}
 }
 
