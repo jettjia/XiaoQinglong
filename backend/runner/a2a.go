@@ -266,46 +266,6 @@ func (t *A2ATool) InvokableRun(ctx context.Context, argumentsInJSON string, opt 
 
 // ========== Helper ==========
 
-func parseBaseAndPath(endpoint string) (base, path string, err error) {
-	endpoint = strings.TrimSpace(endpoint)
-	if endpoint == "" {
-		return "", "", fmt.Errorf("empty endpoint")
-	}
-
-	// Remove trailing slash
-	if strings.HasSuffix(endpoint, "/") {
-		endpoint = endpoint[:len(endpoint)-1]
-	}
-
-	// Find the last slash before the path
-	lastSlash := strings.LastIndex(endpoint, "/")
-	if lastSlash < 0 {
-		return endpoint, "/", nil
-	}
-
-	return endpoint[:lastSlash], endpoint[lastSlash:], nil
-}
-
-// headerRoundTripper adds custom headers to HTTP requests
-type headerRoundTripper struct {
-	base    http.RoundTripper
-	headers map[string]string
-}
-
-func (rt headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	if req != nil && len(rt.headers) > 0 {
-		for k, v := range rt.headers {
-			if strings.TrimSpace(k) != "" && strings.TrimSpace(v) != "" {
-				if req.Header.Get(k) == "" {
-					req.Header.Set(k, v)
-				}
-			}
-		}
-	}
-	return rt.base.RoundTrip(req)
-}
-
-// parseJSON parses JSON string into target struct
 func parseJSON(data string, v any) error {
 	return json.Unmarshal([]byte(data), v)
 }
