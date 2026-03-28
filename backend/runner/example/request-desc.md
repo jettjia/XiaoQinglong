@@ -3,11 +3,31 @@
 ```json
 {
     "endpoint": "http://localhost:18080/run",
-    "model": {
-        "provider": "openai",
-        "name": "${OPENAI_MODEL}",
-        "api_key": "${OPENAI_API_KEY}",
-        "api_base": "${OPENAI_BASE_URL}"
+    "models": {
+        "default": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "rewrite": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "skill": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "summarize": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        }
     },
     "system_prompt": "你是一个智能助手，擅长使用工具和技能来回答用户问题。如果需要查询订单，请使用 get_order_detail 工具。如果需要上传文件到S3，可以使用 s3-upload 技能。",
     "user_message": "把当前目录下的 test.json 上传到 S3",
@@ -72,7 +92,12 @@
             "enabled": true,
             "risk_threshold": "medium", // 对于 medium 或 high 风险的操作，执行器不应直接运行，而是应该挂起任务并返回一个 pending_approval 状态给前端
             "auto_approve_tools": ["get_product_info"] // 白名单
-        }
+        },
+        "routing": {
+            "default_model": "default",
+            "rewrite_prompt": "优化以下用户Query，使其更加清晰准确。只返回优化后的Query，不要其他内容。",
+            "summarize_prompt": "请总结以下内容，提取关键信息，保持简洁。只返回总结内容。"
+        },
         "include_thought": true, // 是否返回模型推理过程
         "thought_format": "markdown",
         "retry": {
