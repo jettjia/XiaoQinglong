@@ -22,6 +22,7 @@ log:
 
 # Database.
 db:
+  db_type: "postgres" # mysql, postgres, sqlite, sqlserver
   username: "root"
   password: "admin123"
   db_host: "127.0.0.1"
