@@ -27,7 +27,7 @@
         }
     },
     "system_prompt": "你是一个智能助手，擅长使用工具和技能来回答用户问题。如果需要查询订单，请使用 get_order_detail 工具。如果需要上传文件到S3，可以使用 s3-upload 技能。",
-    "user_message": "把当前目录下的 test.json 上传到 S3",
+    "user_message": "查询订单号12345的详情",
     "tools": [
         {
             "type": "http",

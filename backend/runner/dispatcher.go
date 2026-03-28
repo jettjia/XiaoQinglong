@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -20,13 +21,14 @@ import (
 // ========== Dispatch Result ==========
 
 type DispatchResult struct {
-	Content      string
-	ToolCalls    []ToolCall
-	A2AResults   []A2AResult
-	FinishReason string
-	A2UIMessages []json.RawMessage
-	TokensUsed   int
-	Metadata     *ResultMetadata
+	Content          string
+	ToolCalls        []ToolCall
+	A2AResults       []A2AResult
+	FinishReason     string
+	A2UIMessages     []json.RawMessage
+	TokensUsed       int
+	Metadata         *ResultMetadata
+	PendingApprovals []PendingApproval
 }
 
 type ResultMetadata struct {
@@ -199,6 +201,56 @@ func (d *Dispatcher) wrapToolWithApproval(t tool.InvokableTool, toolName, toolTy
 
 	log.Printf("[Dispatcher] Wrapping tool %s (%s) with approval, risk_level=%s", toolName, toolType, riskLevel)
 	return NewInvokableApprovableTool(t, toolName, toolType, riskLevel)
+}
+
+// buildToolRiskLevels 构建工具名称到风险级别的映射
+func (d *Dispatcher) buildToolRiskLevels() map[string]string {
+	riskLevels := make(map[string]string)
+
+	log.Printf("[Dispatcher] buildToolRiskLevels: d.request.Tools has %d tools", len(d.request.Tools))
+	for _, tc := range d.request.Tools {
+		log.Printf("[Dispatcher]   tool: name=%s, type=%s, risk_level=%s", tc.Name, tc.Type, tc.RiskLevel)
+		riskLevels[tc.Name] = tc.RiskLevel
+	}
+
+	log.Printf("[Dispatcher] buildToolRiskLevels: d.request.A2A has %d agents", len(d.request.A2A))
+	// A2A agents
+	for _, cfg := range d.request.A2A {
+		log.Printf("[Dispatcher]   a2a: name=%s, risk_level=%s", cfg.Name, cfg.RiskLevel)
+		riskLevels["a2a"] = cfg.RiskLevel
+	}
+
+	log.Printf("[Dispatcher] buildToolRiskLevels: d.request.MCPs has %d configs", len(d.request.MCPs))
+	// MCP tools (using the mcp name)
+	for _, cfg := range d.request.MCPs {
+		log.Printf("[Dispatcher]   mcp: name=%s, risk_level=%s", cfg.Name, cfg.RiskLevel)
+		riskLevels[cfg.Name] = cfg.RiskLevel
+	}
+
+	// A2A agents
+	for _, cfg := range d.request.A2A {
+		riskLevels["a2a"] = cfg.RiskLevel
+	}
+
+	// MCP tools (using the mcp name)
+	for _, cfg := range d.request.MCPs {
+		riskLevels[cfg.Name] = cfg.RiskLevel
+	}
+
+	return riskLevels
+}
+
+// buildApprovalToolMiddleware 构建审批中间件
+func (d *Dispatcher) buildApprovalToolMiddleware() compose.InvokableToolMiddleware {
+	// 设置审批阈值
+	if d.request.Options != nil && d.request.Options.ApprovalPolicy != nil {
+		SetApprovalThreshold(d.request.Options.ApprovalPolicy.RiskThreshold)
+	}
+
+	riskLevels := d.buildToolRiskLevels()
+	log.Printf("[Dispatcher] Building approval middleware with %d tools, threshold=%s", len(riskLevels), approvalThreshold)
+
+	return newApprovalToolMiddleware(riskLevels).Wrap
 }
 
 func (d *Dispatcher) initTools(ctx context.Context) error {
@@ -783,6 +835,7 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
 				Tools: d.tools,
+				// 不再使用 middleware，直接使用 InvokableApprovableTool wrapper 进行审批
 			},
 		},
 	}
@@ -795,7 +848,8 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 
 	// 创建 Runner
 	runnerConfig := adk.RunnerConfig{
-		Agent: mainAgent,
+		Agent:           mainAgent,
+		CheckPointStore: NewInMemoryCheckPointStore(),
 	}
 
 	if d.request.Options != nil && d.request.Options.Stream {
@@ -809,6 +863,8 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 	var toolCalls []ToolCall
 	var finishReason string
 	var toolCallsDetail []ToolCallMetadata
+	var pendingApprovals []PendingApproval
+	var interrupted bool
 
 	// 工具调用计数
 	toolCallCount := 0
@@ -825,7 +881,87 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 		}
 
 		if event.Err != nil {
+			log.Printf("[Dispatcher] Agent error: %v (type: %T)", event.Err, event.Err)
+			// 检查是否是 ApprovalInterruptError
+			if ae, ok := event.Err.(*ApprovalInterruptError); ok {
+				log.Printf("[Dispatcher] Caught ApprovalInterruptError for tool=%s", ae.ToolName)
+				interrupted = true
+				pendingApprovals = append(pendingApprovals, PendingApproval{
+					ToolName:      ae.ToolName,
+					ToolType:      ae.ApprovalInfo.ToolType,
+					ArgumentsJSON: ae.ApprovalInfo.ArgumentsInJSON,
+					RiskLevel:     ae.RiskLevel,
+					Description:   ae.ApprovalInfo.Description,
+				})
+				finishReason = "interrupted"
+				// 返回中断结果而不是错误
+				return &DispatchResult{
+					Content:          "",
+					ToolCalls:        toolCalls,
+					FinishReason:     "interrupted",
+					A2UIMessages:     nil,
+					PendingApprovals: pendingApprovals,
+					Metadata: &ResultMetadata{
+						Model:             d.defaultModelName,
+						TotalLatencyMs:    time.Since(startTime).Milliseconds(),
+						ToolCallsCount:    toolCallCount,
+						Iterations:        toolCallCount,
+						PromptTokens:      totalPromptTokens,
+						CompletionTokens:  totalCompletionTokens,
+						ToolCallsDetail:   toolCallsDetail,
+					},
+				}, nil
+			}
+			// 使用 errors.Is 检查被包装的错误
+			var approvalErr *ApprovalInterruptError
+			if errors.As(event.Err, &approvalErr) {
+				log.Printf("[Dispatcher] Caught wrapped ApprovalInterruptError for tool=%s", approvalErr.ToolName)
+				interrupted = true
+				pendingApprovals = append(pendingApprovals, PendingApproval{
+					ToolName:      approvalErr.ToolName,
+					ToolType:      approvalErr.ApprovalInfo.ToolType,
+					ArgumentsJSON: approvalErr.ApprovalInfo.ArgumentsInJSON,
+					RiskLevel:     approvalErr.RiskLevel,
+					Description:   approvalErr.ApprovalInfo.Description,
+				})
+				finishReason = "interrupted"
+				return &DispatchResult{
+					Content:          "",
+					ToolCalls:        toolCalls,
+					FinishReason:     "interrupted",
+					A2UIMessages:     nil,
+					PendingApprovals: pendingApprovals,
+					Metadata: &ResultMetadata{
+						Model:             d.defaultModelName,
+						TotalLatencyMs:    time.Since(startTime).Milliseconds(),
+						ToolCallsCount:    toolCallCount,
+						Iterations:        toolCallCount,
+						PromptTokens:      totalPromptTokens,
+						CompletionTokens:  totalCompletionTokens,
+						ToolCallsDetail:   toolCallsDetail,
+					},
+				}, nil
+			}
 			return nil, fmt.Errorf("agent error: %w", event.Err)
+		}
+
+		// 首先检查是否是中断事件（不管 event.Output 是否存在）
+		if event.Action != nil && event.Action.Interrupted != nil {
+			log.Printf("[Dispatcher] Interrupt detected in event loop: %+v", event.Action.Interrupted)
+			interrupted = true
+			// 获取中断上下文信息
+			for _, ic := range event.Action.Interrupted.InterruptContexts {
+				log.Printf("[Dispatcher]   interrupt context: ID=%s", ic.ID)
+				pa := PendingApproval{
+					InterruptID: ic.ID,
+				}
+				pendingApprovals = append(pendingApprovals, pa)
+			}
+			log.Printf("[Dispatcher] Captured %d pending approvals", len(pendingApprovals))
+			// 中断事件后的 tool calls 应该被忽略
+			// 因为这些工具实际上没有执行成功（返回了空结果）
+			// 找到最后一个成功的 tool call，截断后续的
+			break
 		}
 
 		// Skip if event.Output is nil (no message output available)
@@ -947,7 +1083,10 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 		}
 	}
 
-	if finishReason == "" {
+	// 如果被中断，覆盖任何之前的 finishReason
+	if interrupted {
+		finishReason = "interrupted"
+	} else if finishReason == "" {
 		finishReason = "stop"
 	}
 
@@ -955,10 +1094,11 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 	formattedContent, a2uiMsgs := d.formatResponse(finalContent)
 
 	return &DispatchResult{
-		Content:      formattedContent,
-		ToolCalls:    toolCalls,
-		FinishReason: finishReason,
-		A2UIMessages: a2uiMsgs,
+		Content:          formattedContent,
+		ToolCalls:        toolCalls,
+		FinishReason:     finishReason,
+		A2UIMessages:     a2uiMsgs,
+		PendingApprovals: pendingApprovals,
 		Metadata: &ResultMetadata{
 			Model:             d.defaultModelName,
 			TotalLatencyMs:    time.Since(startTime).Milliseconds(),
