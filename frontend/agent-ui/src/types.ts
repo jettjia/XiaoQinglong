@@ -1,0 +1,184 @@
+export type View = 'dashboard' | 'orchestrator' | 'agents' | 'skills' | 'knowledge' | 'models' | 'chat' | 'settings' | 'inbox';
+
+export interface Agent {
+  id: string;
+  name: string;
+  description: string;
+  model: string;
+  skills: string[];
+  tools: string[];
+  knowledgeBases?: string[];
+  icon: string;
+  isBuiltIn?: boolean;
+  channels?: string[];
+  isPeriodic?: boolean;
+  cronRule?: string;
+  logs?: AgentLog[];
+  memoryLimit?: number;
+  longTermMemory?: boolean;
+  temperature?: number;
+  maxTokens?: number;
+  topK?: number;
+  rerank?: boolean;
+  variables?: Variable[];
+  retryCount?: number;
+  retryInterval?: number;
+  timeout?: number;
+  endpoint?: string;
+  maxIterations?: number;
+  stream?: boolean;
+  sandbox?: {
+    enabled: boolean;
+    mode: 'docker' | 'local';
+    image?: string;
+    workdir?: string;
+    timeoutMs?: number;
+    env?: Record<string, string>;
+  };
+  responseSchema?: {
+    type: 'text' | 'markdown' | 'a2ui' | 'audio' | 'image' | 'video' | 'mixed';
+    version: string;
+    strict: boolean;
+    schema: any;
+  };
+}
+
+export interface Variable {
+  name: string;
+  type: string;
+  required: boolean;
+}
+
+export interface AgentLog {
+  id: string;
+  timestamp: Date;
+  status: 'success' | 'failed' | 'running';
+  message: string;
+  duration?: string;
+}
+
+export interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  type: 'built-in' | 'custom' | 'mcp' | 'a2a' | 'tool';
+  category: 'logic' | 'data' | 'web' | 'media' | 'mcp' | 'a2a' | 'tool';
+  enabled: boolean;
+  content?: string;
+  mcpUrl?: string;
+  icon?: string;
+  endpoint?: string;
+  token?: string;
+  sandboxEndpoint?: string;
+  method?: 'GET' | 'POST';
+  timeout?: number;
+  riskLevel?: 'low' | 'medium' | 'high';
+  sandboxToken?: string;
+  instruction?: string;
+  scope?: 'client' | 'server' | 'both';
+  trigger?: 'auto' | 'manual';
+  entryScript?: string;
+  filePath?: string;
+  headers?: Record<string, string>;
+  args?: string[];
+  env?: Record<string, string>;
+  command?: string;
+}
+
+export interface KnowledgeBase {
+  id: string;
+  name: string;
+  description?: string;
+  lastUpdated: string;
+  retrievalUrl: string;
+  token?: string;
+  enabled?: boolean;
+}
+
+export interface RecallTestRecord {
+  id: string;
+  kbId: string;
+  kbName: string;
+  query: string;
+  timestamp: string;
+  results: {
+    title: string;
+    score: number;
+    content: string;
+  }[];
+}
+
+export interface Message {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+  files?: FileInfo[];
+  thinking?: string;
+  trace?: TraceStep[];
+  toolCalls?: {
+    name: string;
+    args: any;
+    result?: any;
+  }[];
+  a2ui?: {
+    type: string;
+    data: any;
+  };
+  audioUrl?: string;
+  imageUrl?: string;
+  videoUrl?: string;
+  status?: 'pending_approval' | 'completed' | 'failed';
+}
+
+export interface TraceStep {
+  id: string;
+  type: 'thought' | 'tool' | 'skill' | 'mcp' | 'a2a' | 'observation' | 'retrieval';
+  label: string;
+  content: string;
+  status: 'success' | 'running' | 'error' | 'pending';
+  duration?: string;
+  timestamp: Date;
+}
+
+export interface ApprovalTask {
+  id: string;
+  agentId: string;
+  agentName: string;
+  toolName: string;
+  description: string;
+  params: any;
+  timestamp: Date;
+  status: 'pending' | 'approved' | 'rejected';
+}
+
+export interface FileInfo {
+  name: string;
+  size: number;
+  type: string;
+  url?: string;
+}
+
+export interface Model {
+  id: string;
+  name: string;
+  provider: string;
+  baseUrl?: string;
+  apiKey?: string;
+  status: 'active' | 'configured' | 'error';
+  latency?: string;
+  contextWindow?: string;
+  usage?: number;
+  type: 'llm' | 'embedding';
+  category?: 'default' | 'rewrite' | 'skill' | 'summarize';
+}
+
+export interface Conversation {
+  id: string;
+  title: string;
+  lastMessage?: string;
+  timestamp: Date;
+  agentId?: string;
+  messages?: Message[];
+  lastUpdated?: Date;
+}

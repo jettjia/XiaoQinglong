@@ -89,14 +89,7 @@
         "max_iterations": 10,
         "stream": true,
         "approval_policy": {
-            "enabled": true,
-            "risk_threshold": "medium", // 对于 medium 或 high 风险的操作，执行器不应直接运行，而是应该挂起任务并返回一个 pending_approval 状态给前端
-            "auto_approve_tools": ["get_product_info"] // 白名单
-        },
-        "routing": {
-            "default_model": "default",
-            "rewrite_prompt": "优化以下用户Query，使其更加清晰准确。只返回优化后的Query，不要其他内容。",
-            "summarize_prompt": "请总结以下内容，提取关键信息，保持简洁。只返回总结内容。"
+            "enabled": true
         },
         "include_thought": true, // 是否返回模型推理过程
         "thought_format": "markdown",
@@ -157,36 +150,8 @@
         }
     },
     "skills": [
-        {
-            "id": "s3-upload",
-            "name": "S3上传下载",
-            "description": "用于上传和下载S3对象存储中的文件",
-            "instruction": "你是一个S3操作助手，可以帮助用户上传文件到S3或从S3下载文件。",
-            "scope": "both",
-            "trigger": "manual",
-            "runtime": "python3.10",
-            "dependencies": ["boto3"],
-            "entry_script": "python3 scripts/s3_upload.py",
-            "file_path": "s3-upload",
-            "inputs": ["file_path", "bucket_name", "object_key"],
-            "outputs": ["upload_result", "download_url"]
-        },
-        {
-            "id": "query-order",
-            "name": "查询订单",
-            "description": "根据订单号查询订单详情",
-            "instruction": "查询订单详情信息。",
-            "inputs": ["order_id"],
-            "outputs": ["order_detail"]
-        },
-        {
-            "id": "validate-inventory",
-            "name": "验证库存",
-            "description": "验证商品库存是否充足",
-            "instruction": "验证订单中商品的库存情况。",
-            "inputs": ["order_detail"],
-            "outputs": ["validated_order"]
-        }
+        { "id": "s3-upload" },
+        { "id": "query-order" }
     ],
     "context": {
         "session_id": "sess_abc123def456",
