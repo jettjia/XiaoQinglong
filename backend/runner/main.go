@@ -12,6 +12,7 @@ import (
 
 func main() {
 	http.HandleFunc("/run", handleRun)
+	http.HandleFunc("/resume", handleResume)
 	log.Println("Runner server starting on :18080")
 	log.Fatal(http.ListenAndServe(":18080", nil))
 }
@@ -35,6 +36,29 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 	resp, err := runner.Run(r.Context())
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Run failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func handleResume(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req ResumeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	runner := NewRunner(&RunRequest{})
+	resp, err := runner.Resume(r.Context(), &req)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Resume failed: %v", err), http.StatusInternalServerError)
 		return
 	}
 

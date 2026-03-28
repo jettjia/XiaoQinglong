@@ -29,6 +29,7 @@ type DispatchResult struct {
 	TokensUsed       int
 	Metadata         *ResultMetadata
 	PendingApprovals []PendingApproval
+	CheckPointID     string
 }
 
 type ResultMetadata struct {
@@ -65,6 +66,7 @@ type Dispatcher struct {
 	models          map[string]model.ToolCallingChatModel
 	modelsByRole    map[ModelRole]model.ToolCallingChatModel
 	tools          []tool.BaseTool
+	toolConfigs    map[string]ToolConfig // tool name -> config for interrupt handling
 	a2aRunners     map[string]*adk.Runner
 	internalAgents map[string]adk.Agent
 	skillRunner    *SkillRunner
@@ -74,7 +76,8 @@ type Dispatcher struct {
 
 func NewDispatcher(req *RunRequest) *Dispatcher {
 	return &Dispatcher{
-		request: req,
+		request:     req,
+		toolConfigs: make(map[string]ToolConfig),
 	}
 }
 
@@ -255,6 +258,8 @@ func (d *Dispatcher) buildApprovalToolMiddleware() compose.InvokableToolMiddlewa
 
 func (d *Dispatcher) initTools(ctx context.Context) error {
 	for _, tc := range d.request.Tools {
+		// 存储工具配置以便在中断时查找
+		d.toolConfigs[tc.Name] = tc
 		switch tc.Type {
 		case "http":
 			httpTool := NewHTTPTool(tc)
@@ -847,9 +852,28 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 	}
 
 	// 创建 Runner
+	// 使用全局的 checkpoint store 管理器
+	checkpointID := ""
+	if d.request.Options != nil {
+		checkpointID = d.request.Options.CheckPointID
+	}
+	var checkpointStore compose.CheckPointStore
+	if checkpointID != "" {
+		// 尝试获取已有的 checkpoint store
+		checkpointStore = GetCheckPointStore(checkpointID)
+		if checkpointStore == nil {
+			// 创建新的 checkpoint store 并存储
+			checkpointStore = NewInMemoryCheckPointStore()
+			SetCheckPointStore(checkpointID, checkpointStore)
+		}
+	} else {
+		// 如果没有指定 checkpoint ID，使用临时的 store
+		checkpointStore = NewInMemoryCheckPointStore()
+	}
+
 	runnerConfig := adk.RunnerConfig{
 		Agent:           mainAgent,
-		CheckPointStore: NewInMemoryCheckPointStore(),
+		CheckPointStore: checkpointStore,
 	}
 
 	if d.request.Options != nil && d.request.Options.Stream {
@@ -886,12 +910,21 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 			if ae, ok := event.Err.(*ApprovalInterruptError); ok {
 				log.Printf("[Dispatcher] Caught ApprovalInterruptError for tool=%s", ae.ToolName)
 				interrupted = true
+				// 如果有 checkpointID，存储 runner 以便后续 resume
+				if checkpointID != "" {
+					SetRunner(checkpointID, &adkRunner{
+						runner:   runner,
+						Messages: messages,
+					})
+					log.Printf("[Dispatcher] Stored runner for checkpointID=%s", checkpointID)
+				}
 				pendingApprovals = append(pendingApprovals, PendingApproval{
 					ToolName:      ae.ToolName,
 					ToolType:      ae.ApprovalInfo.ToolType,
 					ArgumentsJSON: ae.ApprovalInfo.ArgumentsInJSON,
 					RiskLevel:     ae.RiskLevel,
 					Description:   ae.ApprovalInfo.Description,
+					InterruptID:   ae.ApprovalInfo.ToolName, // Use tool name as interrupt ID for now
 				})
 				finishReason = "interrupted"
 				// 返回中断结果而不是错误
@@ -901,6 +934,7 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 					FinishReason:     "interrupted",
 					A2UIMessages:     nil,
 					PendingApprovals: pendingApprovals,
+					CheckPointID:     checkpointID,
 					Metadata: &ResultMetadata{
 						Model:             d.defaultModelName,
 						TotalLatencyMs:    time.Since(startTime).Milliseconds(),
@@ -931,6 +965,7 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 					FinishReason:     "interrupted",
 					A2UIMessages:     nil,
 					PendingApprovals: pendingApprovals,
+					CheckPointID:     checkpointID,
 					Metadata: &ResultMetadata{
 						Model:             d.defaultModelName,
 						TotalLatencyMs:    time.Since(startTime).Milliseconds(),
@@ -947,17 +982,51 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 
 		// 首先检查是否是中断事件（不管 event.Output 是否存在）
 		if event.Action != nil && event.Action.Interrupted != nil {
-			log.Printf("[Dispatcher] Interrupt detected in event loop: %+v", event.Action.Interrupted)
+			log.Printf("[Dispatcher] >>>>>>> Interrupt detected in event loop!")
 			interrupted = true
+			// 从已收集的 toolCalls 中获取最近一次工具调用的信息
+			// 因为中断是在工具执行过程中发生的
+			var lastToolName, lastArgsJSON string
+			if len(toolCalls) > 0 {
+				lastTool := toolCalls[len(toolCalls)-1]
+				lastToolName = lastTool.Tool
+				if inputStr, ok := lastTool.Input.(string); ok {
+					lastArgsJSON = inputStr
+				} else if inputMap, ok := lastTool.Input.(map[string]any); ok {
+					if jsonBytes, err := json.Marshal(inputMap); err == nil {
+						lastArgsJSON = string(jsonBytes)
+					}
+				}
+				log.Printf("[Dispatcher]   Last tool call: %s, args: %s", lastToolName, lastArgsJSON)
+			}
 			// 获取中断上下文信息
 			for _, ic := range event.Action.Interrupted.InterruptContexts {
 				log.Printf("[Dispatcher]   interrupt context: ID=%s", ic.ID)
+				// 查找工具配置以获取 ToolType 和 RiskLevel
+				var toolType, riskLevel string
+				if tc, ok := d.toolConfigs[lastToolName]; ok {
+					toolType = tc.Type
+					riskLevel = tc.RiskLevel
+				}
+				log.Printf("[Dispatcher]   tool config: type=%s, risk=%s", toolType, riskLevel)
 				pa := PendingApproval{
-					InterruptID: ic.ID,
+					InterruptID:   ic.ID,
+					ToolName:      lastToolName,
+					ToolType:      toolType,
+					RiskLevel:     riskLevel,
+					ArgumentsJSON: lastArgsJSON,
 				}
 				pendingApprovals = append(pendingApprovals, pa)
 			}
 			log.Printf("[Dispatcher] Captured %d pending approvals", len(pendingApprovals))
+			// 如果有 checkpointID，存储 runner 以便后续 resume
+			if checkpointID != "" {
+				SetRunner(checkpointID, &adkRunner{
+					runner:   runner,
+					Messages: messages,
+				})
+				log.Printf("[Dispatcher] Stored runner for checkpointID=%s", checkpointID)
+			}
 			// 中断事件后的 tool calls 应该被忽略
 			// 因为这些工具实际上没有执行成功（返回了空结果）
 			// 找到最后一个成功的 tool call，截断后续的
@@ -1013,6 +1082,7 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 						},
 					}, nil
 				}
+
 				tcStart := time.Now()
 				toolCalls = append(toolCalls, ToolCall{
 					Tool:   tc.Function.Name,
@@ -1099,6 +1169,7 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 		FinishReason:     finishReason,
 		A2UIMessages:     a2uiMsgs,
 		PendingApprovals: pendingApprovals,
+		CheckPointID:     checkpointID,
 		Metadata: &ResultMetadata{
 			Model:             d.defaultModelName,
 			TotalLatencyMs:    time.Since(startTime).Milliseconds(),

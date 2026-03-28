@@ -4,8 +4,56 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
+
+	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/compose"
 )
+
+// ========== Global Checkpoint Store Manager ==========
+
+var (
+	checkpointStores = make(map[string]compose.CheckPointStore)
+	checkpointMu     sync.RWMutex
+	// runners 存储活跃的 runner 实例，用于 resume
+	runners   = make(map[string]*adkRunner)
+	runnersMu sync.RWMutex
+)
+
+// adkRunner 包装 adk.Runner 和相关信息
+type adkRunner struct {
+	runner   *adk.Runner
+	Messages []adk.Message
+}
+
+// GetCheckPointStore 获取指定 ID 的 checkpoint store
+func GetCheckPointStore(id string) compose.CheckPointStore {
+	checkpointMu.RLock()
+	defer checkpointMu.RUnlock()
+	return checkpointStores[id]
+}
+
+// SetCheckPointStore 存储指定 ID 的 checkpoint store
+func SetCheckPointStore(id string, store compose.CheckPointStore) {
+	checkpointMu.Lock()
+	defer checkpointMu.Unlock()
+	checkpointStores[id] = store
+}
+
+// GetRunner 获取指定 checkpoint ID 的 runner
+func GetRunner(id string) *adkRunner {
+	runnersMu.RLock()
+	defer runnersMu.RUnlock()
+	return runners[id]
+}
+
+// SetRunner 存储指定 checkpoint ID 的 runner
+func SetRunner(id string, r *adkRunner) {
+	runnersMu.Lock()
+	defer runnersMu.Unlock()
+	runners[id] = r
+}
 
 // ========== Request Types ==========
 
@@ -112,6 +160,7 @@ type RunOptions struct {
 	ResponseSchema  *ResponseSchemaConfig `json:"response_schema"`
 	Routing         *RoutingConfig        `json:"routing"`
 	ApprovalPolicy  *ApprovalPolicy      `json:"approval_policy"`
+	CheckPointID   string               `json:"checkpoint_id"`
 }
 
 // ApprovalPolicy 审批策略
@@ -195,6 +244,7 @@ type RunResponse struct {
 	Metadata         ResponseMetadata   `json:"metadata"`
 	A2UIMessages     []json.RawMessage  `json:"a2ui_messages,omitempty"`
 	PendingApprovals []PendingApproval  `json:"pending_approvals,omitempty"`
+	CheckPointID     string             `json:"checkpoint_id,omitempty"`
 }
 
 // PendingApproval 待审批信息
@@ -211,6 +261,29 @@ type ToolCall struct {
 	Tool   string `json:"tool"`
 	Input  any    `json:"input"`
 	Output any    `json:"output"`
+}
+
+// ResumeRequest resume 请求
+type ResumeRequest struct {
+	CheckPointID string                `json:"checkpoint_id"`
+	Approvals    []ResumeApproval       `json:"approvals"`
+}
+
+// ResumeApproval 单个审批结果
+type ResumeApproval struct {
+	InterruptID      string  `json:"interrupt_id"`
+	Approved         bool    `json:"approved"`
+	DisapproveReason *string `json:"disapprove_reason,omitempty"`
+}
+
+// ResumeResponse resume 响应
+type ResumeResponse struct {
+	Success      bool     `json:"success"`
+	Error        string   `json:"error,omitempty"`
+	FinishReason string   `json:"finish_reason"`
+	Content      string   `json:"content,omitempty"`
+	ToolCalls    []ToolCall `json:"tool_calls,omitempty"`
+	Metadata     ResponseMetadata `json:"metadata"`
 }
 
 type A2AResult struct {
@@ -281,13 +354,15 @@ func (r *Runner) Run(ctx context.Context) (*RunResponse, error) {
 	}
 
 	resp := &RunResponse{
-		Content:      result.Content,
-		ToolCalls:    result.ToolCalls,
-		A2AResults:   result.A2AResults,
-		TokensUsed:   result.TokensUsed,
-		FinishReason: result.FinishReason,
-		Metadata:     metadata,
-		A2UIMessages: result.A2UIMessages,
+		Content:          result.Content,
+		ToolCalls:        result.ToolCalls,
+		A2AResults:       result.A2AResults,
+		TokensUsed:       result.TokensUsed,
+		FinishReason:     result.FinishReason,
+		Metadata:         metadata,
+		A2UIMessages:     result.A2UIMessages,
+		PendingApprovals: result.PendingApprovals,
+		CheckPointID:     result.CheckPointID,
 	}
 
 	return resp, nil
@@ -302,4 +377,101 @@ func (r *Runner) getDefaultModelName() string {
 		return ""
 	}
 	return cfg.Name
+}
+
+// Resume 恢复中断的 agent 执行
+func (r *Runner) Resume(ctx context.Context, req *ResumeRequest) (*ResumeResponse, error) {
+	// 获取存储的 runner
+	adkRunner := GetRunner(req.CheckPointID)
+	if adkRunner == nil {
+		return &ResumeResponse{
+			Success: false,
+			Error:   "checkpoint not found or expired",
+		}, nil
+	}
+
+	// 构建 approval results
+	approvals := make(map[string]any)
+	for _, approval := range req.Approvals {
+		result := &ApprovalResult{
+			Approved:         approval.Approved,
+			DisapproveReason: approval.DisapproveReason,
+		}
+		approvals[approval.InterruptID] = result
+	}
+
+	// 恢复执行
+	events, err := adkRunner.runner.ResumeWithParams(ctx, req.CheckPointID, &adk.ResumeParams{
+		Targets: approvals,
+	})
+	if err != nil {
+		return &ResumeResponse{
+			Success: false,
+			Error:   fmt.Sprintf("resume failed: %v", err),
+		}, nil
+	}
+
+	// 处理事件
+	var finalContent string
+	var toolCalls []ToolCall
+	var finishReason string
+	var toolCallsDetail []ToolCallMetadata
+	toolCallCount := 0
+
+	for {
+		event, ok := events.Next()
+		if !ok {
+			break
+		}
+
+		if event.Err != nil {
+			return &ResumeResponse{
+				Success: false,
+				Error:   fmt.Sprintf("resume error: %v", event.Err),
+			}, nil
+		}
+
+		// 处理消息输出和工具调用
+		if event.Output != nil {
+			if msg, err := event.Output.MessageOutput.GetMessage(); err == nil {
+				finalContent = msg.Content
+
+				// 处理工具调用
+				for _, tc := range msg.ToolCalls {
+					toolCallCount++
+					tcMeta := ToolCallMetadata{
+						Tool:  tc.Function.Name,
+						Input: tc.Function.Arguments,
+					}
+					toolCallsDetail = append(toolCallsDetail, tcMeta)
+
+					toolCalls = append(toolCalls, ToolCall{
+						Tool:   tc.Function.Name,
+						Input:  tc.Function.Arguments,
+						Output: nil,
+					})
+				}
+
+				// 检查是否完成
+				if len(msg.ToolCalls) == 0 && finishReason == "" {
+					finishReason = "completed"
+				}
+			}
+		}
+	}
+
+	// 构建元数据
+	metadata := ResponseMetadata{
+		Model:          r.getDefaultModelName(),
+		ToolCallsCount: toolCallCount,
+		Iterations:     toolCallCount,
+	}
+
+	return &ResumeResponse{
+		Success:      true,
+		FinishReason: finishReason,
+		Content:      finalContent,
+		ToolCalls:    toolCalls,
+		Metadata:     metadata,
+	}, nil
 }

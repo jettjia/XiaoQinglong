@@ -115,6 +115,7 @@ type RunOptions struct {
 	ResponseSchema  *ResponseSchemaConfig `json:"response_schema"`
 	Routing         *RoutingConfig        `json:"routing"`
 	ApprovalPolicy  *ApprovalPolicy      `json:"approval_policy"`
+	CheckPointID   string               `json:"checkpoint_id"`
 }
 
 type RetryConfig struct {
@@ -170,6 +171,7 @@ type RunResponse struct {
 	Metadata         ResponseMetadata   `json:"metadata"`
 	A2UIMessages     []json.RawMessage  `json:"a2ui_messages,omitempty"`
 	PendingApprovals []PendingApproval  `json:"pending_approvals,omitempty"`
+	CheckPointID     string             `json:"checkpoint_id,omitempty"`
 }
 
 type PendingApproval struct {
@@ -339,6 +341,9 @@ func main() {
 	log.Println("========== 执行结果 ==========")
 	log.Printf("耗时: %v", elapsed)
 	log.Printf("Finish Reason: %s", result.FinishReason)
+	if result.CheckPointID != "" {
+		log.Printf("CheckPointID: %s", result.CheckPointID)
+	}
 
 	if result.Content != "" {
 		log.Println()
@@ -381,7 +386,7 @@ func main() {
 		log.Println()
 		log.Println("----------- Pending Approvals -----------")
 		for i, pa := range result.PendingApprovals {
-			log.Printf("%d. Tool: %s (%s), Risk: %s", i+1, pa.ToolName, pa.ToolType, pa.RiskLevel)
+			log.Printf("%d. Tool: %s (%s), Risk: %s, InterruptID: %s", i+1, pa.ToolName, pa.ToolType, pa.RiskLevel, pa.InterruptID)
 			log.Printf("   Arguments: %s", truncateString(pa.ArgumentsJSON, 200))
 		}
 	}
