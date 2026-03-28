@@ -828,6 +828,11 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 			return nil, fmt.Errorf("agent error: %w", event.Err)
 		}
 
+		// Skip if event.Output is nil (no message output available)
+		if event.Output == nil {
+			continue
+		}
+
 		// 处理消息输出
 		if msg, err := event.Output.MessageOutput.GetMessage(); err == nil {
 			finalContent = msg.Content
@@ -894,7 +899,8 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 		}
 
 		// 处理流式输出
-		if stream := event.Output.MessageOutput.MessageStream; stream != nil {
+		if event.Output.MessageOutput != nil {
+			if stream := event.Output.MessageOutput.MessageStream; stream != nil {
 			for {
 				chunk, err := stream.Recv()
 				if err != nil {
@@ -936,6 +942,7 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 				if len(chunk.ToolCalls) > 0 {
 					finishReason = "tool"
 				}
+			}
 			}
 		}
 	}

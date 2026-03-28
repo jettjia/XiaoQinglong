@@ -69,7 +69,13 @@
                         "properties": {
                             "type": {
                                 "type": "string",
-                                "enum": ["none", "form", "link", "calendar", "location"]
+                                "enum": [
+                                    "none",
+                                    "form",
+                                    "link",
+                                    "calendar",
+                                    "location"
+                                ]
                             },
                             "data": {}
                         }
@@ -77,9 +83,15 @@
                     "card": {
                         "type": "object",
                         "properties": {
-                            "title": {"type": "string"},
-                            "sections": {"type": "array"},
-                            "actions": {"type": "array"}
+                            "title": {
+                                "type": "string"
+                            },
+                            "sections": {
+                                "type": "array"
+                            },
+                            "actions": {
+                                "type": "array"
+                            }
                         }
                     }
                 }
