@@ -65,14 +65,21 @@
       "last_query_time": "2024-03-15T10:30:00Z",
       "user_preference": "express_shipping",
       "cart_items_count": 3
-    }
+    },
+    "trace_id": "uuid-123-456",
+    "parent_span_id": "span-789"
   },
   "knowledge": [
     {
       "id": "kb_001",
       "name": "订单查询政策",
       "content": "订单查询说明：用户可以通过订单号、手机号、邮箱查询订单。订单状态包括：待付款、已付款、已发货、已完成、已取消。",
-      "score": 0.92
+      "score": 0.92,
+      "metadata": {
+            "source": "internal_wiki",
+            "url": "http://wiki.company.com/products",
+            "last_updated": "2024-01-01"
+      }
     },
     {
       "id": "kb_002",
@@ -89,8 +96,8 @@
       "instruction": "你是一个订单查询专家，可以通过订单号查询订单的详细信息，包括订单状态、商品信息、物流信息等。",
       "scope": "chat",
       "trigger": "auto",
-      "entry_script": "main.py",
-      "file_path": "./skills/order_query"
+      "runtime": "python3.10",
+      "dependencies": ["boto3"],
     },
     {
       "id": "skill_logistics",
@@ -192,6 +199,11 @@
     "top_p": 0.9,
     "stop": null,
     "timeout_ms": 60000,
+    "approval_policy": {
+        "enabled": true,
+        "risk_threshold": "medium", // medium及以上需要人工审批
+        "auto_approve_tools": ["get_product_info"] // 白名单
+    },
     "retry": {
       "max_attempts": 3,
       "initial_delay_ms": 1000,
@@ -215,6 +227,11 @@
     "timeout_ms": 30000,
     "env": {
       "NODE_ENV": "production"
+    },
+    "limits": {
+        "cpu": "0.5",
+        "memory": "512m",
+        "network": "restricted" // 限制沙箱内的网络访问
     }
   }
 }
