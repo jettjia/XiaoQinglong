@@ -7,7 +7,9 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cloudwego/eino/components/tool"
@@ -250,4 +252,80 @@ func (c *MCPClient) CallTool(ctx context.Context, toolName string, arguments map
 	}
 
 	return string(respBody), nil
+}
+
+// ========== MCP stdio 模式实现 ==========
+
+// MCPStdioClient 使用 stdio transport 的 MCP 客户端
+type MCPStdioClient struct {
+	cmd    *exec.Cmd
+	stdin  io.WriteCloser
+	stdout io.Reader
+	mu     sync.Mutex
+}
+
+func NewMCPStdioClient(cmd string, args []string, env map[string]string) (*MCPStdioClient, error) {
+	execCmd := exec.Command(cmd, args...)
+	if env != nil {
+		for k, v := range env {
+			execCmd.Env = append(execCmd.Env, k+"="+v)
+		}
+	}
+
+	stdin, err := execCmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stdin pipe: %w", err)
+	}
+
+	stdout, err := execCmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	if err := execCmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start MCP process: %w", err)
+	}
+
+	return &MCPStdioClient{
+		cmd:    execCmd,
+		stdin:  stdin,
+		stdout: stdout,
+	}, nil
+}
+
+func (c *MCPStdioClient) CallTool(ctx context.Context, name string, arguments map[string]any) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	req := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name":      name,
+			"arguments": arguments,
+		},
+		"id": time.Now().UnixNano(),
+	}
+
+	reqBytes, _ := json.Marshal(req)
+	_, err := c.stdin.Write(append(reqBytes, '\n'))
+	if err != nil {
+		return "", fmt.Errorf("failed to write request: %w", err)
+	}
+
+	// 读取响应
+	buf := make([]byte, 4096)
+	n, err := c.stdout.Read(buf)
+	if err != nil && err != io.EOF {
+		return "", fmt.Errorf("failed to read response: %w", err)
+	}
+
+	return string(buf[:n]), nil
+}
+
+func (c *MCPStdioClient) Close() error {
+	if c.cmd != nil && c.cmd.Process != nil {
+		c.cmd.Process.Kill()
+	}
+	return nil
 }

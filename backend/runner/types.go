@@ -61,10 +61,13 @@ type Skill struct {
 }
 
 type MCPConfig struct {
-	Name    string            `json:"name"`
-	Command string            `json:"command"`
-	Args    []string          `json:"args"`
-	Env     map[string]string `json:"env"`
+	Name      string            `json:"name"`
+	Transport string            `json:"transport"` // "stdio" 或 "http"
+	Command   string            `json:"command"`   // stdio 模式: 启动命令
+	Args      []string          `json:"args"`      // stdio 模式: 命令参数
+	Env       map[string]string `json:"env"`       // stdio 模式: 环境变量
+	Endpoint  string            `json:"endpoint"`  // http 模式: MCP 服务地址
+	Headers   map[string]string `json:"headers"`   // http 模式: 请求头
 }
 
 type A2AAgentConfig struct {

@@ -97,7 +97,12 @@ func (d *Dispatcher) Run(ctx context.Context) (*DispatchResult, error) {
 		return nil, fmt.Errorf("init internal agents failed: %w", err)
 	}
 
-	// 5. 初始化 skill runner
+	// 5. 初始化 MCP
+	if err := d.initMCPs(ctx); err != nil {
+		log.Printf("[Dispatcher] Warning: init mcps failed: %v", err)
+	}
+
+	// 6. 初始化 skill runner
 	if err := d.initSkills(ctx); err != nil {
 		return nil, fmt.Errorf("init skills failed: %w", err)
 	}
@@ -259,6 +264,88 @@ func (d *Dispatcher) initInternalAgents(ctx context.Context) error {
 
 	log.Printf("[Dispatcher] initInternalAgents: %d agents initialized", len(d.internalAgents))
 	return nil
+}
+
+// initMCPs 初始化 MCP 工具
+func (d *Dispatcher) initMCPs(ctx context.Context) error {
+	if len(d.request.MCPs) == 0 {
+		return nil
+	}
+
+	for _, mcpCfg := range d.request.MCPs {
+		log.Printf("[Dispatcher] initMCP: name=%s, transport=%s", mcpCfg.Name, mcpCfg.Transport)
+
+		switch mcpCfg.Transport {
+		case "http":
+			// HTTP 模式：通过 HTTP API 加载 tools
+			if mcpCfg.Endpoint == "" {
+				log.Printf("[Dispatcher] initMCP: %s has empty endpoint, skipping", mcpCfg.Name)
+				continue
+			}
+			loader := NewMCPToolLoader(mcpCfg.Endpoint, mcpCfg.Headers)
+			tools, err := loader.LoadTools(ctx)
+			if err != nil {
+				log.Printf("[Dispatcher] initMCP: failed to load tools for %s: %v", mcpCfg.Name, err)
+				continue
+			}
+			for _, t := range tools {
+				d.tools = append(d.tools, t)
+			}
+			log.Printf("[Dispatcher] initMCP: %s loaded %d tools", mcpCfg.Name, len(tools))
+
+		case "stdio":
+			// stdio 模式：启动本地进程
+			if mcpCfg.Command == "" {
+				log.Printf("[Dispatcher] initMCP: %s has empty command, skipping", mcpCfg.Name)
+				continue
+			}
+			client, err := NewMCPStdioClient(mcpCfg.Command, mcpCfg.Args, mcpCfg.Env)
+			if err != nil {
+				log.Printf("[Dispatcher] initMCP: failed to create stdio client for %s: %v", mcpCfg.Name, err)
+				continue
+			}
+			// 创建 stdio MCP tool 并添加
+			mcpTool := &mcpStdioTool{
+				name:    mcpCfg.Name,
+				client:  client,
+			}
+			d.tools = append(d.tools, mcpTool)
+			log.Printf("[Dispatcher] initMCP: %s (stdio) initialized", mcpCfg.Name)
+
+		default:
+			log.Printf("[Dispatcher] initMCP: unknown transport %s for %s, skipping", mcpCfg.Transport, mcpCfg.Name)
+		}
+	}
+
+	return nil
+}
+
+// mcpStdioTool stdio 模式的 MCP tool
+type mcpStdioTool struct {
+	name   string
+	client *MCPStdioClient
+}
+
+func (t *mcpStdioTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
+	return &schema.ToolInfo{
+		Name:        t.name,
+		Desc:        fmt.Sprintf("MCP tool via stdio: %s", t.name),
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"args": {Type: schema.Object, Desc: "Tool arguments", Required: false},
+		}),
+	}, nil
+}
+
+func (t *mcpStdioTool) InvokableRun(ctx context.Context, argumentsInJSON string, opt ...tool.Option) (string, error) {
+	var args map[string]any
+	if err := json.Unmarshal([]byte(argumentsInJSON), &args); err != nil {
+		return "", fmt.Errorf("failed to parse arguments: %w", err)
+	}
+
+	name, _ := args["name"].(string)
+	delete(args, "name")
+
+	return t.client.CallTool(ctx, name, args)
 }
 
 // initSkills 初始化 skill runner
