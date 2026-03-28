@@ -40,10 +40,11 @@ type ModelConfig struct {
 }
 
 type KnowledgeItem struct {
-	ID      string  `json:"id"`
-	Name    string  `json:"name"`
-	Content string  `json:"content"`
-	Score   float64 `json:"score"`
+	ID       string         `json:"id"`
+	Name     string         `json:"name"`
+	Content  string         `json:"content"`
+	Score    float64        `json:"score"`
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 type Skill struct {

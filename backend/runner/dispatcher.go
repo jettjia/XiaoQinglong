@@ -463,6 +463,11 @@ func (d *Dispatcher) buildSystemPrompt() string {
 		prompt += "\n\n## 知识库信息\n"
 		for _, kb := range d.request.Knowledge {
 			prompt += fmt.Sprintf("\n### %s (相关性: %.2f)\n%s\n", kb.Name, kb.Score, kb.Content)
+			if kb.Metadata != nil {
+				for k, v := range kb.Metadata {
+					prompt += fmt.Sprintf("%s: %v\n", k, v)
+				}
+			}
 		}
 	}
 

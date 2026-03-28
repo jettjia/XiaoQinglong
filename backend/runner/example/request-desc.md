@@ -72,6 +72,10 @@
             "env": {}
         }
     ],
+    "skills": [
+        { "id": "s3-upload" },
+        { "id": "query-order" }
+    ],
     "sandbox": {
         "enabled": true,
         "mode": "docker",
@@ -149,10 +153,6 @@
             }
         }
     },
-    "skills": [
-        { "id": "s3-upload" },
-        { "id": "query-order" }
-    ],
     "context": {
         "session_id": "sess_abc123def456",
         "user_id": "user_001",
