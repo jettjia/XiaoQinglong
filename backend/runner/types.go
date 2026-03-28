@@ -160,6 +160,13 @@ type SandboxConfig struct {
 	Network   string            `json:"network"`
 	TimeoutMs int               `json:"timeout_ms"`
 	Env       map[string]string `json:"env"`
+	Limits    *SandboxLimits    `json:"limits"`
+}
+
+// SandboxLimits 沙箱资源限制
+type SandboxLimits struct {
+	CPU    string `json:"cpu"`    // e.g., "0.5" (0.5 cores), "2" (2 cores)
+	Memory string `json:"memory"` // e.g., "512m", "1g", "256M"
 }
 
 // ========== Response Types ==========

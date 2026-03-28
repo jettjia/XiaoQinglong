@@ -465,6 +465,17 @@ func (t *skillExecCommandTool) execInSandbox(ctx context.Context, command string
 	if network != "" {
 		args = append(args, "--network", network)
 	}
+
+	// 添加资源限制
+	if t.sandboxCfg.Limits != nil {
+		if t.sandboxCfg.Limits.CPU != "" {
+			args = append(args, "--cpus", t.sandboxCfg.Limits.CPU)
+		}
+		if t.sandboxCfg.Limits.Memory != "" {
+			args = append(args, "--memory", t.sandboxCfg.Limits.Memory)
+		}
+	}
+
 	// 添加环境变量
 	for k, v := range t.sandboxCfg.Env {
 		kk := strings.TrimSpace(k)

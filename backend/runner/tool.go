@@ -37,14 +37,14 @@ func NewHTTPTool(config ToolConfig) *HTTPTool {
 func (t *HTTPTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	params := schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 		"params": {
-			Type:        schema.Object,
-			Desc:        "Query or path parameters",
-			Required:    false,
+			Type:     schema.Object,
+			Desc:     "Query or path parameters",
+			Required: false,
 		},
 		"body": {
-			Type:        schema.Object,
-			Desc:        "Request body",
-			Required:    false,
+			Type:     schema.Object,
+			Desc:     "Request body",
+			Required: false,
 		},
 	})
 	return &schema.ToolInfo{
@@ -66,10 +66,8 @@ func (t *HTTPTool) InvokableRun(ctx context.Context, argumentsInJSON string, opt
 
 	// Build URL with path parameters
 	url := t.endpoint
-	if params != nil {
-		for k, v := range params {
-			url = replacePathParam(url, "{"+k+"}", fmt.Sprintf("%v", v))
-		}
+	for k, v := range params {
+		url = replacePathParam(url, "{"+k+"}", fmt.Sprintf("%v", v))
 	}
 
 	// Build request
