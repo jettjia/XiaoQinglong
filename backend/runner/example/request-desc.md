@@ -41,7 +41,7 @@
             "headers": {
                 "Content-Type": "application/json"
             },
-            "risk_level": "medium"
+            "risk_level": "medium"//low:不需要人工干预，medium模型自动识别是否需要干预，high:必须人工干预
         },
         {
             "type": "http",
@@ -57,7 +57,8 @@
         {
             "name": "payment_agent",
             "endpoint": "http://localhost:28080/a2a",
-            "headers": {}
+            "headers": {},
+            "risk_level": "medium"//low:不需要人工干预，medium模型自动识别是否需要干预，high:必须人工干预
         }
     ],
     "mcps": [
@@ -69,12 +70,19 @@
                 "run",
                 "/home/jett/aishu/XiaoQinglong/mock/mcp"
             ],
-            "env": {}
+            "env": {},
+            "risk_level": "medium"//low:不需要人工干预，medium模型自动识别是否需要干预，high:必须人工干预
         }
     ],
     "skills": [
-        { "id": "s3-upload" },
-        { "id": "query-order" }
+        {
+            "id": "s3-upload",
+            "risk_level": "medium"//low:不需要人工干预，medium模型自动识别是否需要干预，high:必须人工干预
+        },
+        {
+            "id": "query-order",
+            "risk_level": "low"//low:不需要人工干预，medium模型自动识别是否需要干预，high:必须人工干预
+        }
     ],
     "sandbox": {
         "enabled": true,

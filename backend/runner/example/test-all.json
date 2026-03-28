@@ -1,10 +1,30 @@
 {
     "endpoint": "http://localhost:18080/run",
-    "model": {
-        "provider": "openai",
-        "name": "${OPENAI_MODEL}",
-        "api_key": "${OPENAI_API_KEY}",
-        "api_base": "${OPENAI_BASE_URL}"
+    "models": {
+        "default": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "rewrite": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "skill": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "summarize": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        }
     },
     "system_prompt": "你是一个智能助手，擅长使用工具和技能来回答用户问题。如果需要查询订单，请使用 get_order_detail 工具。如果需要上传文件到S3，可以使用 s3-upload 技能。",
     "user_message": "把当前目录下的 test.json 上传到 S3",
@@ -18,7 +38,7 @@
             "headers": {
                 "Content-Type": "application/json"
             },
-            "risk_level": "medium"
+            "risk_level": "high"
         },
         {
             "type": "http",
@@ -28,24 +48,53 @@
             "method": "GET",
             "headers": {},
             "risk_level": "low"
+        },
+        {
+            "type": "http",
+            "name": "send_notification",
+            "description": "发送通知给用户",
+            "endpoint": "http://localhost:8081/notify",
+            "method": "POST",
+            "headers": {
+                "Content-Type": "application/json"
+            },
+            "risk_level": "medium"
         }
     ],
     "a2a": [
         {
             "name": "payment_agent",
             "endpoint": "http://localhost:28080/a2a",
-            "headers": {}
+            "headers": {},
+            "risk_level": "medium"
+        },
+        {
+            "name": "order_agent",
+            "endpoint": "http://localhost:28081/a2a",
+            "headers": {},
+            "risk_level": "high"
         }
     ],
     "mcps": [
         {
             "name": "weather",
+            "transport": "stdio",
             "command": "go",
             "args": [
                 "run",
                 "/home/jett/aishu/XiaoQinglong/mock/mcp"
             ],
-            "env": {}
+            "env": {},
+            "risk_level": "low"
+        },
+        {
+            "name": "filesystem",
+            "transport": "http",
+            "endpoint": "http://localhost:8090/mcp",
+            "headers": {
+                "Authorization": "Bearer token"
+            },
+            "risk_level": "high"
         }
     ],
     "sandbox": {
@@ -54,14 +103,22 @@
         "image": "sandbox-code-interpreter:v1.0.3",
         "workdir": "/workspace",
         "timeout_ms": 120000,
+        "network": "bridge",
         "env": {
             "PATH": "/usr/local/bin:/usr/bin:/bin"
+        },
+        "limits": {
+            "cpu": "0.5",
+            "memory": "512m"
         }
     },
     "options": {
         "temperature": 0.7,
         "max_tokens": 2000,
         "max_iterations": 10,
+        "max_tool_calls": 20,
+        "max_a2a_calls": 5,
+        "max_total_tokens": 50000,
         "stream": true,
         "retry": {
             "max_attempts": 3,
@@ -73,6 +130,62 @@
                 "rate_limit",
                 "server_error"
             ]
+        },
+        "routing": {
+            "default_model": "default",
+            "rewrite_prompt": "请优化以下用户Query，使其更加清晰、准确，便于理解和执行。只返回优化后的Query，不要其他内容。",
+            "summarize_prompt": "请总结以下内容，提取关键信息，保持简洁。只返回总结内容，不要其他内容。"
+        },
+        "approval_policy": {
+            "enabled": true,
+            "risk_threshold": "medium",
+            "auto_approve": [
+                "get_product_info"
+            ]
+        },
+        "response_schema": {
+            "type": "a2ui",
+            "version": "1.0",
+            "strict": true,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string",
+                        "description": "回复用户的文本内容"
+                    },
+                    "action": {
+                        "type": "object",
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "none",
+                                    "form",
+                                    "link",
+                                    "calendar",
+                                    "location"
+                                ]
+                            },
+                            "data": {}
+                        }
+                    },
+                    "card": {
+                        "type": "object",
+                        "properties": {
+                            "title": {
+                                "type": "string"
+                            },
+                            "sections": {
+                                "type": "array"
+                            },
+                            "actions": {
+                                "type": "array"
+                            }
+                        }
+                    }
+                }
+            }
         }
     },
     "skills": [
@@ -84,25 +197,56 @@
             "scope": "both",
             "trigger": "manual",
             "entry_script": "python3 scripts/s3_upload.py",
-            "file_path": "s3-upload"
+            "file_path": "s3-upload",
+            "risk_level": "medium"
+        },
+        {
+            "id": "query-order",
+            "name": "订单查询",
+            "description": "查询用户订单状态和详情",
+            "instruction": "你是一个订单查询助手，可以帮助用户查询订单状态、订单详情等信息。",
+            "scope": "query",
+            "trigger": "auto",
+            "entry_script": "python3 scripts/query_order.py",
+            "file_path": "query-order",
+            "risk_level": "low"
+        },
+        {
+            "id": "data-export",
+            "name": "数据导出",
+            "description": "导出数据为Excel或CSV格式",
+            "instruction": "你是一个数据导出助手，可以帮助用户导出各种格式的数据。",
+            "scope": "export",
+            "trigger": "manual",
+            "entry_script": "python3 scripts/data_export.py",
+            "file_path": "data-export",
+            "risk_level": "high"
         }
     ],
     "context": {
         "session_id": "sess_abc123def456",
         "user_id": "user_001",
         "channel_id": "feishu",
+        "skills_dir": "skills",
         "variables": {
             "last_query_time": "2024-03-15T10:30:00Z",
             "user_preference": "express_shipping",
             "cart_items_count": 3
-        }
+        },
+        "trace_id": "trace-abc123",
+        "parent_span_id": "span-xyz789"
     },
     "knowledge": [
         {
             "id": "product_info",
             "name": "产品信息",
             "content": "我们的产品分为三个系列：基础版、专业版、企业版。基础版免费，专业版99元/月，企业版299元/月。",
-            "score": 0.95
+            "score": 0.95,
+            "metadata": {
+                "source": "internal_wiki",
+                "url": "http://wiki.company.com/products",
+                "last_updated": "2024-01-01"
+            }
         }
     ]
 }

@@ -169,17 +169,48 @@ func (d *Dispatcher) initModels(ctx context.Context) error {
 	return nil
 }
 
-func (d *Dispatcher) initTools(ctx context.Context) error {
-	var tools []tool.BaseTool
+// shouldWrapForApproval 判断工具是否需要包装审批
+func (d *Dispatcher) shouldWrapForApproval(toolName, riskLevel string) bool {
+	if d.request.Options == nil || d.request.Options.ApprovalPolicy == nil {
+		return false
+	}
 
-	for _, tc := range d.request.Tools {
-		switch tc.Type {
-		case "http":
-			tools = append(tools, NewHTTPTool(tc))
+	policy := d.request.Options.ApprovalPolicy
+	if !policy.Enabled {
+		return false
+	}
+
+	// 检查是否在白名单中
+	for _, name := range policy.AutoApprove {
+		if name == toolName {
+			return false
 		}
 	}
 
-	d.tools = tools
+	// 检查 risk_level 是否达到阈值
+	return ShouldApprove(riskLevel, policy.RiskThreshold)
+}
+
+// wrapToolWithApproval 如果需要审批，包装工具
+func (d *Dispatcher) wrapToolWithApproval(t tool.InvokableTool, toolName, toolType, riskLevel string) tool.BaseTool {
+	if !d.shouldWrapForApproval(toolName, riskLevel) {
+		return t
+	}
+
+	log.Printf("[Dispatcher] Wrapping tool %s (%s) with approval, risk_level=%s", toolName, toolType, riskLevel)
+	return NewInvokableApprovableTool(t, toolName, toolType, riskLevel)
+}
+
+func (d *Dispatcher) initTools(ctx context.Context) error {
+	for _, tc := range d.request.Tools {
+		switch tc.Type {
+		case "http":
+			httpTool := NewHTTPTool(tc)
+			// 根据 risk_level 判断是否需要包装审批
+			wrapped := d.wrapToolWithApproval(httpTool, tc.Name, "http", tc.RiskLevel)
+			d.tools = append(d.tools, wrapped)
+		}
+	}
 	return nil
 }
 
@@ -240,7 +271,16 @@ func (d *Dispatcher) initA2A(ctx context.Context) error {
 					log.Printf("[Dispatcher] A2A trace context set: %v", traceCtx)
 				}
 			}
-			d.tools = append(d.tools, a2aTool)
+
+			// 获取 A2A risk level（使用配置中的 risk_level，默认 medium）
+			a2aRiskLevel := "medium"
+			if len(d.request.A2A) > 0 && d.request.A2A[0].RiskLevel != "" {
+				a2aRiskLevel = d.request.A2A[0].RiskLevel
+			}
+
+			// 根据 risk_level 判断是否需要包装审批
+			wrappedA2ATool := d.wrapToolWithApproval(a2aTool, "a2a", "a2a", a2aRiskLevel)
+			d.tools = append(d.tools, wrappedA2ATool)
 		}
 	}
 
@@ -289,7 +329,13 @@ func (d *Dispatcher) initMCPs(ctx context.Context) error {
 				continue
 			}
 			for _, t := range tools {
-				d.tools = append(d.tools, t)
+				// HTTP MCP tools 需要包装审批
+				if invokableTool, ok := t.(tool.InvokableTool); ok {
+					wrapped := d.wrapToolWithApproval(invokableTool, mcpCfg.Name, "mcp", mcpCfg.RiskLevel)
+					d.tools = append(d.tools, wrapped)
+				} else {
+					d.tools = append(d.tools, t)
+				}
 			}
 			log.Printf("[Dispatcher] initMCP: %s loaded %d tools", mcpCfg.Name, len(tools))
 
@@ -309,7 +355,9 @@ func (d *Dispatcher) initMCPs(ctx context.Context) error {
 				name:    mcpCfg.Name,
 				client:  client,
 			}
-			d.tools = append(d.tools, mcpTool)
+			// 根据 risk_level 判断是否需要包装审批
+			wrapped := d.wrapToolWithApproval(mcpTool, mcpCfg.Name, "mcp", mcpCfg.RiskLevel)
+			d.tools = append(d.tools, wrapped)
 			log.Printf("[Dispatcher] initMCP: %s (stdio) initialized", mcpCfg.Name)
 
 		default:
@@ -382,12 +430,55 @@ func (d *Dispatcher) initSkills(ctx context.Context) error {
 	}
 
 	// 创建 skill tool 并添加到 tools
-	skillTool := d.skillRunner.BuildSkillTool()
-	if skillTool != nil {
-		d.tools = append(d.tools, skillTool)
+	skillToolBase := d.skillRunner.BuildSkillTool()
+	if skillToolBase != nil {
+		// 检查是否需要包装审批
+		// 构建 skill name -> risk level 的映射
+		skillRiskLevels := make(map[string]string)
+		for _, s := range d.request.Skills {
+			if s.RiskLevel != "" {
+				skillRiskLevels[s.ID] = s.RiskLevel
+			}
+		}
+
+		// 如果有任何 skill 需要审批，则包装 skill tool
+		needsApproval := false
+		for _, riskLevel := range skillRiskLevels {
+			if d.shouldWrapForApproval("skill", riskLevel) {
+				needsApproval = true
+				break
+			}
+		}
+
+		if needsApproval {
+			// 类型断言获取 InvokableTool
+			if invokableTool, ok := skillToolBase.(tool.InvokableTool); ok {
+				// 创建动态风险级别获取器
+				getter := func(argumentsInJSON string) string {
+					// 解析 argumentsInJSON 提取 skill name
+					type skillInput struct {
+						Name string `json:"name"`
+					}
+					var input skillInput
+					if err := json.Unmarshal([]byte(argumentsInJSON), &input); err == nil {
+						if riskLevel, ok := skillRiskLevels[input.Name]; ok {
+							return riskLevel
+						}
+					}
+					return "medium" // 默认风险级别
+				}
+				wrappedSkillTool := NewInvokableApprovableToolWithGetter(invokableTool, "skill", "skill", "medium", getter)
+				d.tools = append(d.tools, wrappedSkillTool)
+				log.Printf("[Dispatcher] Skill tool wrapped with dynamic approval (skill count: %d)", len(skillRiskLevels))
+			} else {
+				d.tools = append(d.tools, skillToolBase)
+			}
+		} else {
+			d.tools = append(d.tools, skillToolBase)
+		}
 	}
 
-	// 创建 load_skill tool
+	// 创建 load_skill tool（低风险，通常不需要审批）
 	loadSkillTool := d.skillRunner.BuildLoadSkillTool()
 	if loadSkillTool != nil {
 		d.tools = append(d.tools, loadSkillTool)

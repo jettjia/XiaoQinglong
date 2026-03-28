@@ -266,10 +266,8 @@ type MCPStdioClient struct {
 
 func NewMCPStdioClient(cmd string, args []string, env map[string]string) (*MCPStdioClient, error) {
 	execCmd := exec.Command(cmd, args...)
-	if env != nil {
-		for k, v := range env {
-			execCmd.Env = append(execCmd.Env, k+"="+v)
-		}
+	for k, v := range env {
+		execCmd.Env = append(execCmd.Env, k+"="+v)
 	}
 
 	stdin, err := execCmd.StdinPipe()

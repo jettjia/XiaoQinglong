@@ -59,6 +59,7 @@ type Skill struct {
 	FilePath    string   `json:",omitempty"`
 	Inputs      []string `json:",omitempty"`
 	Outputs     []string `json:",omitempty"`
+	RiskLevel   string   `json:"risk_level,omitempty"`
 }
 
 type MCPConfig struct {
@@ -69,12 +70,14 @@ type MCPConfig struct {
 	Env       map[string]string `json:"env"`       // stdio 模式: 环境变量
 	Endpoint  string            `json:"endpoint"`  // http 模式: MCP 服务地址
 	Headers   map[string]string `json:"headers"`   // http 模式: 请求头
+	RiskLevel string            `json:"risk_level"`
 }
 
 type A2AAgentConfig struct {
-	Name     string            `json:"name"`
-	Endpoint string            `json:"endpoint"`
-	Headers  map[string]string `json:"headers"`
+	Name      string            `json:"name"`
+	Endpoint  string            `json:"endpoint"`
+	Headers   map[string]string `json:"headers"`
+	RiskLevel string            `json:"risk_level"`
 }
 
 type ToolConfig struct {
@@ -107,7 +110,15 @@ type RunOptions struct {
 	MaxTotalTokens  int                   `json:"max_total_tokens"`
 	Retry           *RetryConfig          `json:"retry"`
 	ResponseSchema  *ResponseSchemaConfig `json:"response_schema"`
-	Routing        *RoutingConfig       `json:"routing"`
+	Routing         *RoutingConfig        `json:"routing"`
+	ApprovalPolicy  *ApprovalPolicy      `json:"approval_policy"`
+}
+
+// ApprovalPolicy 审批策略
+type ApprovalPolicy struct {
+	Enabled        bool     `json:"enabled"`
+	RiskThreshold string   `json:"risk_threshold"` // low, medium, high
+	AutoApprove   []string `json:"auto_approve"`  // 白名单，tool names
 }
 
 type RetryConfig struct {
@@ -176,13 +187,24 @@ type SandboxLimits struct {
 // ========== Response Types ==========
 
 type RunResponse struct {
-	Content      string            `json:"content,omitempty"`
-	ToolCalls    []ToolCall        `json:"tool_calls,omitempty"`
-	A2AResults   []A2AResult       `json:"a2a_results,omitempty"`
-	TokensUsed   int               `json:"tokens_used,omitempty"`
-	FinishReason string            `json:"finish_reason"`
-	Metadata     ResponseMetadata  `json:"metadata"`
-	A2UIMessages []json.RawMessage `json:"a2ui_messages,omitempty"`
+	Content          string             `json:"content,omitempty"`
+	ToolCalls        []ToolCall         `json:"tool_calls,omitempty"`
+	A2AResults      []A2AResult        `json:"a2a_results,omitempty"`
+	TokensUsed       int                `json:"tokens_used,omitempty"`
+	FinishReason     string             `json:"finish_reason"`
+	Metadata         ResponseMetadata   `json:"metadata"`
+	A2UIMessages     []json.RawMessage  `json:"a2ui_messages,omitempty"`
+	PendingApprovals []PendingApproval  `json:"pending_approvals,omitempty"`
+}
+
+// PendingApproval 待审批信息
+type PendingApproval struct {
+	InterruptID     string `json:"interrupt_id"`
+	ToolName      string `json:"tool_name"`
+	ToolType      string `json:"tool_type"`
+	ArgumentsJSON string `json:"arguments_json"`
+	RiskLevel     string `json:"risk_level"`
+	Description   string `json:"description"`
 }
 
 type ToolCall struct {
