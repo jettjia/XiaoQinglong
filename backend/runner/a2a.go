@@ -66,7 +66,7 @@ func NewA2AClient(ctx context.Context, config A2AAgentConfig) (*A2AClient, error
 }
 
 // Run executes the A2A agent with a query using JSON-RPC over HTTP
-func (a *A2AClient) Run(ctx context.Context, query string) (string, error) {
+func (a *A2AClient) Run(ctx context.Context, query string, traceCtx map[string]string) (string, error) {
 	log.Printf("[A2A] Calling agent %s with query: %s", a.name, query)
 
 	// 构建 JSON-RPC 请求
@@ -78,6 +78,7 @@ func (a *A2AClient) Run(ctx context.Context, query string) (string, error) {
 				"role":    "user",
 				"content": query,
 			},
+			"context": traceCtx, // 传递 trace context
 		},
 		"id": time.Now().UnixNano(),
 	}
@@ -95,6 +96,16 @@ func (a *A2AClient) Run(ctx context.Context, query string) (string, error) {
 	req.Header.Set("Content-Type", "application/json")
 	for k, v := range a.headers {
 		req.Header.Set(k, v)
+	}
+
+	// 传递 trace headers (W3C Trace Context 标准)
+	if traceCtx != nil {
+		if traceID, ok := traceCtx["trace_id"]; ok {
+			req.Header.Set("trace-id", traceID)
+		}
+		if parentSpanID, ok := traceCtx["parent_span_id"]; ok {
+			req.Header.Set("parent-span-id", parentSpanID)
+		}
 	}
 
 	resp, err := a.httpClient.Do(req)
@@ -169,8 +180,9 @@ func (a *A2AClient) CreateA2ARunner(ctx context.Context, model model.ToolCalling
 
 type A2ATool struct {
 	clients    map[string]*A2AClient
-	callCount  *int // shared counter pointer
-	maxCalls   int  // max allowed calls
+	callCount  *int           // shared counter pointer
+	maxCalls   int            // max allowed calls
+	traceCtx   map[string]string // trace context (trace_id, parent_span_id)
 }
 
 func NewA2ATool(clients map[string]*A2AClient) *A2ATool {
@@ -186,6 +198,11 @@ func NewA2AToolWithCounter(clients map[string]*A2AClient, counter *int, maxCalls
 		callCount: counter,
 		maxCalls:  maxCalls,
 	}
+}
+
+// SetTraceContext sets the trace context for A2A calls
+func (t *A2ATool) SetTraceContext(ctx map[string]string) {
+	t.traceCtx = ctx
 }
 
 func (t *A2ATool) Info(ctx context.Context) (*schema.ToolInfo, error) {
@@ -244,7 +261,7 @@ func (t *A2ATool) InvokableRun(ctx context.Context, argumentsInJSON string, opt 
 		return "", fmt.Errorf("agent %s not found", input.Agent)
 	}
 
-	return client.Run(ctx, input.Query)
+	return client.Run(ctx, input.Query, t.traceCtx)
 }
 
 // ========== Helper ==========

@@ -220,7 +220,22 @@ func (d *Dispatcher) initA2A(ctx context.Context) error {
 			if d.request.Options != nil {
 				maxA2ACalls = d.request.Options.MaxA2ACalls
 			}
-			d.tools = append(d.tools, NewA2AToolWithCounter(clients, &d.a2aCallCount, maxA2ACalls))
+			a2aTool := NewA2AToolWithCounter(clients, &d.a2aCallCount, maxA2ACalls)
+			// 设置 trace context
+			if d.request.Context != nil {
+				traceCtx := make(map[string]string)
+				if v, ok := d.request.Context["trace_id"].(string); ok {
+					traceCtx["trace_id"] = v
+				}
+				if v, ok := d.request.Context["parent_span_id"].(string); ok {
+					traceCtx["parent_span_id"] = v
+				}
+				if len(traceCtx) > 0 {
+					a2aTool.SetTraceContext(traceCtx)
+					log.Printf("[Dispatcher] A2A trace context set: %v", traceCtx)
+				}
+			}
+			d.tools = append(d.tools, a2aTool)
 		}
 	}
 
