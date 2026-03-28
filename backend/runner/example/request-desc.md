@@ -167,7 +167,25 @@
             "runtime": "python3.10",
             "dependencies": ["boto3"],
             "entry_script": "python3 scripts/s3_upload.py",
-            "file_path": "s3-upload"
+            "file_path": "s3-upload",
+            "inputs": ["file_path", "bucket_name", "object_key"],
+            "outputs": ["upload_result", "download_url"]
+        },
+        {
+            "id": "query-order",
+            "name": "查询订单",
+            "description": "根据订单号查询订单详情",
+            "instruction": "查询订单详情信息。",
+            "inputs": ["order_id"],
+            "outputs": ["order_detail"]
+        },
+        {
+            "id": "validate-inventory",
+            "name": "验证库存",
+            "description": "验证商品库存是否充足",
+            "instruction": "验证订单中商品的库存情况。",
+            "inputs": ["order_detail"],
+            "outputs": ["validated_order"]
         }
     ],
     "context": {
