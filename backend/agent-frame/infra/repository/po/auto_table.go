@@ -5,6 +5,7 @@ import (
 
 	"github.com/jettjia/xiaoqinglong/agent-frame/config"
 	"github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/user"
+	"github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/model"
 )
 
 // AutoTable auto create table
@@ -15,6 +16,7 @@ func AutoTable() (err error) {
 	err = dbCli.AutoMigrate(
 		user.SysUser{},
 		user.SysLog{},
+		model.SysModel{},
 	)
 
 	return

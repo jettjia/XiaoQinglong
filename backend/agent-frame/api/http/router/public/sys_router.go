@@ -5,11 +5,13 @@ import (
 
 	handUser "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/user"
 	handConfig "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/config"
+	handModel "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/model"
 )
 
 func SetPublicRouter(Router *gin.RouterGroup) {
 	handUser := handUser.NewHandler()
 	handConfig := handConfig.NewHandler()
+	handModel := handModel.NewHandler()
 
 	GRouter := Router.Group("/user")
 	{
@@ -27,9 +29,20 @@ func SetPublicRouter(Router *gin.RouterGroup) {
 	// config
 	CRouter := Router.Group("/config")
 	{
-		CRouter.GET("/app", handConfig.GetAppConfig)      // 获取应用配置
-		CRouter.PUT("/app", handConfig.SaveAppConfig)     // 保存应用配置
-		CRouter.GET("/skills", handConfig.GetSkillsConfig) // 获取技能配置
-		CRouter.PUT("/skills", handConfig.SaveSkillsConfig) // 保存技能配置
+		CRouter.GET("/app", handConfig.GetAppConfig)               // 获取应用配置
+		CRouter.PUT("/app", handConfig.SaveAppConfig)             // 保存应用配置
+		CRouter.GET("/skills", handConfig.GetSkillsConfig)        // 获取技能配置
+		CRouter.PUT("/skills", handConfig.SaveSkillsConfig)       // 保存技能配置
+	}
+
+	// model
+	MRouter := Router.Group("/model")
+	{
+		MRouter.POST("", handModel.CreateSysModel)              // 创建
+		MRouter.DELETE("/:ulid", handModel.DeleteSysModel)     // 删除
+		MRouter.PUT("/:ulid", handModel.UpdateSysModel)        // 修改
+		MRouter.GET("/:ulid", handModel.FindSysModelById)      // 查询ByID
+		MRouter.POST("/all", handModel.FindSysModelAll)         // 查询所有
+		MRouter.POST("/page", handModel.FindSysModelPage)       // 分页查询
 	}
 }
