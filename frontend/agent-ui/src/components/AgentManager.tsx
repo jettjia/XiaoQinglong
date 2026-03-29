@@ -173,10 +173,15 @@ export function AgentManager({ onViewChange }: AgentManagerProps) {
     loadAgents();
   }, [loadAgents]);
 
-  const filteredAgents = agents.filter(a =>
-    a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    a.description.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredAgents = agents.filter(a => {
+    const matchesSearch = a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      a.description.toLowerCase().includes(searchQuery.toLowerCase());
+
+    if (filterStatus === 'enabled') return matchesSearch && a.enabled;
+    if (filterStatus === 'disabled') return matchesSearch && !a.enabled;
+    if (filterStatus === 'system') return matchesSearch && (a.is_system || a.isBuiltIn);
+    return matchesSearch;
+  });
 
   // 删除 Agent
   const handleDelete = async (agent: Agent) => {
@@ -290,10 +295,16 @@ export function AgentManager({ onViewChange }: AgentManagerProps) {
             className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all"
           />
         </div>
-        <button className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-all">
-          <Filter size={18} />
-          {t('agents.filter')}
-        </button>
+        <select
+          value={filterStatus}
+          onChange={(e) => setFilterStatus(e.target.value as any)}
+          className="px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all appearance-none"
+        >
+          <option value="all">{t('common.all')}</option>
+          <option value="enabled">{t('common.enabled')}</option>
+          <option value="disabled">{t('common.disabled')}</option>
+          <option value="system">{t('agents.builtIn')}</option>
+        </select>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -301,8 +312,9 @@ export function AgentManager({ onViewChange }: AgentManagerProps) {
           <div
             key={agent.id}
             className={cn(
-              "bg-white border border-slate-200 rounded-xl p-6 transition-all group",
-              !agent.isBuiltIn && !agent.is_system ? "hover:shadow-md cursor-pointer border-brand-100 hover:border-brand-200" : "hover:shadow-sm"
+              "rounded-xl p-6 transition-all group",
+              !agent.isBuiltIn && !agent.is_system ? "bg-white border hover:shadow-md hover:border-brand-300 cursor-pointer" : "bg-slate-50 border border-slate-200 hover:shadow-sm",
+              agent.enabled ? "border-brand-200" : "opacity-60 grayscale-[0.5] border-slate-300"
             )}
           >
             <div className="flex items-start justify-between mb-4">
@@ -482,7 +494,7 @@ export function AgentManager({ onViewChange }: AgentManagerProps) {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl w-[600px] shadow-2xl max-h-[80vh] overflow-hidden flex flex-col">
             <div className="p-6 border-b border-slate-100 flex items-center justify-between shrink-0">
-              <h2 className="text-lg font-bold text-slate-900">查看 Agent</h2>
+              <h2 className="text-lg font-bold text-slate-900">{t('agents.viewAgent')}</h2>
               <button
                 onClick={() => setIsViewModalOpen(false)}
                 className="text-slate-400 hover:text-slate-600 transition-all"
@@ -503,23 +515,23 @@ export function AgentManager({ onViewChange }: AgentManagerProps) {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="p-4 bg-slate-50 rounded-xl">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">图标</label>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('agents.icon')}</label>
                   <p className="text-sm text-slate-900 font-medium">{selectedAgent.icon}</p>
                 </div>
                 <div className="p-4 bg-slate-50 rounded-xl">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">模型</label>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('agents.model')}</label>
                   <p className="text-sm text-slate-900 font-medium">{selectedAgent.model}</p>
                 </div>
                 <div className="p-4 bg-slate-50 rounded-xl">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">状态</label>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('agents.status')}</label>
                   <p className={cn("text-sm font-medium", selectedAgent.enabled ? "text-green-600" : "text-slate-500")}>
-                    {selectedAgent.enabled ? '已启用' : '已禁用'}
+                    {selectedAgent.enabled ? t('agents.enabled') : t('agents.disabled')}
                   </p>
                 </div>
                 <div className="p-4 bg-slate-50 rounded-xl">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">类型</label>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('agents.type')}</label>
                   <p className="text-sm text-slate-900 font-medium">
-                    {selectedAgent.is_system || selectedAgent.isBuiltIn ? '系统内置' : '用户创建'}
+                    {selectedAgent.is_system || selectedAgent.isBuiltIn ? t('agents.systemBuiltIn') : t('agents.userCreated')}
                   </p>
                 </div>
               </div>
@@ -530,23 +542,23 @@ export function AgentManager({ onViewChange }: AgentManagerProps) {
                 if (!cfg) return null;
                 return (
                   <div className="space-y-4">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">关联配置 (ID版本)</label>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('agents.relatedConfig')}</label>
 
                     {/* System Prompt */}
                     <div className="p-3 bg-slate-50 rounded-xl">
-                      <label className="text-[9px] font-bold text-slate-400 uppercase">System Prompt</label>
+                      <label className="text-[9px] font-bold text-slate-400 uppercase">{t('agents.systemPrompt')}</label>
                       <p className="text-xs text-slate-700 mt-1 whitespace-pre-wrap">{cfg.systemPrompt}</p>
                     </div>
 
                     {/* Models */}
                     {cfg.models && (
                       <div className="p-3 bg-slate-50 rounded-xl">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase">模型配置</label>
+                        <label className="text-[9px] font-bold text-slate-400 uppercase">{t('agents.modelConfig')}</label>
                         <div className="grid grid-cols-2 gap-2 mt-2">
-                          <div><span className="text-[9px] text-slate-500">Default:</span> <span className="text-xs text-slate-700">{cfg.models.default}</span></div>
-                          <div><span className="text-[9px] text-slate-500">Rewrite:</span> <span className="text-xs text-slate-700">{cfg.models.rewrite}</span></div>
-                          <div><span className="text-[9px] text-slate-500">Skill:</span> <span className="text-xs text-slate-700">{cfg.models.skill}</span></div>
-                          <div><span className="text-[9px] text-slate-500">Summarize:</span> <span className="text-xs text-slate-700">{cfg.models.summarize}</span></div>
+                          <div><span className="text-[9px] text-slate-500">{t('agents.default')}:</span> <span className="text-xs text-slate-700">{cfg.models.default}</span></div>
+                          <div><span className="text-[9px] text-slate-500">{t('agents.rewrite')}:</span> <span className="text-xs text-slate-700">{cfg.models.rewrite}</span></div>
+                          <div><span className="text-[9px] text-slate-500">{t('agents.skill')}:</span> <span className="text-xs text-slate-700">{cfg.models.skill}</span></div>
+                          <div><span className="text-[9px] text-slate-500">{t('agents.summarize')}:</span> <span className="text-xs text-slate-700">{cfg.models.summarize}</span></div>
                         </div>
                       </div>
                     )}
@@ -554,11 +566,11 @@ export function AgentManager({ onViewChange }: AgentManagerProps) {
                     {/* Skills & KBs */}
                     <div className="grid grid-cols-2 gap-3">
                       <div className="p-3 bg-slate-50 rounded-xl">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase">技能 ({selectedAgent.skills?.length || 0})</label>
+                        <label className="text-[9px] font-bold text-slate-400 uppercase">{t('agents.skills')} ({selectedAgent.skills?.length || 0})</label>
                         <p className="text-xs text-slate-700 mt-1 break-all">{cfg.selectedSkills}</p>
                       </div>
                       <div className="p-3 bg-slate-50 rounded-xl">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase">知识库 ({selectedAgent.knowledgeBases?.length || 0})</label>
+                        <label className="text-[9px] font-bold text-slate-400 uppercase">{t('agents.knowledgeBases')} ({selectedAgent.knowledgeBases?.length || 0})</label>
                         <p className="text-xs text-slate-700 mt-1 break-all">{cfg.selectedKBs}</p>
                       </div>
                     </div>
@@ -566,15 +578,15 @@ export function AgentManager({ onViewChange }: AgentManagerProps) {
                     {/* Basic Config */}
                     <div className="grid grid-cols-3 gap-3">
                       <div className="p-3 bg-slate-50 rounded-xl text-center">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase">Temperature</label>
+                        <label className="text-[9px] font-bold text-slate-400 uppercase">{t('agents.temperature')}</label>
                         <p className="text-sm text-slate-700 font-medium mt-1">{cfg.temperature}</p>
                       </div>
                       <div className="p-3 bg-slate-50 rounded-xl text-center">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase">Max Tokens</label>
+                        <label className="text-[9px] font-bold text-slate-400 uppercase">{t('agents.maxTokens')}</label>
                         <p className="text-sm text-slate-700 font-medium mt-1">{cfg.maxTokens}</p>
                       </div>
                       <div className="p-3 bg-slate-50 rounded-xl text-center">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase">Top-K</label>
+                        <label className="text-[9px] font-bold text-slate-400 uppercase">{t('agents.topK')}</label>
                         <p className="text-sm text-slate-700 font-medium mt-1">{cfg.topK}</p>
                       </div>
                     </div>
@@ -582,26 +594,26 @@ export function AgentManager({ onViewChange }: AgentManagerProps) {
                     {/* Sandbox & Stream */}
                     <div className="grid grid-cols-2 gap-3">
                       <div className="p-3 bg-slate-50 rounded-xl">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase">沙箱</label>
+                        <label className="text-[9px] font-bold text-slate-400 uppercase">{t('agents.sandbox')}</label>
                         <p className="text-xs text-slate-700 mt-1">{cfg.sandbox}</p>
                       </div>
                       <div className="p-3 bg-slate-50 rounded-xl">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase">周期任务</label>
+                        <label className="text-[9px] font-bold text-slate-400 uppercase">{t('agents.periodicTask')}</label>
                         <p className="text-xs text-slate-700 mt-1">{cfg.isPeriodic} {cfg.cronRule !== '-' ? `(${cfg.cronRule})` : ''}</p>
                       </div>
                     </div>
 
-                    {/* 可运行配置 */}
+                    {/* Runnable Config */}
                     {cfgJson && (
                       <>
                         <div className="border-t border-slate-200 pt-4">
-                          <label className="text-[10px] font-bold text-brand-500 uppercase tracking-wider">可运行配置 (可直接拷贝测试)</label>
+                          <label className="text-[10px] font-bold text-brand-500 uppercase tracking-wider">{t('agents.runnableConfig')}</label>
                         </div>
 
                         {/* Models */}
                         {Object.keys(cfgJson.models).length > 0 && (
                           <div className="p-3 bg-brand-50 rounded-xl">
-                            <label className="text-[9px] font-bold text-brand-600 uppercase">模型配置</label>
+                            <label className="text-[9px] font-bold text-brand-600 uppercase">{t('agents.modelConfig')}</label>
                             <div className="grid grid-cols-2 gap-2 mt-2">
                               {Object.entries(cfgJson.models).map(([key, model]: [string, any]) => (
                                 <div key={key}><span className="text-[9px] text-slate-500">{key}:</span> <span className="text-xs text-slate-700">{model.provider}/{model.name}</span></div>
@@ -616,19 +628,19 @@ export function AgentManager({ onViewChange }: AgentManagerProps) {
                             <>
                               {cfgJson.toolsCount > 0 && (
                                 <div className="p-3 bg-brand-50 rounded-xl">
-                                  <label className="text-[9px] font-bold text-brand-600 uppercase">工具 ({cfgJson.toolsCount})</label>
+                                  <label className="text-[9px] font-bold text-brand-600 uppercase">{t('agents.tools')} ({cfgJson.toolsCount})</label>
                                   <p className="text-xs text-slate-700 mt-1">{cfgJson.tools}</p>
                                 </div>
                               )}
                               {cfgJson.mcpsCount > 0 && (
                                 <div className="p-3 bg-brand-50 rounded-xl">
-                                  <label className="text-[9px] font-bold text-brand-600 uppercase">MCP ({cfgJson.mcpsCount})</label>
+                                  <label className="text-[9px] font-bold text-brand-600 uppercase">{t('agents.mcp')} ({cfgJson.mcpsCount})</label>
                                   <p className="text-xs text-slate-700 mt-1">{cfgJson.mcps}</p>
                                 </div>
                               )}
                               {cfgJson.a2aCount > 0 && (
                                 <div className="p-3 bg-brand-50 rounded-xl">
-                                  <label className="text-[9px] font-bold text-brand-600 uppercase">A2A ({cfgJson.a2aCount})</label>
+                                  <label className="text-[9px] font-bold text-brand-600 uppercase">{t('agents.a2a')} ({cfgJson.a2aCount})</label>
                                   <p className="text-xs text-slate-700 mt-1">{cfgJson.a2a}</p>
                                 </div>
                               )}
@@ -636,13 +648,13 @@ export function AgentManager({ onViewChange }: AgentManagerProps) {
                           )}
                           {cfgJson.skillsCount > 0 && (
                             <div className="p-3 bg-brand-50 rounded-xl">
-                              <label className="text-[9px] font-bold text-brand-600 uppercase">Skills ({cfgJson.skillsCount})</label>
+                              <label className="text-[9px] font-bold text-brand-600 uppercase">{t('skills.skillsTab')} ({cfgJson.skillsCount})</label>
                               <p className="text-xs text-slate-700 mt-1">{cfgJson.skills}</p>
                             </div>
                           )}
                           {cfgJson.knowledgeCount > 0 && (
                             <div className="p-3 bg-brand-50 rounded-xl">
-                              <label className="text-[9px] font-bold text-brand-600 uppercase">知识库 ({cfgJson.knowledgeCount})</label>
+                              <label className="text-[9px] font-bold text-brand-600 uppercase">{t('agents.knowledge')} ({cfgJson.knowledgeCount})</label>
                               <p className="text-xs text-slate-700 mt-1">{cfgJson.knowledge}</p>
                             </div>
                           )}
@@ -652,7 +664,7 @@ export function AgentManager({ onViewChange }: AgentManagerProps) {
 
                     {/* Raw JSON Toggle */}
                     <details className="cursor-pointer">
-                      <summary className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">原始 JSON (ID版本)</summary>
+                      <summary className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{t('agents.rawJson')}</summary>
                       <pre className="w-full h-48 mt-2 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono overflow-auto whitespace-pre-wrap text-slate-700">
                         {typeof selectedAgent.config === 'string' ? selectedAgent.config : JSON.stringify(selectedAgent.config, null, 2)}
                       </pre>
@@ -660,7 +672,7 @@ export function AgentManager({ onViewChange }: AgentManagerProps) {
 
                     {selectedAgent.config_json && (
                       <details className="cursor-pointer">
-                        <summary className="text-[10px] font-bold text-brand-500 uppercase tracking-wider">可运行 JSON (config_json)</summary>
+                        <summary className="text-[10px] font-bold text-brand-500 uppercase tracking-wider">{t('agents.runnableJson')}</summary>
                         <pre className="w-full h-64 mt-2 px-4 py-3 bg-brand-50 border border-brand-200 rounded-xl text-xs font-mono overflow-auto whitespace-pre-wrap text-slate-700">
                           {typeof selectedAgent.config_json === 'string' ? selectedAgent.config_json : JSON.stringify(selectedAgent.config_json, null, 2)}
                         </pre>
@@ -678,7 +690,7 @@ export function AgentManager({ onViewChange }: AgentManagerProps) {
                 className="px-6 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-200 transition-all flex items-center gap-2"
               >
                 <Copy size={16} />
-                复制 JSON
+                {t('agents.copyJson')}
               </button>
             </div>
           </div>

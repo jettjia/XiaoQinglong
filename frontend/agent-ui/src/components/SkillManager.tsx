@@ -100,8 +100,9 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
     }
   };
 
-  const [formData, setFormData] = useState<Partial<Skill & { mcpMode: 'remote' | 'local' }>>({
+  const [formData, setFormData] = useState<Partial<Skill & { mcpMode: 'remote' | 'local'; description: string }>>({
     name: '',
+    description: '',
     content: '',
     mcpUrl: '',
     mcpMode: 'remote',
@@ -152,6 +153,7 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
   const resetForm = () => {
     setFormData({
       name: '',
+      description: '',
       content: '',
       mcpUrl: '',
       mcpMode: 'remote',
@@ -455,6 +457,18 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                 <>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                      {t('skills.description')}
+                    </label>
+                    <textarea
+                      value={formData.description}
+                      onChange={e => setFormData({ ...formData, description: e.target.value })}
+                      placeholder="MCP connector description"
+                      className="w-full h-20 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all text-sm resize-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
                       {t('skills.mcpMode')}
                     </label>
                     <div className="flex gap-2 p-1 bg-slate-100 rounded-xl">
@@ -559,6 +573,18 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                 <>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                      {t('skills.description')}
+                    </label>
+                    <textarea
+                      value={formData.description}
+                      onChange={e => setFormData({ ...formData, description: e.target.value })}
+                      placeholder="A2A service description"
+                      className="w-full h-20 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all text-sm resize-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
                       {t('skills.a2aEndpoint')} *
                     </label>
                     <input
@@ -588,6 +614,18 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
               {activeTab === 'tools' && (
                 <div className="space-y-4">
                   <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                      {t('skills.description')}
+                    </label>
+                    <textarea
+                      value={formData.description}
+                      onChange={e => setFormData({ ...formData, description: e.target.value })}
+                      placeholder="Tool description"
+                      className="w-full h-20 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all text-sm resize-none"
+                    />
+                  </div>
+
+                  <div>
                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                       {t('skills.toolEndpoint')}
                     </label>
@@ -596,18 +634,6 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                       value={formData.endpoint}
                       onChange={e => setFormData({ ...formData, endpoint: e.target.value })}
                       placeholder={t('skills.placeholderToolEndpoint')}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                      {t('skills.toolSandbox')}
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.sandboxEndpoint}
-                      onChange={e => setFormData({ ...formData, sandboxEndpoint: e.target.value })}
-                      placeholder={t('skills.placeholderToolSandbox')}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all text-sm"
                     />
                   </div>
@@ -634,8 +660,8 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                           onChange={e => setFormData({ ...formData, method: e.target.value as any })}
                           className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all text-sm appearance-none"
                         >
-                          <option value="POST">POST 后期</option>
-                          <option value="GET">GET 获取</option>
+                          <option value="POST">POST</option>
+                          <option value="GET">GET</option>
                         </select>
                         <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
                       </div>
@@ -648,20 +674,6 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                         type="number"
                         value={formData.timeout}
                         onChange={e => setFormData({ ...formData, timeout: parseInt(e.target.value) })}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all text-sm"
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                        {t('skills.toolSandboxToken')}
-                      </label>
-                      <input
-                        type="password"
-                        value={formData.sandboxToken}
-                        onChange={e => setFormData({ ...formData, sandboxToken: e.target.value })}
-                        placeholder="Bearer Token"
                         className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all text-sm"
                       />
                     </div>
