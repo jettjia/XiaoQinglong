@@ -476,6 +476,18 @@ export const agentApi = {
     }
   },
 
+  async updateEnabled(ulid: string, enabled: boolean): Promise<void> {
+    const res = await fetch(`${API_BASE}/agent/${ulid}/enabled`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ulid, enabled }),
+    });
+    if (!res.ok) {
+      const json = await res.json();
+      throw new Error(json.message || 'Failed to update agent enabled');
+    }
+  },
+
   async upload(config: {
     name: string;
     description: string;

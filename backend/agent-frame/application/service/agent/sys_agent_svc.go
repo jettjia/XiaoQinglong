@@ -61,6 +61,11 @@ func (s *SysAgentService) UpdateSysAgent(ctx context.Context, req *dto.UpdateSys
 	return s.sysAgentSrv.Update(ctx, en)
 }
 
+// UpdateSysAgentEnabled 修改启用状态
+func (s *SysAgentService) UpdateSysAgentEnabled(ctx context.Context, req *dto.UpdateSysAgentEnabledReq) error {
+	return s.sysAgentSrv.UpdateEnabled(ctx, req.Ulid, req.Enabled)
+}
+
 func (s *SysAgentService) FindSysAgentById(ctx context.Context, req *dto.FindSysAgentByIdReq) (*dto.FindSysAgentRsp, error) {
 	en, err := s.sysAgentSrv.FindById(ctx, req.Ulid)
 	if err != nil {

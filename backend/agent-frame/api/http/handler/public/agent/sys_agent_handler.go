@@ -83,6 +83,25 @@ func (h *Handler) UpdateSysAgent(c *gin.Context) {
 	xresponse.RspOk(c, http.StatusNoContent, nil)
 }
 
+// UpdateSysAgentEnabled 修改启用状态
+func (h *Handler) UpdateSysAgentEnabled(c *gin.Context) {
+	dtoReq := dto.UpdateSysAgentEnabledReq{}
+	err := c.BindJSON(&dtoReq)
+	if err != nil {
+		err = xerror.NewErrorOpt(apierror.BadRequestErr, xerror.WithCause(err.Error()))
+		_ = c.Error(err)
+		return
+	}
+
+	err = h.SysAgentSrv.UpdateSysAgentEnabled(c, &dtoReq)
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+
+	xresponse.RspOk(c, http.StatusOK, nil)
+}
+
 // FindSysAgentById 查询 Agent
 func (h *Handler) FindSysAgentById(c *gin.Context) {
 	dtoReq := dto.FindSysAgentByIdReq{}

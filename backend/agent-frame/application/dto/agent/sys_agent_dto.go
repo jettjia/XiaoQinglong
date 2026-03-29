@@ -14,6 +14,7 @@ type (
 		Icon        string `json:"icon"`
 		Model       string `json:"model"`
 		Config      string `json:"config"`
+		ConfigJson  string `json:"config_json"`
 		Enabled     bool   `json:"enabled"`
 		IsSystem    bool   `json:"is_system"`
 	}
@@ -32,7 +33,14 @@ type (
 		Icon        string `json:"icon"`
 		Model       string `json:"model"`
 		Config      string `json:"config"`
+		ConfigJson  string `json:"config_json"`
 		Enabled     *bool  `json:"enabled"`
+	}
+
+	// UpdateSysAgentEnabledReq 修改启用状态请求对象
+	UpdateSysAgentEnabledReq struct {
+		Ulid    string `validate:"required" json:"ulid"`
+		Enabled bool   `json:"enabled"`
 	}
 
 	// FindSysAgentByIdReq 查询请求对象
@@ -82,6 +90,7 @@ type (
 		Icon        string `json:"icon"`
 		Model       string `json:"model"`
 		Config      string `json:"config"`
+		ConfigJson  string `json:"config_json"`
 		IsSystem    bool   `json:"is_system"`
 		Enabled     bool   `json:"enabled"`
 	}

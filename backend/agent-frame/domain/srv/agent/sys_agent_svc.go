@@ -36,6 +36,11 @@ func (s *SysAgentSvc) Update(ctx context.Context, sysAgentEn *entity.SysAgent) (
 	return s.sysAgentRepo.Update(ctx, sysAgentEn)
 }
 
+// UpdateEnabled 修改启用状态
+func (s *SysAgentSvc) UpdateEnabled(ctx context.Context, ulid string, enabled bool) error {
+	return s.sysAgentRepo.UpdateEnabled(ctx, ulid, enabled)
+}
+
 // FindById 查看byId
 func (s *SysAgentSvc) FindById(ctx context.Context, ulid string) (sysAgentEn *entity.SysAgent, err error) {
 	return s.sysAgentRepo.FindById(ctx, ulid)

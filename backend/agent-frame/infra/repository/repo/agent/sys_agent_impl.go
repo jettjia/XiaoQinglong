@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"time"
 
 	"github.com/jettjia/igo-pkg/pkg/data"
 	"github.com/jettjia/igo-pkg/pkg/xsql/builder"
@@ -45,6 +46,14 @@ func (r *SysAgent) Update(ctx context.Context, sysAgentEn *entity.SysAgent) (err
 	sysAgentPo := converter.E2PSysAgentUpdate(sysAgentEn)
 
 	return r.data.DB(ctx).Model(&po.SysAgent{}).Where("ulid = ? ", sysAgentEn.Ulid).Updates(sysAgentPo).Error
+}
+
+// UpdateEnabled 只更新 enabled 字段
+func (r *SysAgent) UpdateEnabled(ctx context.Context, ulid string, enabled bool) error {
+	return r.data.DB(ctx).Model(&po.SysAgent{}).Where("ulid = ?", ulid).Updates(map[string]interface{}{
+		"enabled":    enabled,
+		"updated_at": time.Now().UnixNano(),
+	}).Error
 }
 
 func (r *SysAgent) FindById(ctx context.Context, ulid string, selectColumn ...string) (sysAgentEn *entity.SysAgent, err error) {

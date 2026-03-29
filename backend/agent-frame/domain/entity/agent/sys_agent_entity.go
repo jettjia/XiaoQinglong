@@ -12,6 +12,7 @@ type SysAgent struct {
 	Icon        string `json:"icon"`
 	Model       string `json:"model"`
 	Config      string `json:"config"`
+	ConfigJson  string `json:"config_json"`
 	IsSystem    bool   `json:"is_system"`
 	Enabled     bool   `json:"enabled"`
 }

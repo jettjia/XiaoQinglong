@@ -8,6 +8,7 @@ export interface Agent {
   model: string;
   icon: string;
   config?: any;
+  config_json?: any;
   is_system?: boolean;
   enabled?: boolean;
   skills: string[];

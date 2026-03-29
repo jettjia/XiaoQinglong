@@ -46,6 +46,12 @@ func (a *SysAgentAssembler) D2EUpdateSysAgent(dto *dto.UpdateSysAgentReq) *entit
 	if err := copier.Copy(&rspEn, &dto); err != nil {
 		panic(any(err))
 	}
+
+	// 手动处理 Enabled 字段，因为 DTO 是 *bool 而 Entity 是 bool
+	if dto.Enabled != nil {
+		rspEn.Enabled = *dto.Enabled
+	}
+
 	return &rspEn
 }
 

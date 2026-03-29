@@ -87,5 +87,6 @@ func SetPublicRouter(Router *gin.RouterGroup) {
 		AgentRouter.POST("/all", handAgent.FindSysAgentAll)         // 查询所有
 		AgentRouter.POST("/page", handAgent.FindSysAgentPage)      // 分页查询
 		AgentRouter.POST("/upload", handAgent.UploadSysAgent)      // 上传导入
+		AgentRouter.PUT("/:ulid/enabled", handAgent.UpdateSysAgentEnabled) // 修改启用状态
 	}
 }

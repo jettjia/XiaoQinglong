@@ -17,6 +17,7 @@ type SysAgent struct {
 	Icon         string `gorm:"column:icon;type:varchar(50);comment:图标名称;" json:"icon"`
 	Model        string `gorm:"column:model;type:varchar(100);comment:默认模型;" json:"model"`
 	Config       string `gorm:"column:config;type:text;comment:完整JSON配置;" json:"config"`
+	ConfigJson   string `gorm:"column:config_json;type:text;comment:可运行JSON配置;" json:"config_json"`
 	IsSystem     bool   `gorm:"column:is_system;type:boolean;default:false;comment:是否系统内置;" json:"is_system"`
 	Enabled      bool   `gorm:"column:enabled;type:boolean;default:true;comment:是否启用;" json:"enabled"`
 }

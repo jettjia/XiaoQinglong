@@ -33,7 +33,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useTranslation } from 'react-i18next';
-import { modelApi, skillApi, knowledgeBaseApi } from '../lib/api';
+import { modelApi, skillApi, knowledgeBaseApi, agentApi } from '../lib/api';
 import { Message, Variable } from '../types';
 
 export function AgentOrchestrator() {
@@ -151,11 +151,232 @@ export function AgentOrchestrator() {
     setIsDeployModalOpen(true);
   };
 
-  const handleConfirmDeploy = () => {
-    // TODO: Call API to create agent
-    console.log('Deploy agent:', deployForm);
-    setIsDeployModalOpen(false);
+  const handleConfirmDeploy = async () => {
+    try {
+      setLoading(true);
+
+      // 生成可运行的完整配置版本 (config_json)
+      const generateFullConfig = () => {
+        const models: any = {};
+        const modelTypes = ['default', 'rewrite', 'skill', 'summarize'] as const;
+        modelTypes.forEach(type => {
+          const modelId = agentConfig.models[type];
+          const model = backendModels.find(m => m.ulid === modelId || m.id === modelId);
+          if (model) {
+            models[type] = {
+              provider: model.provider,
+              name: model.name,
+              api_key: model.api_key || '',
+              api_base: model.base_url || '',
+            };
+          }
+        });
+
+        // 转换 skills (工具)
+        const tools = backendSkills
+          .filter(s => agentConfig.selectedSkills.includes(s.ulid || s.id))
+          .filter(s => s.skill_type === 'tool' || s.skill_type === 'mcp')
+          .map(s => ({
+            type: 'http',
+            name: s.name,
+            description: s.description || '',
+            endpoint: s.endpoint || s.path || '',
+            method: 'GET',
+            headers: {},
+            risk_level: s.riskLevel || 'low',
+          }));
+
+        // 转换 skills (mcp)
+        const mcps = backendSkills
+          .filter(s => agentConfig.selectedSkills.includes(s.ulid || s.id))
+          .filter(s => s.skill_type === 'mcp')
+          .map(s => ({
+            name: s.name,
+            transport: 'http',
+            endpoint: s.mcpUrl || s.path || '',
+            headers: {},
+            risk_level: s.riskLevel || 'low',
+          }));
+
+        // 转换 skills (a2a)
+        const a2as = backendSkills
+          .filter(s => agentConfig.selectedSkills.includes(s.ulid || s.id))
+          .filter(s => s.skill_type === 'a2a')
+          .map(s => ({
+            name: s.name,
+            endpoint: s.endpoint || s.path || '',
+            headers: {},
+            risk_level: s.riskLevel || 'low',
+          }));
+
+        // 转换 skills (skill类型)
+        const skillsConfig = backendSkills
+          .filter(s => agentConfig.selectedSkills.includes(s.ulid || s.id))
+          .filter(s => s.skill_type === 'skill')
+          .map(s => ({
+            id: s.name,
+            name: s.name,
+            description: s.description || '',
+            instruction: s.description || '',
+            scope: 'both',
+            trigger: 'manual',
+            entry_script: '',
+            file_path: s.path || '',
+            risk_level: s.riskLevel || 'medium',
+          }));
+
+        // 转换 knowledge
+        const knowledge = backendKBs
+          .filter(kb => agentConfig.selectedKBs.includes(kb.ulid || kb.id))
+          .map(kb => ({
+            id: kb.name,
+            name: kb.name,
+            content: kb.description || '',
+            score: 0.9,
+            metadata: {},
+          }));
+
+        return {
+          endpoint: agentConfig.endpoint,
+          models,
+          system_prompt: agentConfig.systemPrompt,
+          user_message: '',
+          tools,
+          mcps,
+          a2a: a2as,
+          skills: skillsConfig,
+          sandbox: agentConfig.sandbox.enabled ? {
+            enabled: true,
+            mode: agentConfig.sandbox.mode,
+            image: agentConfig.sandbox.image,
+            workdir: agentConfig.sandbox.workdir,
+            timeout_ms: agentConfig.sandbox.timeoutMs,
+            network: 'bridge',
+            env: agentConfig.sandbox.env || {},
+            limits: {
+              cpu: '0.5',
+              memory: '512m',
+            },
+          } : { enabled: false },
+          options: {
+            temperature: agentConfig.temperature,
+            max_tokens: agentConfig.maxTokens,
+            max_iterations: agentConfig.maxIterations,
+            max_tool_calls: 20,
+            max_a2a_calls: 5,
+            stream: agentConfig.stream,
+            retry: {
+              max_attempts: agentConfig.retryCount,
+              initial_delay_ms: agentConfig.retryInterval * 1000,
+              max_delay_ms: 10000,
+              backoff_multiplier: 2.0,
+              retryable_errors: ['timeout', 'rate_limit', 'server_error'],
+            },
+            routing: {
+              default_model: 'default',
+              rewrite_prompt: '请优化以下用户Query，使其更加清晰、准确，便于理解和执行。只返回优化后的Query，不要其他内容。',
+              summarize_prompt: '请总结以下内容，提取关键信息，保持简洁。只返回总结内容，不要其他内容。',
+            },
+            approval_policy: {
+              enabled: agentConfig.requireApproval,
+              risk_threshold: agentConfig.approvalThreshold,
+              auto_approve: [],
+            },
+          },
+          context: {
+            session_id: '',
+            user_id: '',
+            channel_id: agentConfig.channels[0] || 'web',
+            skills_dir: 'skills',
+            variables: {},
+          },
+          knowledge,
+        };
+      };
+
+      // 构建 Agent 配置
+      const agentData = {
+        name: deployForm.name,
+        description: deployForm.description,
+        icon: deployForm.icon,
+        model: agentConfig.models.default,
+        enabled: true,
+        // config: ID版本，用于数据库关联
+        config: JSON.stringify({
+          systemPrompt: agentConfig.systemPrompt,
+          models: agentConfig.models,
+          temperature: agentConfig.temperature,
+          maxTokens: agentConfig.maxTokens,
+          topK: agentConfig.topK,
+          rerank: agentConfig.rerank,
+          selectedSkills: agentConfig.selectedSkills,
+          selectedKBs: agentConfig.selectedKBs,
+          requireApproval: agentConfig.requireApproval,
+          approvalThreshold: agentConfig.approvalThreshold,
+          channels: agentConfig.channels,
+          isPeriodic: agentConfig.isPeriodic,
+          cronRule: agentConfig.cronRule,
+          memoryLimit: agentConfig.memoryLimit,
+          longTermMemory: agentConfig.longTermMemory,
+          variables: agentConfig.variables,
+          retryCount: agentConfig.retryCount,
+          retryInterval: agentConfig.retryInterval,
+          timeout: agentConfig.timeout,
+          endpoint: agentConfig.endpoint,
+          maxIterations: agentConfig.maxIterations,
+          stream: agentConfig.stream,
+          sandbox: agentConfig.sandbox,
+          responseSchema: agentConfig.responseSchema,
+        }),
+        // config_json: 可直接运行的完整配置版本
+        config_json: JSON.stringify(generateFullConfig(), null, 2),
+        is_system: false,
+      };
+      console.log('Deploy agent:', agentData);
+      const result = await agentApi.create(agentData);
+      console.log('Agent created:', result);
+      alert(`Agent "${deployForm.name}" created successfully!`);
+      setIsDeployModalOpen(false);
+    } catch (err: any) {
+      console.error('Failed to create agent:', err);
+      alert(err.message || 'Failed to create agent');
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const handleSaveDraft = () => {
+    try {
+      // 保存草稿到 localStorage
+      const draftData = {
+        ...agentConfig,
+        savedAt: Date.now(),
+      };
+      localStorage.setItem('orchestrator_draft', JSON.stringify(draftData));
+      alert('Draft saved successfully!');
+    } catch (err: any) {
+      console.error('Failed to save draft:', err);
+      alert(err.message || 'Failed to save draft');
+    }
+  };
+
+  // 加载草稿
+  React.useEffect(() => {
+    const savedDraft = localStorage.getItem('orchestrator_draft');
+    if (savedDraft) {
+      try {
+        const draft = JSON.parse(savedDraft);
+        // 恢复草稿，但保留 name/description 不覆盖（用户可能改了）
+        setAgentConfig(prev => ({
+          ...draft,
+          name: prev.name,
+          description: prev.description,
+        }));
+      } catch (e) {
+        console.error('Failed to load draft:', e);
+      }
+    }
+  }, []);
 
   // Test Chat State
   const [testMessages, setTestMessages] = React.useState<Message[]>([]);
@@ -338,7 +559,10 @@ export function AgentOrchestrator() {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all">
+          <button
+            onClick={handleSaveDraft}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all"
+          >
             <Save size={16} />
             {t('orchestrator.saveDraft')}
           </button>
