@@ -1,5 +1,7 @@
 const API_BASE = '/api/xiaoqinglong/agent-frame/v1';
 
+import type { Agent } from '../types';
+
 export interface ApiResponse<T = any> {
   code: number;
   message: string;
@@ -408,6 +410,88 @@ export const skillApi = {
     const json = await res.json();
     if (!res.ok) {
       const errMsg = json.cause ? `${json.message}\n${json.cause}` : (json.message || 'Failed to upload skill');
+      throw new Error(errMsg);
+    }
+    return json.data || json;
+  },
+};
+
+export const agentApi = {
+  async findAll(): Promise<Agent[]> {
+    const res = await fetch(`${API_BASE}/agent/all`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to find agents');
+    }
+    return json.data || json;
+  },
+
+  async findById(ulid: string): Promise<Agent> {
+    const res = await fetch(`${API_BASE}/agent/${ulid}`, {
+      method: 'GET',
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to find agent');
+    }
+    return json.data || json;
+  },
+
+  async create(agent: Partial<Agent>): Promise<{ ulid: string }> {
+    const res = await fetch(`${API_BASE}/agent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(agent),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to create agent');
+    }
+    return json.data || json;
+  },
+
+  async update(ulid: string, agent: Partial<Agent>): Promise<void> {
+    const res = await fetch(`${API_BASE}/agent/${ulid}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(agent),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to update agent');
+    }
+  },
+
+  async delete(ulid: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/agent/${ulid}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      const json = await res.json();
+      throw new Error(json.message || 'Failed to delete agent');
+    }
+  },
+
+  async upload(config: {
+    name: string;
+    description: string;
+    icon: string;
+    model: string;
+    config: string;
+    enabled: boolean;
+  }): Promise<{ ulid: string }> {
+    const res = await fetch(`${API_BASE}/agent/upload`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      const errMsg = json.cause ? `${json.message}\n${json.cause}` : (json.message || 'Failed to upload agent');
       throw new Error(errMsg);
     }
     return json.data || json;

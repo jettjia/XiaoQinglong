@@ -1,18 +1,15 @@
 import React from 'react';
-import { 
-  Plus, 
-  Workflow, 
-  Zap, 
-  Database, 
-  Cpu, 
-  Play, 
+import {
+  Plus,
+  Workflow,
+  Zap,
+  Database,
+  Play,
   Save,
   ChevronRight,
   Settings2,
-  Layers,
   Search,
   Box,
-  Share2,
   MessageSquare,
   Wrench,
   Users,
@@ -28,27 +25,59 @@ import {
   ShieldCheck,
   Filter,
   Timer,
-  RefreshCw,
   Code,
   Layout,
-  Activity
+  X,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useTranslation } from 'react-i18next';
-import { INITIAL_SKILLS, INITIAL_KNOWLEDGE_BASES, MOCK_MODELS } from '../constants';
-import { Agent, Skill, KnowledgeBase, Message, Variable } from '../types';
+import { modelApi, skillApi, knowledgeBaseApi } from '../lib/api';
+import { Message, Variable } from '../types';
 
 export function AgentOrchestrator() {
   const { t } = useTranslation();
-  
+
+  // Backend Data State
+  const [backendModels, setBackendModels] = React.useState<any[]>([]);
+  const [backendKBs, setBackendKBs] = React.useState<any[]>([]);
+  const [backendSkills, setBackendSkills] = React.useState<any[]>([]);
+  const [loading, setLoading] = React.useState(true);
+
+  // Load data from backend
+  React.useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const [models, kbs, skills] = await Promise.all([
+          modelApi.findAll(),
+          knowledgeBaseApi.findAll(),
+          skillApi.findAll(),
+        ]);
+        setBackendModels(models || []);
+        setBackendKBs(kbs || []);
+        setBackendSkills(skills || []);
+      } catch (err) {
+        console.error('Failed to load data:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
+
   // Agent Configuration State
   const [agentConfig, setAgentConfig] = React.useState({
     name: 'New Agent',
     description: 'A custom orchestrated agent',
     systemPrompt: '',
-    reasoningModel: MOCK_MODELS[0].id,
-    generationModel: MOCK_MODELS[1].id,
+    models: {
+      default: '',
+      rewrite: '',
+      skill: '',
+      summarize: '',
+    },
     temperature: 0.7,
     maxTokens: 2048,
     topK: 3,
@@ -88,6 +117,46 @@ export function AgentOrchestrator() {
     },
   });
 
+  // Set default models when loaded
+  React.useEffect(() => {
+    if (backendModels.length > 0) {
+      setAgentConfig(prev => ({
+        ...prev,
+        models: {
+          default: backendModels[0].ulid || backendModels[0].id,
+          rewrite: backendModels[0].ulid || backendModels[0].id,
+          skill: backendModels[0].ulid || backendModels[0].id,
+          summarize: backendModels[0].ulid || backendModels[0].id,
+        }
+      }));
+    }
+  }, [backendModels]);
+
+  // Deploy Modal State
+  const [isDeployModalOpen, setIsDeployModalOpen] = React.useState(false);
+  const [deployForm, setDeployForm] = React.useState({
+    name: '',
+    description: '',
+    icon: 'Bot',
+  });
+
+  const AGENT_ICONS = ['Bot', 'User', 'Sparkles', 'Brain', 'Zap', 'Workflow', 'MessageSquare', 'Globe', 'Terminal', 'Code'];
+
+  const handleDeployAsAgent = () => {
+    setDeployForm({
+      name: agentConfig.name,
+      description: agentConfig.description,
+      icon: 'Bot',
+    });
+    setIsDeployModalOpen(true);
+  };
+
+  const handleConfirmDeploy = () => {
+    // TODO: Call API to create agent
+    console.log('Deploy agent:', deployForm);
+    setIsDeployModalOpen(false);
+  };
+
   // Test Chat State
   const [testMessages, setTestMessages] = React.useState<Message[]>([]);
   const [testInput, setTestInput] = React.useState('');
@@ -99,7 +168,7 @@ export function AgentOrchestrator() {
   // Skill Category State
   const [skillCategory, setSkillCategory] = React.useState<'all' | 'built-in' | 'mcp' | 'tool' | 'a2a'>('all');
 
-  const filteredSkills = INITIAL_SKILLS.filter(skill => 
+  const filteredSkills = backendSkills.filter(skill =>
     skillCategory === 'all' || skill.type === skillCategory
   );
 
@@ -160,14 +229,14 @@ export function AgentOrchestrator() {
 
   const handleSendMessage = () => {
     if (!testInput.trim()) return;
-    
+
     const userMsg: Message = {
       id: Date.now().toString(),
       role: 'user',
       content: testInput,
       timestamp: new Date()
     };
-    
+
     setTestMessages(prev => [...prev, userMsg]);
     setTestInput('');
     setIsTesting(true);
@@ -176,16 +245,16 @@ export function AgentOrchestrator() {
     // Mock AI Response with Trace Data
     const timerId = setTimeout(() => {
       // Check for risk-based intervention
-      const selectedSkillsData = INITIAL_SKILLS.filter(s => agentConfig.selectedSkills.includes(s.id));
-      
+      const selectedSkillsData = backendSkills.filter(s => agentConfig.selectedSkills.includes(s.id));
+
       // For demo: if user mentions a tool name, simulate calling it
-      const mentionedSkill = selectedSkillsData.find(s => 
-        testInput.toLowerCase().includes(s.name.toLowerCase()) || 
+      const mentionedSkill = selectedSkillsData.find(s =>
+        testInput.toLowerCase().includes(s.name.toLowerCase()) ||
         testInput.toLowerCase().includes(s.id.toLowerCase())
       );
 
       if (mentionedSkill && agentConfig.requireApproval) {
-        const isIntercepted = 
+        const isIntercepted =
           (agentConfig.approvalThreshold === 'low') ||
           (agentConfig.approvalThreshold === 'medium' && (mentionedSkill.riskLevel === 'medium' || mentionedSkill.riskLevel === 'high')) ||
           (agentConfig.approvalThreshold === 'high' && mentionedSkill.riskLevel === 'high');
@@ -212,12 +281,12 @@ export function AgentOrchestrator() {
       const aiMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: `我已根据以下配置完成测试：\n- 推理模型：${agentConfig.reasoningModel}\n- 生成模型：${agentConfig.generationModel}\n- 知识库：${agentConfig.selectedKBs.length} 个\n- 技能：${agentConfig.selectedSkills.length} 个`,
+        content: `我已根据以下配置完成测试：\n- 默认模型：${agentConfig.models.default}\n- 知识库：${agentConfig.selectedKBs.length} 个\n- skill：${agentConfig.selectedSkills.length} 个`,
         timestamp: new Date(),
         trace: [
           { id: '1', type: 'thought' as const, label: '推理', content: '正在分析用户查询并识别意图...', status: 'success' as const, timestamp: new Date() },
           ...(agentConfig.selectedKBs.length > 0 ? [{ id: '2', type: 'retrieval' as const, label: '检索', content: `正在 ${agentConfig.selectedKBs.length} 个知识库中搜索... 找到 3 个相关片段。`, status: 'success' as const, timestamp: new Date() }] : []),
-          ...(agentConfig.selectedSkills.length > 0 ? [{ id: '3', type: 'tool' as const, label: '工具执行', content: `正在执行工具：${INITIAL_SKILLS.find(s => agentConfig.selectedSkills.includes(s.id))?.name}...`, status: 'success' as const, timestamp: new Date() }] : []),
+          ...(agentConfig.selectedSkills.length > 0 ? [{ id: '3', type: 'tool' as const, label: '工具执行', content: `正在执行工具：${backendSkills.find(s => agentConfig.selectedSkills.includes(s.id))?.name}...`, status: 'success' as const, timestamp: new Date() }] : []),
           { id: '4', type: 'thought' as const, label: '综合', content: '基于检索数据和工具输出综合最终回复。', status: 'success' as const, timestamp: new Date() }
         ]
       };
@@ -258,7 +327,7 @@ export function AgentOrchestrator() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <input 
+              <input
                 value={agentConfig.name}
                 onChange={(e) => setAgentConfig(prev => ({ ...prev, name: e.target.value }))}
                 className="text-sm font-bold text-slate-900 bg-transparent border-none focus:ring-0 p-0 w-40"
@@ -273,7 +342,10 @@ export function AgentOrchestrator() {
             <Save size={16} />
             {t('orchestrator.saveDraft')}
           </button>
-          <button className="flex items-center gap-2 px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-bold hover:bg-brand-600 transition-all shadow-lg shadow-brand-500/20">
+          <button
+            onClick={handleDeployAsAgent}
+            className="flex items-center gap-2 px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-bold hover:bg-brand-600 transition-all shadow-lg shadow-brand-500/20"
+          >
             <Sparkles size={16} />
             {t('orchestrator.deployAsAgent')}
           </button>
@@ -291,7 +363,7 @@ export function AgentOrchestrator() {
             </div>
             <div className="bg-slate-900 rounded-2xl p-8 flex items-center justify-between relative overflow-hidden">
               <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-brand-500 via-transparent to-transparent" />
-              
+
               {[
                 { id: 'trigger', label: t('orchestrator.pipelineTrigger'), icon: Zap, active: true },
                 { id: 'retrieval', label: t('orchestrator.knowledgeBases'), icon: Database, active: agentConfig.selectedKBs.length > 0 },
@@ -315,13 +387,13 @@ export function AgentOrchestrator() {
                   </div>
                   {idx < arr.length - 1 && (
                     <div className="flex-1 h-px bg-slate-800 relative mx-4">
-                      <motion.div 
+                      <motion.div
                         initial={{ left: '-100%' }}
                         animate={{ left: '100%' }}
                         transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
                         className={cn(
                           "absolute top-0 h-full w-1/2 bg-gradient-to-r from-transparent via-brand-500 to-transparent",
-                          !arr[idx+1].active && "hidden"
+                          !arr[idx + 1].active && "hidden"
                         )}
                       />
                     </div>
@@ -337,25 +409,45 @@ export function AgentOrchestrator() {
               <Brain size={18} className="text-brand-500" />
               <h2 className="font-bold">{t('orchestrator.modelConfig')}</h2>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-4 gap-4">
               <div className="space-y-2">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t('orchestrator.reasoningStage')}</label>
-                <select 
-                  value={agentConfig.reasoningModel}
-                  onChange={(e) => setAgentConfig(prev => ({ ...prev, reasoningModel: e.target.value }))}
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Default</label>
+                <select
+                  value={agentConfig.models.default}
+                  onChange={(e) => setAgentConfig(prev => ({ ...prev, models: { ...prev.models, default: e.target.value } }))}
                   className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-brand-500/20 outline-none"
                 >
-                  {MOCK_MODELS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  {backendModels.map(m => <option key={m.ulid || m.id} value={m.ulid || m.id}>{m.name}</option>)}
                 </select>
               </div>
               <div className="space-y-2">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t('orchestrator.generationStage')}</label>
-                <select 
-                  value={agentConfig.generationModel}
-                  onChange={(e) => setAgentConfig(prev => ({ ...prev, generationModel: e.target.value }))}
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Rewrite</label>
+                <select
+                  value={agentConfig.models.rewrite}
+                  onChange={(e) => setAgentConfig(prev => ({ ...prev, models: { ...prev.models, rewrite: e.target.value } }))}
                   className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-brand-500/20 outline-none"
                 >
-                  {MOCK_MODELS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  {backendModels.map(m => <option key={m.ulid || m.id} value={m.ulid || m.id}>{m.name}</option>)}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Skill</label>
+                <select
+                  value={agentConfig.models.skill}
+                  onChange={(e) => setAgentConfig(prev => ({ ...prev, models: { ...prev.models, skill: e.target.value } }))}
+                  className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-brand-500/20 outline-none"
+                >
+                  {backendModels.map(m => <option key={m.ulid || m.id} value={m.ulid || m.id}>{m.name}</option>)}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Summarize</label>
+                <select
+                  value={agentConfig.models.summarize}
+                  onChange={(e) => setAgentConfig(prev => ({ ...prev, models: { ...prev.models, summarize: e.target.value } }))}
+                  className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-brand-500/20 outline-none"
+                >
+                  {backendModels.map(m => <option key={m.ulid || m.id} value={m.ulid || m.id}>{m.name}</option>)}
                 </select>
               </div>
             </div>
@@ -372,10 +464,10 @@ export function AgentOrchestrator() {
                     <label className="text-xs font-medium text-slate-600">{t('orchestrator.temperature')}</label>
                     <span className="text-xs font-bold text-brand-500">{agentConfig.temperature}</span>
                   </div>
-                  <input 
-                    type="range" 
-                    min="0" 
-                    max="1" 
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
                     step="0.1"
                     value={agentConfig.temperature}
                     onChange={(e) => setAgentConfig(prev => ({ ...prev, temperature: parseFloat(e.target.value) }))}
@@ -387,10 +479,10 @@ export function AgentOrchestrator() {
                     <label className="text-xs font-medium text-slate-600">{t('orchestrator.maxTokens')}</label>
                     <span className="text-xs font-bold text-brand-500">{agentConfig.maxTokens}</span>
                   </div>
-                  <input 
-                    type="range" 
-                    min="256" 
-                    max="8192" 
+                  <input
+                    type="range"
+                    min="256"
+                    max="8192"
                     step="256"
                     value={agentConfig.maxTokens}
                     onChange={(e) => setAgentConfig(prev => ({ ...prev, maxTokens: parseInt(e.target.value) }))}
@@ -409,14 +501,14 @@ export function AgentOrchestrator() {
                 <h2 className="font-bold">{t('orchestrator.knowledgeBases')}</h2>
               </div>
               <div className="flex items-center gap-2">
-                <button 
-                  onClick={() => setAgentConfig(prev => ({ ...prev, selectedKBs: INITIAL_KNOWLEDGE_BASES.map(kb => kb.id) }))}
+                <button
+                  onClick={() => setAgentConfig(prev => ({ ...prev, selectedKBs: backendKBs.map(kb => kb.ulid || kb.id) }))}
                   className="text-[10px] font-bold text-brand-500 hover:text-brand-600 uppercase tracking-wider"
                 >
                   {t('orchestrator.selectAll')}
                 </button>
                 <span className="text-slate-300">|</span>
-                <button 
+                <button
                   onClick={() => setAgentConfig(prev => ({ ...prev, selectedKBs: [] }))}
                   className="text-[10px] font-bold text-slate-400 hover:text-slate-600 uppercase tracking-wider"
                 >
@@ -428,7 +520,7 @@ export function AgentOrchestrator() {
             {/* KB Search */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
-              <input 
+              <input
                 type="text"
                 placeholder={t('orchestrator.searchKBs')}
                 className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-brand-500/20 outline-none"
@@ -436,20 +528,20 @@ export function AgentOrchestrator() {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              {INITIAL_KNOWLEDGE_BASES.map(kb => (
+              {backendKBs.map(kb => (
                 <button
-                  key={kb.id}
-                  onClick={() => handleToggleKB(kb.id)}
+                  key={kb.ulid || kb.id}
+                  onClick={() => handleToggleKB(kb.ulid || kb.id)}
                   className={cn(
                     "flex items-center gap-3 p-3 rounded-xl border-2 transition-all text-left group",
-                    agentConfig.selectedKBs.includes(kb.id)
+                    agentConfig.selectedKBs.includes(kb.ulid || kb.id)
                       ? "bg-brand-50 border-brand-500"
                       : "bg-white border-slate-100 hover:border-slate-200"
                   )}
                 >
                   <div className={cn(
                     "p-2 rounded-lg transition-colors",
-                    agentConfig.selectedKBs.includes(kb.id) ? "bg-brand-500 text-white" : "bg-slate-100 text-slate-500 group-hover:bg-slate-200"
+                    agentConfig.selectedKBs.includes(kb.ulid || kb.id) ? "bg-brand-500 text-white" : "bg-slate-100 text-slate-500 group-hover:bg-slate-200"
                   )}>
                     <Database size={16} />
                   </div>
@@ -457,7 +549,7 @@ export function AgentOrchestrator() {
                     <p className="text-sm font-bold text-slate-900 truncate">{kb.name}</p>
                     <p className="text-[10px] text-slate-400 line-clamp-1">{kb.description}</p>
                   </div>
-                  {agentConfig.selectedKBs.includes(kb.id) && (
+                  {agentConfig.selectedKBs.includes(kb.ulid || kb.id) && (
                     <div className="w-4 h-4 rounded-full bg-brand-500 flex items-center justify-center text-white">
                       <Plus size={10} className="rotate-45" />
                     </div>
@@ -479,10 +571,10 @@ export function AgentOrchestrator() {
                       <label className="text-xs font-medium text-slate-600">{t('orchestrator.topK')}</label>
                       <span className="text-xs font-bold text-brand-500">{agentConfig.topK}</span>
                     </div>
-                    <input 
-                      type="range" 
-                      min="1" 
-                      max="10" 
+                    <input
+                      type="range"
+                      min="1"
+                      max="10"
                       value={agentConfig.topK}
                       onChange={(e) => setAgentConfig(prev => ({ ...prev, topK: parseInt(e.target.value) }))}
                       className="w-full accent-brand-500"
@@ -493,7 +585,7 @@ export function AgentOrchestrator() {
                       <h4 className="text-xs font-medium text-slate-900">{t('orchestrator.rerank')}</h4>
                       <p className="text-[10px] text-slate-500">{t('orchestrator.rerankDesc')}</p>
                     </div>
-                    <button 
+                    <button
                       onClick={() => setAgentConfig(prev => ({ ...prev, rerank: !prev.rerank }))}
                       className={cn(
                         "w-10 h-5 rounded-full transition-all relative",
@@ -518,7 +610,7 @@ export function AgentOrchestrator() {
                 <Zap size={18} className="text-brand-500" />
                 <h2 className="font-bold">{t('orchestrator.skillsAndCapabilities')}</h2>
               </div>
-              
+
               {/* Skill Category Tabs */}
               <div className="flex p-1 bg-slate-100 rounded-lg">
                 {(['all', 'built-in', 'mcp', 'tool', 'a2a'] as const).map((cat) => (
@@ -539,11 +631,11 @@ export function AgentOrchestrator() {
             <div className="grid grid-cols-3 gap-3">
               {filteredSkills.map(skill => (
                 <button
-                  key={skill.id}
-                  onClick={() => handleToggleSkill(skill.id)}
+                  key={skill.ulid || skill.id}
+                  onClick={() => handleToggleSkill(skill.ulid || skill.id)}
                   className={cn(
                     "flex flex-col gap-2 p-3 rounded-xl border-2 transition-all text-left",
-                    agentConfig.selectedSkills.includes(skill.id)
+                    agentConfig.selectedSkills.includes(skill.ulid || skill.id)
                       ? "bg-brand-50 border-brand-500"
                       : "bg-white border-slate-100 hover:border-slate-200"
                   )}
@@ -551,7 +643,7 @@ export function AgentOrchestrator() {
                   <div className="flex items-center justify-between">
                     <div className={cn(
                       "p-1.5 rounded-lg",
-                      agentConfig.selectedSkills.includes(skill.id) ? "bg-brand-500 text-white" : "bg-slate-100 text-slate-500"
+                      agentConfig.selectedSkills.includes(skill.ulid || skill.id) ? "bg-brand-500 text-white" : "bg-slate-100 text-slate-500"
                     )}>
                       {getSkillIcon(skill.type)}
                     </div>
@@ -559,9 +651,9 @@ export function AgentOrchestrator() {
                       {skill.riskLevel && (
                         <span className={cn(
                           "text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full",
-                          skill.riskLevel === 'high' ? "bg-red-100 text-red-600" : 
-                          skill.riskLevel === 'medium' ? "bg-amber-100 text-amber-600" : 
-                          "bg-emerald-100 text-emerald-600"
+                          skill.riskLevel === 'high' ? "bg-red-100 text-red-600" :
+                            skill.riskLevel === 'medium' ? "bg-amber-100 text-amber-600" :
+                              "bg-emerald-100 text-emerald-600"
                         )}>
                           {skill.riskLevel}
                         </span>
@@ -592,10 +684,10 @@ export function AgentOrchestrator() {
                     <h3 className="text-xs font-bold text-slate-900">{t('orchestrator.variables')}</h3>
                     <p className="text-[10px] text-slate-500">{t('orchestrator.variableDesc')}</p>
                   </div>
-                  <button 
-                    onClick={() => setAgentConfig(prev => ({ 
-                      ...prev, 
-                      variables: [...prev.variables, { name: '', type: 'string', required: false }] 
+                  <button
+                    onClick={() => setAgentConfig(prev => ({
+                      ...prev,
+                      variables: [...prev.variables, { name: '', type: 'string', required: false }]
                     }))}
                     className="p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-all"
                   >
@@ -605,7 +697,7 @@ export function AgentOrchestrator() {
                 <div className="space-y-2">
                   {agentConfig.variables.map((variable, idx) => (
                     <div key={idx} className="flex items-center gap-2 animate-in fade-in slide-in-from-left-2">
-                      <input 
+                      <input
                         value={variable.name}
                         onChange={(e) => {
                           const newVars = [...agentConfig.variables];
@@ -615,7 +707,7 @@ export function AgentOrchestrator() {
                         placeholder={t('orchestrator.variableName')}
                         className="flex-1 bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 text-xs focus:ring-2 focus:ring-brand-500/20 outline-none font-mono"
                       />
-                      <select 
+                      <select
                         value={variable.type}
                         onChange={(e) => {
                           const newVars = [...agentConfig.variables];
@@ -629,7 +721,7 @@ export function AgentOrchestrator() {
                         <option value="boolean">Boolean</option>
                       </select>
                       <label className="flex items-center gap-1 cursor-pointer">
-                        <input 
+                        <input
                           type="checkbox"
                           checked={variable.required}
                           onChange={(e) => {
@@ -641,7 +733,7 @@ export function AgentOrchestrator() {
                         />
                         <span className="text-[10px] font-bold text-slate-400 uppercase">{t('orchestrator.variableRequired')}</span>
                       </label>
-                      <button 
+                      <button
                         onClick={() => {
                           const newVars = agentConfig.variables.filter((_, i) => i !== idx);
                           setAgentConfig(prev => ({ ...prev, variables: newVars }));
@@ -655,7 +747,7 @@ export function AgentOrchestrator() {
                 </div>
               </div>
 
-              <textarea 
+              <textarea
                 value={agentConfig.systemPrompt}
                 onChange={(e) => setAgentConfig(prev => ({ ...prev, systemPrompt: e.target.value }))}
                 placeholder={t('orchestrator.placeholderPrompt')}
@@ -677,10 +769,10 @@ export function AgentOrchestrator() {
                   <p className="text-xs text-slate-500">{t('orchestrator.shortTermMemoryDesc')}</p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <input 
-                    type="range" 
-                    min="1" 
-                    max="50" 
+                  <input
+                    type="range"
+                    min="1"
+                    max="50"
                     value={agentConfig.memoryLimit}
                     onChange={(e) => setAgentConfig(prev => ({ ...prev, memoryLimit: parseInt(e.target.value) }))}
                     className="w-32 accent-brand-500"
@@ -694,7 +786,7 @@ export function AgentOrchestrator() {
                   <h3 className="text-sm font-bold text-slate-900">{t('orchestrator.longTermMemory')}</h3>
                   <p className="text-xs text-slate-500">{t('orchestrator.longTermMemoryDesc')}</p>
                 </div>
-                <button 
+                <button
                   onClick={() => setAgentConfig(prev => ({ ...prev, longTermMemory: !prev.longTermMemory }))}
                   className={cn(
                     "w-12 h-6 rounded-full transition-all relative",
@@ -717,8 +809,8 @@ export function AgentOrchestrator() {
               <h2 className="font-bold">Runner Endpoint</h2>
             </div>
             <div className="bg-white border border-slate-200 rounded-2xl p-6">
-              <input 
-                type="text" 
+              <input
+                type="text"
                 value={agentConfig.endpoint}
                 onChange={(e) => setAgentConfig(prev => ({ ...prev, endpoint: e.target.value }))}
                 placeholder="http://localhost:18080/run"
@@ -739,10 +831,10 @@ export function AgentOrchestrator() {
                   <h3 className="text-sm font-bold text-slate-900">{t('orchestrator.retryCount')}</h3>
                 </div>
                 <div className="flex items-center gap-3">
-                  <input 
-                    type="range" 
-                    min="0" 
-                    max="10" 
+                  <input
+                    type="range"
+                    min="0"
+                    max="10"
                     value={agentConfig.retryCount}
                     onChange={(e) => setAgentConfig(prev => ({ ...prev, retryCount: parseInt(e.target.value) }))}
                     className="w-32 accent-brand-500"
@@ -756,10 +848,10 @@ export function AgentOrchestrator() {
                   <h3 className="text-sm font-bold text-slate-900">{t('orchestrator.retryInterval')}</h3>
                 </div>
                 <div className="flex items-center gap-3">
-                  <input 
-                    type="range" 
-                    min="1" 
-                    max="60" 
+                  <input
+                    type="range"
+                    min="1"
+                    max="60"
                     value={agentConfig.retryInterval}
                     onChange={(e) => setAgentConfig(prev => ({ ...prev, retryInterval: parseInt(e.target.value) }))}
                     className="w-32 accent-brand-500"
@@ -773,10 +865,10 @@ export function AgentOrchestrator() {
                   <h3 className="text-sm font-bold text-slate-900">{t('orchestrator.timeout')}</h3>
                 </div>
                 <div className="flex items-center gap-3">
-                  <input 
-                    type="range" 
-                    min="10" 
-                    max="300" 
+                  <input
+                    type="range"
+                    min="10"
+                    max="300"
                     step="10"
                     value={agentConfig.timeout}
                     onChange={(e) => setAgentConfig(prev => ({ ...prev, timeout: parseInt(e.target.value) }))}
@@ -791,10 +883,10 @@ export function AgentOrchestrator() {
                   <h3 className="text-sm font-bold text-slate-900">{t('orchestrator.maxIterations')}</h3>
                 </div>
                 <div className="flex items-center gap-3">
-                  <input 
-                    type="range" 
-                    min="1" 
-                    max="20" 
+                  <input
+                    type="range"
+                    min="1"
+                    max="20"
                     value={agentConfig.maxIterations}
                     onChange={(e) => setAgentConfig(prev => ({ ...prev, maxIterations: parseInt(e.target.value) }))}
                     className="w-32 accent-brand-500"
@@ -849,7 +941,7 @@ export function AgentOrchestrator() {
               </div>
 
               {agentConfig.sandbox.enabled && (
-                <motion.div 
+                <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
                   className="space-y-4 pt-4 border-t border-slate-100"
@@ -857,7 +949,7 @@ export function AgentOrchestrator() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{t('orchestrator.sandboxMode')}</label>
-                      <select 
+                      <select
                         value={agentConfig.sandbox.mode}
                         onChange={(e) => setAgentConfig(prev => ({ ...prev, sandbox: { ...prev.sandbox, mode: e.target.value as 'docker' | 'local' } }))}
                         className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none"
@@ -868,8 +960,8 @@ export function AgentOrchestrator() {
                     </div>
                     <div className="space-y-2">
                       <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{t('orchestrator.sandboxTimeout')}</label>
-                      <input 
-                        type="number" 
+                      <input
+                        type="number"
                         value={agentConfig.sandbox.timeoutMs}
                         onChange={(e) => setAgentConfig(prev => ({ ...prev, sandbox: { ...prev.sandbox, timeoutMs: parseInt(e.target.value) } }))}
                         className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none"
@@ -878,8 +970,8 @@ export function AgentOrchestrator() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{t('orchestrator.sandboxImage')}</label>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={agentConfig.sandbox.image}
                       onChange={(e) => setAgentConfig(prev => ({ ...prev, sandbox: { ...prev.sandbox, image: e.target.value } }))}
                       className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none"
@@ -887,8 +979,8 @@ export function AgentOrchestrator() {
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{t('orchestrator.sandboxWorkdir')}</label>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={agentConfig.sandbox.workdir}
                       onChange={(e) => setAgentConfig(prev => ({ ...prev, sandbox: { ...prev.sandbox, workdir: e.target.value } }))}
                       className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none"
@@ -909,7 +1001,7 @@ export function AgentOrchestrator() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{t('orchestrator.schemaType')}</label>
-                  <select 
+                  <select
                     value={agentConfig.responseSchema.type}
                     onChange={(e) => setAgentConfig(prev => ({ ...prev, responseSchema: { ...prev.responseSchema, type: e.target.value as any } }))}
                     className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none"
@@ -925,8 +1017,8 @@ export function AgentOrchestrator() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{t('orchestrator.schemaVersion')}</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     value={agentConfig.responseSchema.version}
                     onChange={(e) => setAgentConfig(prev => ({ ...prev, responseSchema: { ...prev.responseSchema, version: e.target.value } }))}
                     className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none"
@@ -935,7 +1027,7 @@ export function AgentOrchestrator() {
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{t('orchestrator.schemaDefinition')}</label>
-                <textarea 
+                <textarea
                   value={agentConfig.responseSchema.schema}
                   onChange={(e) => setAgentConfig(prev => ({ ...prev, responseSchema: { ...prev.responseSchema, schema: e.target.value } }))}
                   rows={6}
@@ -957,7 +1049,7 @@ export function AgentOrchestrator() {
                   <h3 className="text-sm font-bold text-slate-900">{t('orchestrator.requireApproval')}</h3>
                   <p className="text-xs text-slate-500">{t('orchestrator.humanApprovalDesc')}</p>
                 </div>
-                <button 
+                <button
                   onClick={() => setAgentConfig(prev => ({ ...prev, requireApproval: !prev.requireApproval }))}
                   className={cn(
                     "w-12 h-6 rounded-full transition-all relative",
@@ -970,7 +1062,7 @@ export function AgentOrchestrator() {
                   )} />
                 </button>
               </div>
-              
+
               {agentConfig.requireApproval && (
                 <div className="space-y-6 animate-in fade-in slide-in-from-top-2 pt-6 border-t border-slate-100">
                   <div className="space-y-3">
@@ -984,8 +1076,8 @@ export function AgentOrchestrator() {
                           onClick={() => setAgentConfig(prev => ({ ...prev, approvalThreshold: level }))}
                           className={cn(
                             "px-4 py-1.5 text-xs font-bold rounded-lg transition-all",
-                            agentConfig.approvalThreshold === level 
-                              ? "bg-white text-slate-900 shadow-sm" 
+                            agentConfig.approvalThreshold === level
+                              ? "bg-white text-slate-900 shadow-sm"
                               : "text-slate-500 hover:text-slate-700"
                           )}
                         >
@@ -1003,21 +1095,21 @@ export function AgentOrchestrator() {
                       {t('orchestrator.affectedTools')}
                     </p>
                     <div className="grid grid-cols-2 gap-2">
-                      {INITIAL_SKILLS
-                        .filter(s => agentConfig.selectedSkills.includes(s.id))
+                      {backendSkills
+                        .filter(s => agentConfig.selectedSkills.includes(s.ulid || s.id))
                         .map(skill => {
-                          const isIntercepted = 
+                          const isIntercepted =
                             (agentConfig.approvalThreshold === 'low') ||
                             (agentConfig.approvalThreshold === 'medium' && (skill.riskLevel === 'medium' || skill.riskLevel === 'high')) ||
                             (agentConfig.approvalThreshold === 'high' && skill.riskLevel === 'high');
 
                           return (
-                            <div 
-                              key={skill.id} 
+                            <div
+                              key={skill.ulid || skill.id}
                               className={cn(
                                 "flex items-center justify-between p-3 rounded-xl border transition-all",
-                                isIntercepted 
-                                  ? "bg-amber-50 border-amber-200 text-amber-900" 
+                                isIntercepted
+                                  ? "bg-amber-50 border-amber-200 text-amber-900"
                                   : "bg-slate-50 border-slate-100 text-slate-400 opacity-60"
                               )}
                             >
@@ -1051,11 +1143,11 @@ export function AgentOrchestrator() {
                 {['api', 'web', 'feishu', 'dingtalk'].map(channel => (
                   <label key={channel} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors">
                     <span className="text-sm font-medium text-slate-700">{t(`orchestrator.${channel}Channel`)}</span>
-                    <input 
-                      type="checkbox" 
+                    <input
+                      type="checkbox"
                       checked={agentConfig.channels.includes(channel)}
                       onChange={() => handleToggleChannel(channel)}
-                      className="rounded text-brand-500 focus:ring-brand-500" 
+                      className="rounded text-brand-500 focus:ring-brand-500"
                     />
                   </label>
                 ))}
@@ -1073,7 +1165,7 @@ export function AgentOrchestrator() {
                     <h3 className="text-sm font-bold text-slate-900">{t('orchestrator.periodicTask')}</h3>
                     <p className="text-xs text-slate-500">{t('orchestrator.periodicTaskDesc')}</p>
                   </div>
-                  <button 
+                  <button
                     onClick={() => setAgentConfig(prev => ({ ...prev, isPeriodic: !prev.isPeriodic }))}
                     className={cn(
                       "w-12 h-6 rounded-full transition-all relative",
@@ -1086,11 +1178,11 @@ export function AgentOrchestrator() {
                     )} />
                   </button>
                 </div>
-                
+
                 {agentConfig.isPeriodic && (
                   <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t('orchestrator.cronRule')}</label>
-                    <input 
+                    <input
                       type="text"
                       value={agentConfig.cronRule}
                       onChange={(e) => setAgentConfig(prev => ({ ...prev, cronRule: e.target.value }))}
@@ -1110,7 +1202,7 @@ export function AgentOrchestrator() {
           isTestPanelCollapsed ? "w-12" : "w-[400px]"
         )}>
           {/* Collapse/Expand Toggle Button */}
-          <button 
+          <button
             onClick={() => setIsTestPanelCollapsed(!isTestPanelCollapsed)}
             className={cn(
               "absolute -left-3 top-20 w-6 h-6 bg-white border border-slate-200 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 shadow-sm z-30 transition-transform",
@@ -1139,7 +1231,7 @@ export function AgentOrchestrator() {
                   <h3 className="font-bold text-slate-900">{t('orchestrator.testPlayground')}</h3>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button 
+                  <button
                     onClick={() => setTestMessages([])}
                     className="text-[10px] font-bold text-slate-400 hover:text-slate-600 uppercase tracking-wider"
                   >
@@ -1158,7 +1250,7 @@ export function AgentOrchestrator() {
                   </div>
                 ) : (
                   testMessages.map((msg) => (
-                    <div 
+                    <div
                       key={msg.id}
                       className={cn(
                         "flex gap-3",
@@ -1188,7 +1280,7 @@ export function AgentOrchestrator() {
                           </div>
                         )}
                         {msg.content}
-                        
+
                         {msg.status === 'pending_approval' && (
                           <div className="mt-4 p-3 bg-white/50 rounded-xl border border-amber-200 space-y-3">
                             <div className="flex items-center gap-2 text-amber-700 font-bold text-[10px] uppercase tracking-wider">
@@ -1196,13 +1288,13 @@ export function AgentOrchestrator() {
                               需要人工干预
                             </div>
                             <div className="flex gap-2">
-                              <button 
+                              <button
                                 onClick={() => handleApprove(msg.id)}
                                 className="flex-1 py-1.5 bg-brand-500 text-white rounded-lg text-[10px] font-bold hover:bg-brand-600 transition-colors"
                               >
                                 批准
                               </button>
-                              <button 
+                              <button
                                 onClick={() => handleReject(msg.id)}
                                 className="flex-1 py-1.5 bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold hover:bg-slate-300 transition-colors"
                               >
@@ -1233,7 +1325,7 @@ export function AgentOrchestrator() {
               {/* Chat Input */}
               <div className="p-4 border-t border-slate-100 shrink-0">
                 <div className="relative">
-                  <textarea 
+                  <textarea
                     value={testInput}
                     onChange={(e) => setTestInput(e.target.value)}
                     onKeyDown={(e) => {
@@ -1246,7 +1338,7 @@ export function AgentOrchestrator() {
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-4 pr-12 py-3 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500/20 resize-none"
                     rows={1}
                   />
-                  <button 
+                  <button
                     onClick={handleSendMessage}
                     disabled={isTesting || !testInput.trim()}
                     className={cn(
@@ -1262,6 +1354,93 @@ export function AgentOrchestrator() {
           )}
         </div>
       </div>
+
+      {/* Deploy Agent Modal */}
+      {isDeployModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl w-[480px] shadow-2xl">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-slate-900">部署为智能体</h2>
+              <button
+                onClick={() => setIsDeployModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 transition-all"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 space-y-6">
+              {/* Name */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">智能体名称</label>
+                <input
+                  type="text"
+                  value={deployForm.name}
+                  onChange={(e) => setDeployForm(prev => ({ ...prev, name: e.target.value }))}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500/20 outline-none"
+                  placeholder="输入智能体名称"
+                />
+              </div>
+
+              {/* Description */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">描述</label>
+                <textarea
+                  value={deployForm.description}
+                  onChange={(e) => setDeployForm(prev => ({ ...prev, description: e.target.value }))}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500/20 outline-none resize-none"
+                  rows={3}
+                  placeholder="输入智能体描述"
+                />
+              </div>
+
+              {/* Icon Selection */}
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">选择图标</label>
+                <div className="grid grid-cols-5 gap-3">
+                  {AGENT_ICONS.map((iconName) => {
+                    const IconComponent = {
+                      Bot, User, Sparkles, Brain, Zap, Workflow, MessageSquare, Globe, Terminal, Code
+                    }[iconName] as React.ElementType;
+                    return (
+                      <button
+                        key={iconName}
+                        onClick={() => setDeployForm(prev => ({ ...prev, icon: iconName }))}
+                        className={cn(
+                          "p-3 rounded-xl border-2 transition-all",
+                          deployForm.icon === iconName
+                            ? "bg-brand-50 border-brand-500 text-brand-500"
+                            : "bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300"
+                        )}
+                      >
+                        <IconComponent size={24} />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-6 border-t border-slate-100 flex justify-end gap-3">
+              <button
+                onClick={() => setIsDeployModalOpen(false)}
+                className="px-6 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-200 transition-all"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleConfirmDeploy}
+                className="px-6 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-bold hover:bg-brand-600 transition-all shadow-lg shadow-brand-500/20"
+              >
+                确认部署
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

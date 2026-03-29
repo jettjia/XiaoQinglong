@@ -8,6 +8,7 @@ import (
 	handModel "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/model"
 	handKnowledgeBase "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/knowledge_base"
 	handSkill "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/skill"
+	handAgent "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/agent"
 )
 
 func SetPublicRouter(Router *gin.RouterGroup) {
@@ -16,6 +17,7 @@ func SetPublicRouter(Router *gin.RouterGroup) {
 	handModel := handModel.NewHandler()
 	handKnowledgeBase := handKnowledgeBase.NewHandler()
 	handSkill := handSkill.NewHandler()
+	handAgent := handAgent.NewHandler()
 
 	GRouter := Router.Group("/user")
 	{
@@ -73,5 +75,17 @@ func SetPublicRouter(Router *gin.RouterGroup) {
 		SkillRouter.POST("/page", handSkill.FindSysSkillPage)      // 分页查询
 		SkillRouter.POST("/upload", handSkill.UploadSysSkill)      // 上传安装
 		SkillRouter.POST("/check-name", handSkill.CheckSkillName)  // 检查同名
+	}
+
+	// agent
+	AgentRouter := Router.Group("/agent")
+	{
+		AgentRouter.POST("", handAgent.CreateSysAgent)              // 创建
+		AgentRouter.DELETE("/:ulid", handAgent.DeleteSysAgent)     // 删除
+		AgentRouter.PUT("/:ulid", handAgent.UpdateSysAgent)        // 修改
+		AgentRouter.GET("/:ulid", handAgent.FindSysAgentById)      // 查询ByID
+		AgentRouter.POST("/all", handAgent.FindSysAgentAll)         // 查询所有
+		AgentRouter.POST("/page", handAgent.FindSysAgentPage)      // 分页查询
+		AgentRouter.POST("/upload", handAgent.UploadSysAgent)      // 上传导入
 	}
 }

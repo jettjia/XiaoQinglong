@@ -1,14 +1,18 @@
 export type View = 'dashboard' | 'orchestrator' | 'agents' | 'skills' | 'knowledge' | 'models' | 'chat' | 'settings' | 'inbox';
 
 export interface Agent {
+  ulid?: string;
   id: string;
   name: string;
   description: string;
   model: string;
+  icon: string;
+  config?: any;
+  is_system?: boolean;
+  enabled?: boolean;
   skills: string[];
   tools: string[];
   knowledgeBases?: string[];
-  icon: string;
   isBuiltIn?: boolean;
   channels?: string[];
   isPeriodic?: boolean;
@@ -41,6 +45,10 @@ export interface Agent {
     strict: boolean;
     schema: any;
   };
+  created_at?: number;
+  updated_at?: number;
+  created_by?: string;
+  updated_by?: string;
 }
 
 export interface Variable {
