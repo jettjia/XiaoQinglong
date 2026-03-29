@@ -16,3 +16,4 @@ tmp/
 report/
 **/*.tgz
 ./go-main
+agent-frame
