@@ -1,6 +1,6 @@
 # XiaoQinglong
 
-Like doubao coze and openclaw
+
 
 ## Overall Architecture
 ```
