@@ -53,6 +53,7 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
         type: s.skill_type as any || 'custom',
         category: s.skill_type as any || 'tool',
         enabled: s.enabled ?? true,
+        is_system: s.is_system ?? false,
         icon: s.skill_type === 'mcp' ? 'Terminal' : s.skill_type === 'a2a' ? 'Link' : 'Wrench',
         mcpUrl: s.skill_type === 'mcp' ? s.path : undefined,
         endpoint: s.skill_type === 'a2a' ? s.path : undefined,
@@ -69,6 +70,14 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
     loadSkills();
   }, [loadSkills]);
 
+  // 通用的错误提示函数，显示 message + cause
+  const showError = (err: any, defaultMsg: string) => {
+    const message = err?.message || defaultMsg;
+    const cause = err?.response?.data?.cause || '';
+    const fullMessage = cause ? `${message}\n${cause}` : message;
+    alert(fullMessage);
+  };
+
   const handleUploadZip = () => {
     fileInputRef.current?.click();
   };
@@ -81,9 +90,9 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
       setLoading(true);
       await skillApi.upload(file);
       await loadSkills();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to upload skill:', err);
-      alert(err instanceof Error ? err.message : 'Upload failed');
+      alert(err.message || 'Upload failed');
     } finally {
       setLoading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -107,20 +116,36 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
     sandboxToken: ''
   });
 
-  const handleAdd = () => {
-    const newSkill: Skill = {
-      id: `skill-${Date.now()}`,
-      name: formData.name || 'Unnamed',
-      description: activeTab === 'skills' ? 'Custom user defined skill' : `${activeTab.toUpperCase()} service`,
-      type: activeTab === 'skills' ? 'custom' : activeTab as any,
-      category: activeTab as any,
-      enabled: true,
-      ...formData
-    } as Skill;
-
-    setSkills([...skills, newSkill]);
-    setIsAddModalOpen(false);
-    resetForm();
+  const handleAdd = async () => {
+    try {
+      setLoading(true);
+      // 转换 activeTab 为后端接受的 skillType
+      const skillTypeMap: Record<string, 'mcp' | 'tool' | 'a2a' | 'skill'> = {
+        'mcp': 'mcp',
+        'a2a': 'a2a',
+        'skills': 'skill',
+        'tools': 'tool'
+      };
+      const skillType = skillTypeMap[activeTab] || 'tool';
+      console.log('Creating skill - activeTab:', activeTab, 'skillType:', skillType);
+      // 调用后端 API 创建 skill
+      const result = await skillApi.create({
+        name: formData.name || 'Unnamed',
+        description: formData.description || activeTab === 'skills' ? 'Custom user defined skill' : `${activeTab.toUpperCase()} service`,
+        skillType: skillType,
+        path: formData.mcpUrl || formData.endpoint || '',
+        enabled: true,
+      });
+      console.log('Created skill:', result);
+      await loadSkills();
+      setIsAddModalOpen(false);
+      resetForm();
+    } catch (err: any) {
+      console.error('Failed to create skill:', err);
+      showError(err, 'Failed to create skill');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const resetForm = () => {
@@ -151,9 +176,9 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
       setLoading(true);
       await skillApi.delete(id);
       await loadSkills();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to delete skill:', err);
-      alert(err instanceof Error ? err.message : 'Delete failed');
+      showError(err, 'Delete failed');
     } finally {
       setLoading(false);
     }
@@ -180,7 +205,7 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
     if (activeTab === 'mcp') return s.type === 'mcp';
     if (activeTab === 'a2a') return s.type === 'a2a';
     if (activeTab === 'tools') return s.type === 'tool';
-    return s.type === 'built-in' || s.type === 'custom';
+    return s.type === 'built-in' || s.type === 'custom' || s.type === 'skill';
   });
 
   const enabledCount = filteredSkills.filter(s => s.enabled).length;
@@ -314,13 +339,15 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                   >
                     <Power size={16} />
                   </button>
-                  <button
-                    onClick={() => deleteSkill(skill.id)}
-                    className="p-2 hover:bg-slate-50 rounded-lg text-slate-400 hover:text-red-500 transition-colors"
-                    title={t('skills.delete')}
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  {!skill.is_system && (
+                    <button
+                      onClick={() => deleteSkill(skill.id)}
+                      className="p-2 hover:bg-slate-50 rounded-lg text-slate-400 hover:text-red-500 transition-colors"
+                      title={t('skills.delete')}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -693,6 +720,16 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                 </label>
                 <div className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 font-medium">
                   {selectedSkill.name}
+                </div>
+              </div>
+
+              {/* Common Description Field */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                  {t('skills.description')}
+                </label>
+                <div className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 text-sm">
+                  {selectedSkill.description || 'No description provided.'}
                 </div>
               </div>
 

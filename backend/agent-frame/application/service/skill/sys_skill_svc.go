@@ -20,16 +20,16 @@ import (
 )
 
 type SysSkillService struct {
-	sysSkillDto  *ass.SysSkillDto
-	sysSkillSrv  *srv.SysSkillSvc
-	skillsRoot   string // skills 根目录
+	sysSkillDto *ass.SysSkillDto
+	sysSkillSrv *srv.SysSkillSvc
+	skillsRoot  string // skills 根目录
 }
 
 func NewSysSkillService() *SysSkillService {
 	return &SysSkillService{
-		sysSkillDto:  ass.NewSysSkillDto(),
-		sysSkillSrv:  srv.NewSysSkillSvc(),
-		skillsRoot:   "skills", // 可配置
+		sysSkillDto: ass.NewSysSkillDto(),
+		sysSkillSrv: srv.NewSysSkillSvc(),
+		skillsRoot:  "skills", // 可配置
 	}
 }
 
@@ -47,6 +47,18 @@ func (s *SysSkillService) CreateSysSkill(ctx context.Context, req *dto.CreateSys
 }
 
 func (s *SysSkillService) DeleteSysSkill(ctx context.Context, req *dto.DelSysSkillReq) error {
+	// 检查是否为系统内置技能
+	existing, err := s.sysSkillSrv.FindById(ctx, req.Ulid)
+	if err != nil {
+		return err
+	}
+	if existing == nil || existing.DeletedAt != 0 {
+		return xerror.NewErrorOpt(apierror.NotFoundErr, xerror.WithCause("skill not found"))
+	}
+	if existing.IsSystem {
+		return xerror.NewErrorOpt(apierror.ForbiddenErr, xerror.WithCause("系统内置技能不能删除"))
+	}
+
 	en := s.sysSkillDto.D2EDeleteSysSkill(req)
 
 	return s.sysSkillSrv.Delete(ctx, en)
@@ -139,15 +151,15 @@ func (s *SysSkillService) UploadSysSkill(ctx context.Context, fileData []byte, f
 		return nil, err
 	}
 
-	// 检查同名
-	existing, err := s.sysSkillSrv.FindByName(ctx, skillInfo.Name)
+	// 检查同名且同类型
+	existing, err := s.sysSkillSrv.FindByNameAndType(ctx, skillInfo.Name, skillInfo.SkillType)
 	if err != nil {
 		return nil, err
 	}
 
 	if existing != nil && existing.DeletedAt == 0 {
-		// 已存在，询问用户是否覆盖（上层处理）
-		return nil, xerror.NewErrorOpt(apierror.ConflictErr, xerror.WithCause(fmt.Sprintf("Skill '%s' 已存在", skillInfo.Name)))
+		// 已存在同名且同类型的 skill
+		return nil, xerror.NewErrorOpt(apierror.ConflictErr, xerror.WithCause(fmt.Sprintf("Skill '%s' (类型: %s) 已存在", skillInfo.Name, skillInfo.SkillType)))
 	}
 
 	// 创建数据库记录
@@ -155,11 +167,12 @@ func (s *SysSkillService) UploadSysSkill(ctx context.Context, fileData []byte, f
 		CreatedBy:   createdBy,
 		Name:        skillInfo.Name,
 		Description: skillInfo.Description,
-		SkillType:   skillInfo.SkillType,
+		SkillType:   "skill",
 		Version:     skillInfo.Version,
 		Path:        skillsDir,
 		Enabled:     true,
 		Config:      "{}",
+		IsSystem:    false, // 用户上传的不是系统内置
 	}
 
 	rsp, err := s.CreateSysSkill(ctx, createReq)
@@ -227,7 +240,7 @@ func (s *SysSkillService) extractSkillZip(fileData []byte, fileName string) (str
 		// 如果解析失败，使用文件名作为默认值
 		skillMeta = &SkillMeta{
 			Name:      skillRootDir,
-			SkillType: "tool",
+			SkillType: "skill",
 			Version:   "1.0.0",
 		}
 	}
@@ -237,7 +250,7 @@ func (s *SysSkillService) extractSkillZip(fileData []byte, fileName string) (str
 		skillMeta.Name = skillRootDir
 	}
 	if skillMeta.SkillType == "" {
-		skillMeta.SkillType = "tool"
+		skillMeta.SkillType = "skill"
 	}
 	if skillMeta.Version == "" {
 		skillMeta.Version = "1.0.0"

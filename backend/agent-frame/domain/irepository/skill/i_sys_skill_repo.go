@@ -16,5 +16,6 @@ type ISysSkillRepo interface {
 	FindById(ctx context.Context, ulid string, selectColumn ...string) (sysSkillEn *entity.SysSkill, err error)         // 查看byId
 	FindAll(ctx context.Context, queries []*builder.Query, selectArgs ...[]string) (entries []*entity.SysSkill, err error)       // 所有
 	FindPage(ctx context.Context, queries []*builder.Query, reqPage *builder.PageData, reqSort *builder.SortData, selectArgs ...[]string) (entries []*entity.SysSkill, rspPag *builder.PageData, err error) // 列表
-	FindByName(ctx context.Context, name string) (sysSkillEn *entity.SysSkill, err error) // 按名称查找
+	FindByName(ctx context.Context, name string) (sysSkillEn *entity.SysSkill, err error)                                     // 按名称查找
+	FindByNameAndType(ctx context.Context, name string, skillType string) (sysSkillEn *entity.SysSkill, err error)            // 按名称和类型查找
 }

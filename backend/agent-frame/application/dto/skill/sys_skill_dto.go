@@ -11,11 +11,12 @@ type (
 		CreatedBy   string `json:"created_by"`
 		Name        string `json:"name" validate:"required"`
 		Description string `json:"description"`
-		SkillType   string `json:"skillType" validate:"required"` // mcp/tool/a2a
+		SkillType  string `json:"skillType" validate:"required"` // skill/mcp/tool/a2a
 		Version     string `json:"version"`
-		Path        string `json:"path" validate:"required"`
+		Path        string `json:"path"`
 		Enabled     bool   `json:"enabled"`
 		Config      string `json:"config"`
+		IsSystem    bool   `json:"is_system"`
 	}
 
 	// DelSysSkillReq 删除请求对象
@@ -88,6 +89,7 @@ type (
 		Path        string `json:"path"`
 		Enabled     bool   `json:"enabled"`
 		Config      string `json:"config"`
+		IsSystem    bool   `json:"is_system"`
 	}
 
 	// FindSysSkillPageRsp 列表查询返回对象

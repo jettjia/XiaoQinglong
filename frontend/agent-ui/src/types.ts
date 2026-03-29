@@ -61,9 +61,10 @@ export interface Skill {
   id: string;
   name: string;
   description: string;
-  type: 'built-in' | 'custom' | 'mcp' | 'a2a' | 'tool';
+  type: 'built-in' | 'custom' | 'mcp' | 'a2a' | 'tool' | 'skill';
   category: 'logic' | 'data' | 'web' | 'media' | 'mcp' | 'a2a' | 'tool';
   enabled: boolean;
+  is_system?: boolean;
   content?: string;
   mcpUrl?: string;
   icon?: string;

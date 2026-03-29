@@ -14,4 +14,5 @@ type SysSkill struct {
 	Path        string `json:"path"`
 	Enabled     bool   `json:"enabled"`
 	Config      string `json:"config"`
+	IsSystem    bool   `json:"is_system"`
 }

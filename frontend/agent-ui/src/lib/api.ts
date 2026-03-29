@@ -280,11 +280,12 @@ export interface Skill {
   updated_by: string;
   name: string;
   description: string;
-  skill_type: 'mcp' | 'tool' | 'a2a';
+  skill_type: 'mcp' | 'tool' | 'a2a' | 'skill';
   version: string;
   path: string;
   enabled: boolean;
   config: string;
+  is_system: boolean;
 }
 
 export interface CheckSkillNameResult {
@@ -296,7 +297,7 @@ export const skillApi = {
   async create(data: {
     name: string;
     description?: string;
-    skillType: 'mcp' | 'tool' | 'a2a';
+    skillType: 'mcp' | 'tool' | 'a2a' | 'skill';
     version?: string;
     path: string;
     enabled?: boolean;
@@ -406,7 +407,8 @@ export const skillApi = {
     });
     const json = await res.json();
     if (!res.ok) {
-      throw new Error(json.message || 'Failed to upload skill');
+      const errMsg = json.cause ? `${json.message}\n${json.cause}` : (json.message || 'Failed to upload skill');
+      throw new Error(errMsg);
     }
     return json.data || json;
   },

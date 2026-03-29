@@ -13,12 +13,13 @@ type SysSkill struct {
 	CreatedBy    string `gorm:"column:created_by;type:varchar(128);comment:创建者;" json:"created_by"`
 	UpdatedBy    string `gorm:"column:updated_by;type:varchar(128);comment:修改者;" json:"updated_by"`
 	Name         string `gorm:"column:name;type:varchar(100);comment:技能名称;" json:"name"`
-	Description  string `gorm:"column:description;type:varchar(500);comment:描述;" json:"description"`
+	Description  string `gorm:"column:description;type:text;comment:描述;" json:"description"`
 	SkillType    string `gorm:"column:skill_type;type:varchar(20);comment:类型:mcp/tool/a2a;" json:"skill_type"`
 	Version      string `gorm:"column:version;type:varchar(20);comment:版本号;" json:"version"`
 	Path         string `gorm:"column:path;type:varchar(255);comment:存储路径;" json:"path"`
 	Enabled      bool   `gorm:"column:enabled;type:boolean;default:true;comment:是否启用;" json:"enabled"`
 	Config       string `gorm:"column:config;type:text;comment:扩展配置JSON;" json:"config"`
+	IsSystem     bool   `gorm:"column:is_system;type:boolean;default:false;comment:是否系统内置;" json:"is_system"`
 }
 
 func (po *SysSkill) BeforeCreate(tx *gorm.DB) (err error) {

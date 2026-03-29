@@ -5,6 +5,7 @@ import (
 
 	"github.com/jettjia/igo-pkg/pkg/data"
 	"github.com/jettjia/igo-pkg/pkg/xsql/builder"
+	"gorm.io/gorm"
 
 	entity "github.com/jettjia/xiaoqinglong/agent-frame/domain/entity/skill"
 	irepository "github.com/jettjia/xiaoqinglong/agent-frame/domain/irepository/skill"
@@ -134,6 +135,20 @@ func (r *SysSkill) FindByName(ctx context.Context, name string) (sysSkillEn *ent
 	var sysSkillPo po.SysSkill
 	if err = r.data.DB(ctx).Limit(1).Find(&sysSkillPo, "name = ? ", name).Error; err != nil {
 		return
+	}
+
+	sysSkillEn = converter.P2ESysSkill(&sysSkillPo)
+
+	return
+}
+
+func (r *SysSkill) FindByNameAndType(ctx context.Context, name string, skillType string) (sysSkillEn *entity.SysSkill, err error) {
+	var sysSkillPo po.SysSkill
+	if err = r.data.DB(ctx).First(&sysSkillPo, "name = ? AND skill_type = ?", name, skillType).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
 	}
 
 	sysSkillEn = converter.P2ESysSkill(&sysSkillPo)

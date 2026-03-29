@@ -55,3 +55,8 @@ func (s *SysSkillSvc) FindPage(ctx context.Context, queries []*builder.Query, re
 func (s *SysSkillSvc) FindByName(ctx context.Context, name string) (sysSkillEn *entity.SysSkill, err error) {
 	return s.sysSkillRepo.FindByName(ctx, name)
 }
+
+// FindByNameAndType 按名称和类型查找
+func (s *SysSkillSvc) FindByNameAndType(ctx context.Context, name string, skillType string) (sysSkillEn *entity.SysSkill, err error) {
+	return s.sysSkillRepo.FindByNameAndType(ctx, name, skillType)
+}
