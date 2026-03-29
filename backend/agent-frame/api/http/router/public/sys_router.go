@@ -7,6 +7,7 @@ import (
 	handConfig "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/config"
 	handModel "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/model"
 	handKnowledgeBase "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/knowledge_base"
+	handSkill "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/skill"
 )
 
 func SetPublicRouter(Router *gin.RouterGroup) {
@@ -14,6 +15,7 @@ func SetPublicRouter(Router *gin.RouterGroup) {
 	handConfig := handConfig.NewHandler()
 	handModel := handModel.NewHandler()
 	handKnowledgeBase := handKnowledgeBase.NewHandler()
+	handSkill := handSkill.NewHandler()
 
 	GRouter := Router.Group("/user")
 	{
@@ -58,5 +60,18 @@ func SetPublicRouter(Router *gin.RouterGroup) {
 		KBRouter.POST("/all", handKnowledgeBase.FindSysKnowledgeBaseAll)         // 查询所有
 		KBRouter.POST("/page", handKnowledgeBase.FindSysKnowledgeBasePage)      // 分页查询
 		KBRouter.POST("/:ulid/recall", handKnowledgeBase.RecallTest)            // 召回测试
+	}
+
+	// skill
+	SkillRouter := Router.Group("/skill")
+	{
+		SkillRouter.POST("", handSkill.CreateSysSkill)              // 创建
+		SkillRouter.DELETE("/:ulid", handSkill.DeleteSysSkill)     // 删除
+		SkillRouter.PUT("/:ulid", handSkill.UpdateSysSkill)        // 修改
+		SkillRouter.GET("/:ulid", handSkill.FindSysSkillById)      // 查询ByID
+		SkillRouter.POST("/all", handSkill.FindSysSkillAll)         // 查询所有
+		SkillRouter.POST("/page", handSkill.FindSysSkillPage)      // 分页查询
+		SkillRouter.POST("/upload", handSkill.UploadSysSkill)      // 上传安装
+		SkillRouter.POST("/check-name", handSkill.CheckSkillName)  // 检查同名
 	}
 }

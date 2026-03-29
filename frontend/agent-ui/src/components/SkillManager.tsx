@@ -1,10 +1,10 @@
-import React, { useState, useRef } from 'react';
-import { 
-  Zap, 
-  Box, 
-  Code, 
-  Globe, 
-  Database, 
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import {
+  Zap,
+  Box,
+  Code,
+  Globe,
+  Database,
   Plus,
   Settings2,
   X,
@@ -17,11 +17,13 @@ import {
   Wrench,
   ChevronDown,
   Info,
-  ShieldAlert
+  ShieldAlert,
+  Loader2
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useTranslation } from 'react-i18next';
 import { Skill } from '../types';
+import { skillApi, Skill as BackendSkill } from '../lib/api';
 
 interface SkillManagerProps {
   initialTab?: 'skills' | 'a2a' | 'tools' | 'mcp';
@@ -33,46 +35,60 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
+  const [loading, setLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [skills, setSkills] = useState<Skill[]>([]);
+
+  // 从后端加载 skills
+  const loadSkills = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await skillApi.findAll();
+      // 将后端数据映射到前端 Skill 类型
+      const mapped: Skill[] = data.map((s: BackendSkill) => ({
+        id: s.ulid,
+        name: s.name,
+        description: s.description || '',
+        type: s.skill_type as any || 'custom',
+        category: s.skill_type as any || 'tool',
+        enabled: s.enabled ?? true,
+        icon: s.skill_type === 'mcp' ? 'Terminal' : s.skill_type === 'a2a' ? 'Link' : 'Wrench',
+        mcpUrl: s.skill_type === 'mcp' ? s.path : undefined,
+        endpoint: s.skill_type === 'a2a' ? s.path : undefined,
+      }));
+      setSkills(mapped);
+    } catch (err) {
+      console.error('Failed to load skills:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadSkills();
+  }, [loadSkills]);
 
   const handleUploadZip = () => {
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Mocking the upload process
-    console.log('Uploading zip:', file.name);
-    
-    // Add a dummy skill to show it worked
-    const newSkill: Skill = {
-      id: `skill-zip-${Date.now()}`,
-      name: file.name.replace('.zip', ''),
-      description: 'Imported from zip archive',
-      type: activeTab === 'mcp' ? 'mcp' : 'custom',
-      category: activeTab === 'mcp' ? 'mcp' : 'logic',
-      enabled: true,
-      content: 'Uploaded skill content...',
-      icon: activeTab === 'mcp' ? 'Terminal' : 'Package',
-      mcpUrl: activeTab === 'mcp' ? 'http://localhost:8080' : undefined
-    };
-    
-    setSkills([...skills, newSkill]);
-    
-    // Reset input
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    try {
+      setLoading(true);
+      await skillApi.upload(file);
+      await loadSkills();
+    } catch (err) {
+      console.error('Failed to upload skill:', err);
+      alert(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setLoading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
-  
-  const [skills, setSkills] = useState<Skill[]>([
-    { id: '1', name: 'Web Search', description: 'Search the live web for information', type: 'built-in', category: 'web', enabled: true, icon: 'Globe', riskLevel: 'low' },
-    { id: '2', name: 'Python Execution', description: 'Execute python code in a secure sandbox', type: 'built-in', category: 'logic', enabled: true, icon: 'Code', riskLevel: 'medium' },
-    { id: '3', name: 'Data Synthesis', description: 'Analyze and synthesize complex data structures', type: 'built-in', category: 'data', enabled: true, icon: 'Database', riskLevel: 'low' },
-    { id: '4', name: 'MCP Server 1', description: 'Model Context Protocol server for local files', type: 'mcp', category: 'mcp', enabled: true, mcpUrl: 'http://localhost:8080', icon: 'Terminal', riskLevel: 'medium' },
-    { id: '5', name: 'Travel Collaborator', description: 'A2A service for travel planning', type: 'a2a', category: 'a2a', enabled: true, endpoint: 'http://127.0.0.1:8889/a2a', icon: 'Link', riskLevel: 'high' },
-    { id: '6', name: 'Time Tool', description: 'Get current time from external API', type: 'tool', category: 'tool', enabled: true, endpoint: 'http://api.time.com', icon: 'Wrench', riskLevel: 'low' },
-  ]);
 
   const [formData, setFormData] = useState<Partial<Skill & { mcpMode: 'remote' | 'local' }>>({
     name: '',
@@ -130,8 +146,17 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
     setSkills(skills.map(s => s.id === id ? { ...s, enabled: !s.enabled } : s));
   };
 
-  const deleteSkill = (id: string) => {
-    setSkills(skills.filter(s => s.id !== id));
+  const deleteSkill = async (id: string) => {
+    try {
+      setLoading(true);
+      await skillApi.delete(id);
+      await loadSkills();
+    } catch (err) {
+      console.error('Failed to delete skill:', err);
+      alert(err instanceof Error ? err.message : 'Delete failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const viewSkill = (skill: Skill) => {
@@ -176,23 +201,23 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
             </p>
           </div>
         </div>
-        
+
         <div className="flex items-center gap-3">
           <div className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl flex flex-col items-center justify-center min-w-[80px]">
             <span className="text-lg font-bold text-slate-900 leading-none">{enabledCount}</span>
             <span className="text-[10px] font-bold text-slate-400 uppercase mt-1">已启用</span>
           </div>
-          
+
           {(activeTab === 'skills' || activeTab === 'mcp') && (
             <>
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                onChange={handleFileChange} 
-                accept=".zip" 
-                className="hidden" 
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                accept=".zip"
+                className="hidden"
               />
-              <button 
+              <button
                 onClick={handleUploadZip}
                 className="flex items-center gap-2 px-6 py-3 border border-slate-200 rounded-2xl font-bold text-slate-700 hover:bg-slate-50 transition-all"
               >
@@ -201,8 +226,8 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
               </button>
             </>
           )}
-          
-          <button 
+
+          <button
             onClick={() => setIsAddModalOpen(true)}
             className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-8 py-3 rounded-2xl font-bold transition-all shadow-sm"
           >
@@ -214,7 +239,7 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
 
       <div className="flex gap-1 p-1 bg-slate-100 rounded-xl mb-8 w-fit">
         {(['skills', 'mcp', 'tools', 'a2a'] as const).map((tab) => (
-          <button 
+          <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={cn(
@@ -246,8 +271,8 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                   <div className={cn(
                     "flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider",
                     skill.riskLevel === 'high' ? "bg-red-50 text-red-500 border border-red-100" :
-                    skill.riskLevel === 'medium' ? "bg-amber-50 text-amber-500 border border-amber-100" :
-                    "bg-emerald-50 text-emerald-500 border border-emerald-100"
+                      skill.riskLevel === 'medium' ? "bg-amber-50 text-amber-500 border border-amber-100" :
+                        "bg-emerald-50 text-emerald-500 border border-emerald-100"
                   )}>
                     <ShieldAlert size={10} />
                     {skill.riskLevel ? t(`orchestrator.riskLevels.${skill.riskLevel}`) : t('orchestrator.riskLevels.low')}
@@ -262,7 +287,7 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
               <p className="text-sm text-slate-500 mb-4 line-clamp-2">
                 {skill.description}
               </p>
-              
+
               {(skill.mcpUrl || skill.endpoint) && (
                 <div className="mb-4 p-2 bg-slate-50 rounded-lg border border-slate-100 font-mono text-[10px] text-slate-500 truncate">
                   {skill.mcpUrl || skill.endpoint}
@@ -272,14 +297,14 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
               <div className="flex items-center justify-between pt-4 border-t border-slate-50">
                 <span className="text-xs font-medium text-slate-400">{t('skills.usedBy', { count: 12 })}</span>
                 <div className="flex items-center gap-1">
-                  <button 
+                  <button
                     onClick={() => viewSkill(skill)}
                     className="p-2 hover:bg-slate-50 rounded-lg text-slate-400 hover:text-brand-500 transition-colors"
                     title={t('skills.view')}
                   >
                     <Eye size={16} />
                   </button>
-                  <button 
+                  <button
                     onClick={() => toggleSkill(skill.id)}
                     className={cn(
                       "p-2 hover:bg-slate-50 rounded-lg transition-colors",
@@ -289,7 +314,7 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                   >
                     <Power size={16} />
                   </button>
-                  <button 
+                  <button
                     onClick={() => deleteSkill(skill.id)}
                     className="p-2 hover:bg-slate-50 rounded-lg text-slate-400 hover:text-red-500 transition-colors"
                     title={t('skills.delete')}
@@ -301,6 +326,19 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
             </div>
           );
         })}
+
+        {loading && (
+          <div className="flex items-center justify-center py-12 col-span-3">
+            <Loader2 className="animate-spin text-brand-500" size={32} />
+          </div>
+        )}
+
+        {!loading && filteredSkills.length === 0 && (
+          <div className="col-span-3 text-center py-12 text-slate-400">
+            <Box className="mx-auto mb-3 opacity-30" size={48} />
+            <p>{t('skills.noSkills', 'No skills found')}</p>
+          </div>
+        )}
       </div>
 
       {/* Add Modal */}
@@ -312,33 +350,33 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
           )}>
             <div className="p-6 border-b border-slate-100 flex items-center justify-between shrink-0">
               <h2 className="text-xl font-bold text-slate-900">
-                {activeTab === 'skills' ? t('skills.createSkill') : 
-                 activeTab === 'mcp' ? t('skills.createMcp') :
-                 activeTab === 'a2a' ? t('skills.createA2A') :
-                 t('skills.createTool')}
+                {activeTab === 'skills' ? t('skills.createSkill') :
+                  activeTab === 'mcp' ? t('skills.createMcp') :
+                    activeTab === 'a2a' ? t('skills.createA2A') :
+                      t('skills.createTool')}
               </h2>
               <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <X size={24} />
               </button>
             </div>
-            
+
             <div className="p-8 space-y-6 max-h-[70vh] overflow-y-auto">
               {/* Common Name Field */}
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                  {activeTab === 'skills' ? t('skills.skillName') : 
-                   activeTab === 'mcp' ? t('skills.mcpName') :
-                   activeTab === 'a2a' ? t('skills.a2aName') :
-                   t('skills.toolName')} *
+                  {activeTab === 'skills' ? t('skills.skillName') :
+                    activeTab === 'mcp' ? t('skills.mcpName') :
+                      activeTab === 'a2a' ? t('skills.a2aName') :
+                        t('skills.toolName')} *
                 </label>
-                <input 
+                <input
                   type="text"
                   value={formData.name}
-                  onChange={e => setFormData({...formData, name: e.target.value})}
-                  placeholder={activeTab === 'skills' ? t('skills.placeholderName') : 
-                               activeTab === 'mcp' ? t('skills.placeholderMcpName') :
-                               activeTab === 'a2a' ? t('skills.placeholderA2AName') :
-                               t('skills.placeholderToolName')}
+                  onChange={e => setFormData({ ...formData, name: e.target.value })}
+                  placeholder={activeTab === 'skills' ? t('skills.placeholderName') :
+                    activeTab === 'mcp' ? t('skills.placeholderMcpName') :
+                      activeTab === 'a2a' ? t('skills.placeholderA2AName') :
+                        t('skills.placeholderToolName')}
                   className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all font-medium"
                 />
               </div>
@@ -349,9 +387,9 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                   {t('skills.toolRisk')}
                 </label>
                 <div className="relative">
-                  <select 
+                  <select
                     value={formData.riskLevel}
-                    onChange={e => setFormData({...formData, riskLevel: e.target.value as any})}
+                    onChange={e => setFormData({ ...formData, riskLevel: e.target.value as any })}
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all font-medium appearance-none"
                   >
                     <option value="low">{t('orchestrator.riskLevels.low')}</option>
@@ -373,9 +411,9 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                       {t('skills.frontmatterSupport')}
                     </span>
                   </div>
-                  <textarea 
+                  <textarea
                     value={formData.content}
-                    onChange={e => setFormData({...formData, content: e.target.value})}
+                    onChange={e => setFormData({ ...formData, content: e.target.value })}
                     placeholder={t('skills.placeholderContent')}
                     className="w-full h-64 px-4 py-4 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all font-mono text-sm leading-relaxed resize-none"
                   />
@@ -390,8 +428,8 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                       {t('skills.mcpMode')}
                     </label>
                     <div className="flex gap-2 p-1 bg-slate-100 rounded-xl">
-                      <button 
-                        onClick={() => setFormData({...formData, mcpMode: 'remote'})}
+                      <button
+                        onClick={() => setFormData({ ...formData, mcpMode: 'remote' })}
                         className={cn(
                           "flex-1 py-2 rounded-lg text-xs font-bold transition-all",
                           formData.mcpMode === 'remote' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
@@ -399,8 +437,8 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                       >
                         {t('skills.mcpModeRemote')}
                       </button>
-                      <button 
-                        onClick={() => setFormData({...formData, mcpMode: 'local'})}
+                      <button
+                        onClick={() => setFormData({ ...formData, mcpMode: 'local' })}
                         className={cn(
                           "flex-1 py-2 rounded-lg text-xs font-bold transition-all",
                           formData.mcpMode === 'local' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
@@ -417,10 +455,10 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                         <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
                           {t('skills.mcpEndpoint')} *
                         </label>
-                        <input 
+                        <input
                           type="text"
                           value={formData.mcpUrl}
-                          onChange={e => setFormData({...formData, mcpUrl: e.target.value})}
+                          onChange={e => setFormData({ ...formData, mcpUrl: e.target.value })}
                           placeholder={t('skills.placeholderMcpEndpoint')}
                           className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all font-mono text-sm"
                         />
@@ -429,10 +467,10 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                         <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
                           {t('skills.mcpToken')}
                         </label>
-                        <input 
+                        <input
                           type="password"
                           value={formData.token}
-                          onChange={e => setFormData({...formData, token: e.target.value})}
+                          onChange={e => setFormData({ ...formData, token: e.target.value })}
                           placeholder="Bearer Token"
                           className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all font-mono text-sm"
                         />
@@ -444,10 +482,10 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                         <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
                           {t('skills.mcpCommand')} *
                         </label>
-                        <input 
+                        <input
                           type="text"
                           value={formData.command}
-                          onChange={e => setFormData({...formData, command: e.target.value})}
+                          onChange={e => setFormData({ ...formData, command: e.target.value })}
                           placeholder={t('skills.placeholderMcpCommand')}
                           className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all font-mono text-sm"
                         />
@@ -456,10 +494,10 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                         <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
                           {t('skills.mcpArgs')}
                         </label>
-                        <input 
+                        <input
                           type="text"
                           value={formData.args?.join(', ')}
-                          onChange={e => setFormData({...formData, args: e.target.value.split(',').map(s => s.trim()).filter(s => s !== '')})}
+                          onChange={e => setFormData({ ...formData, args: e.target.value.split(',').map(s => s.trim()).filter(s => s !== '') })}
                           placeholder={t('skills.placeholderMcpArgs')}
                           className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all font-mono text-sm"
                         />
@@ -468,11 +506,11 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                         <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
                           {t('skills.mcpEnv')}
                         </label>
-                        <textarea 
+                        <textarea
                           value={JSON.stringify(formData.env, null, 2)}
                           onChange={e => {
                             try {
-                              setFormData({...formData, env: JSON.parse(e.target.value)});
+                              setFormData({ ...formData, env: JSON.parse(e.target.value) });
                             } catch (err) {
                               // Ignore invalid JSON during typing
                             }
@@ -493,10 +531,10 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
                       {t('skills.a2aEndpoint')} *
                     </label>
-                    <input 
+                    <input
                       type="text"
                       value={formData.endpoint}
-                      onChange={e => setFormData({...formData, endpoint: e.target.value})}
+                      onChange={e => setFormData({ ...formData, endpoint: e.target.value })}
                       placeholder={t('skills.placeholderA2AEndpoint')}
                       className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all font-mono text-sm"
                     />
@@ -505,10 +543,10 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
                       {t('skills.a2aToken')}
                     </label>
-                    <input 
+                    <input
                       type="password"
                       value={formData.token}
-                      onChange={e => setFormData({...formData, token: e.target.value})}
+                      onChange={e => setFormData({ ...formData, token: e.target.value })}
                       placeholder="xxxxxx"
                       className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all font-mono text-sm"
                     />
@@ -523,10 +561,10 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                       {t('skills.toolEndpoint')}
                     </label>
-                    <input 
+                    <input
                       type="text"
                       value={formData.endpoint}
-                      onChange={e => setFormData({...formData, endpoint: e.target.value})}
+                      onChange={e => setFormData({ ...formData, endpoint: e.target.value })}
                       placeholder={t('skills.placeholderToolEndpoint')}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all text-sm"
                     />
@@ -535,10 +573,10 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                       {t('skills.toolSandbox')}
                     </label>
-                    <input 
+                    <input
                       type="text"
                       value={formData.sandboxEndpoint}
-                      onChange={e => setFormData({...formData, sandboxEndpoint: e.target.value})}
+                      onChange={e => setFormData({ ...formData, sandboxEndpoint: e.target.value })}
                       placeholder={t('skills.placeholderToolSandbox')}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all text-sm"
                     />
@@ -547,10 +585,10 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                       {t('skills.toolToken')}
                     </label>
-                    <input 
+                    <input
                       type="password"
                       value={formData.token}
-                      onChange={e => setFormData({...formData, token: e.target.value})}
+                      onChange={e => setFormData({ ...formData, token: e.target.value })}
                       placeholder="Bearer Token"
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all text-sm"
                     />
@@ -561,9 +599,9 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                         {t('skills.toolMethod')}
                       </label>
                       <div className="relative">
-                        <select 
+                        <select
                           value={formData.method}
-                          onChange={e => setFormData({...formData, method: e.target.value as any})}
+                          onChange={e => setFormData({ ...formData, method: e.target.value as any })}
                           className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all text-sm appearance-none"
                         >
                           <option value="POST">POST 后期</option>
@@ -576,10 +614,10 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                       <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                         {t('skills.toolTimeout')}
                       </label>
-                      <input 
+                      <input
                         type="number"
                         value={formData.timeout}
-                        onChange={e => setFormData({...formData, timeout: parseInt(e.target.value)})}
+                        onChange={e => setFormData({ ...formData, timeout: parseInt(e.target.value) })}
                         className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all text-sm"
                       />
                     </div>
@@ -589,10 +627,10 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                       <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                         {t('skills.toolSandboxToken')}
                       </label>
-                      <input 
+                      <input
                         type="password"
                         value={formData.sandboxToken}
-                        onChange={e => setFormData({...formData, sandboxToken: e.target.value})}
+                        onChange={e => setFormData({ ...formData, sandboxToken: e.target.value })}
                         placeholder="Bearer Token"
                         className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all text-sm"
                       />
@@ -601,15 +639,15 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                 </div>
               )}
             </div>
-            
+
             <div className="p-6 bg-slate-50 flex justify-end gap-3">
-              <button 
+              <button
                 onClick={() => setIsAddModalOpen(false)}
                 className="px-8 py-3 text-sm font-bold text-slate-500 hover:text-slate-700 transition-all bg-white border border-slate-200 rounded-2xl"
               >
                 {t('skills.cancel')}
               </button>
-              <button 
+              <button
                 onClick={handleAdd}
                 className="px-12 py-3 bg-slate-900 text-white rounded-2xl font-bold text-sm hover:bg-slate-800 transition-all shadow-lg shadow-slate-900/10"
               >
@@ -630,13 +668,13 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
             {/* Modal Header */}
             <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-white sticky top-0 z-10">
               <h2 className="text-xl font-bold text-slate-900">
-                {selectedSkill.type === 'custom' || selectedSkill.type === 'built-in' ? t('skills.view') + ' ' + t('skills.skillsTab') : 
-                 selectedSkill.type === 'mcp' ? t('skills.view') + ' ' + t('skills.mcpTab') :
-                 selectedSkill.type === 'a2a' ? t('skills.view') + ' ' + t('skills.a2aTab') :
-                 t('skills.view') + ' ' + t('skills.toolsTab')}
+                {selectedSkill.type === 'custom' || selectedSkill.type === 'built-in' ? t('skills.view') + ' ' + t('skills.skillsTab') :
+                  selectedSkill.type === 'mcp' ? t('skills.view') + ' ' + t('skills.mcpTab') :
+                    selectedSkill.type === 'a2a' ? t('skills.view') + ' ' + t('skills.a2aTab') :
+                      t('skills.view') + ' ' + t('skills.toolsTab')}
               </h2>
-              <button 
-                onClick={() => setIsViewModalOpen(false)} 
+              <button
+                onClick={() => setIsViewModalOpen(false)}
                 className="text-slate-400 hover:text-slate-600 transition-all"
               >
                 <X size={24} />
@@ -648,10 +686,10 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
               {/* Common Name Field */}
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                  {selectedSkill.type === 'custom' || selectedSkill.type === 'built-in' ? t('skills.skillName') : 
-                   selectedSkill.type === 'mcp' ? t('skills.mcpName') :
-                   selectedSkill.type === 'a2a' ? t('skills.a2aName') :
-                   t('skills.toolName')}
+                  {selectedSkill.type === 'custom' || selectedSkill.type === 'built-in' ? t('skills.skillName') :
+                    selectedSkill.type === 'mcp' ? t('skills.mcpName') :
+                      selectedSkill.type === 'a2a' ? t('skills.a2aName') :
+                        t('skills.toolName')}
                 </label>
                 <div className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 font-medium">
                   {selectedSkill.name}
@@ -667,7 +705,7 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                   <div className={cn(
                     "w-2 h-2 rounded-full",
                     selectedSkill.riskLevel === 'high' ? "bg-red-500" :
-                    selectedSkill.riskLevel === 'medium' ? "bg-amber-500" : "bg-emerald-500"
+                      selectedSkill.riskLevel === 'medium' ? "bg-amber-500" : "bg-emerald-500"
                   )} />
                   <span className="text-slate-900 font-medium capitalize">
                     {selectedSkill.riskLevel ? t(`orchestrator.riskLevels.${selectedSkill.riskLevel}`) : t('orchestrator.riskLevels.low')}
@@ -835,9 +873,9 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                 </div>
               )}
             </div>
-            
+
             <div className="p-6 bg-slate-50 flex justify-end">
-              <button 
+              <button
                 onClick={() => setIsViewModalOpen(false)}
                 className="px-12 py-3 bg-slate-900 text-white rounded-2xl font-bold text-sm hover:bg-slate-800 transition-all shadow-lg shadow-slate-900/10"
               >
