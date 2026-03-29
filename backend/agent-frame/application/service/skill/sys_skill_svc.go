@@ -167,7 +167,7 @@ func (s *SysSkillService) UploadSysSkill(ctx context.Context, fileData []byte, f
 		CreatedBy:   createdBy,
 		Name:        skillInfo.Name,
 		Description: skillInfo.Description,
-		SkillType:   "skill",
+		SkillType:   skillInfo.SkillType,
 		Version:     skillInfo.Version,
 		Path:        skillsDir,
 		Enabled:     true,

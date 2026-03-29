@@ -166,10 +166,10 @@ export function AgentOrchestrator() {
   const testAbortControllerRef = React.useRef<AbortController | null>(null);
 
   // Skill Category State
-  const [skillCategory, setSkillCategory] = React.useState<'all' | 'built-in' | 'mcp' | 'tool' | 'a2a'>('all');
+  const [skillCategory, setSkillCategory] = React.useState<'all' | 'built-in' | 'mcp' | 'tool' | 'a2a' | 'skill'>('all');
 
   const filteredSkills = backendSkills.filter(skill =>
-    skillCategory === 'all' || skill.type === skillCategory
+    skillCategory === 'all' || skill.skill_type === skillCategory
   );
 
   const handleToggleKB = (kbId: string) => {
@@ -613,7 +613,7 @@ export function AgentOrchestrator() {
 
               {/* Skill Category Tabs */}
               <div className="flex p-1 bg-slate-100 rounded-lg">
-                {(['all', 'built-in', 'mcp', 'tool', 'a2a'] as const).map((cat) => (
+                {(['all', 'skill', 'mcp', 'tool', 'a2a'] as const).map((cat) => (
                   <button
                     key={cat}
                     onClick={() => setSkillCategory(cat)}
@@ -622,7 +622,7 @@ export function AgentOrchestrator() {
                       skillCategory === cat ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
                     )}
                   >
-                    {cat === 'built-in' ? t('skills.skillsTab') : (cat === 'all' ? 'All' : t(`skills.${cat}Tab`))}
+                    {cat === 'skill' ? t('skills.skillsTab') : (cat === 'all' ? 'All' : t(`skills.${cat}Tab`))}
                   </button>
                 ))}
               </div>

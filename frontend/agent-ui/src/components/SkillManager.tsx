@@ -50,8 +50,8 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
         id: s.ulid,
         name: s.name,
         description: s.description || '',
-        type: s.skill_type as any || 'custom',
-        category: s.skill_type as any || 'tool',
+        type: (s.skill_type || 'custom') as Skill['type'],
+        category: (s.skill_type || 'tool') as Skill['category'],
         enabled: s.enabled ?? true,
         is_system: s.is_system ?? false,
         icon: s.skill_type === 'mcp' ? 'Terminal' : s.skill_type === 'a2a' ? 'Link' : 'Wrench',
@@ -59,6 +59,7 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
         endpoint: s.skill_type === 'a2a' ? s.path : undefined,
       }));
       setSkills(mapped);
+      console.log('Skills loaded:', mapped.length, 'types:', [...new Set(mapped.map(s => s.type))]);
     } catch (err) {
       console.error('Failed to load skills:', err);
     } finally {
@@ -208,6 +209,8 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
     return s.type === 'built-in' || s.type === 'custom' || s.type === 'skill';
   });
 
+  console.log('Filtering - activeTab:', activeTab, 'total:', skills.length, 'filtered:', filteredSkills.length);
+
   const enabledCount = filteredSkills.filter(s => s.enabled).length;
 
   return (
@@ -219,10 +222,10 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-slate-900">
-              {activeTab === 'mcp' ? 'MCP 连接器' : activeTab === 'a2a' ? 'A2A 服务' : activeTab === 'tools' ? '工具管理' : t('skills.title')}
+              {activeTab === 'mcp' ? 'mcp' : activeTab === 'a2a' ? 'A2A' : activeTab === 'tools' ? 'tool' : t('skills.title')}
             </h1>
             <p className="text-slate-500 text-sm">
-              {activeTab === 'mcp' ? '启用后自动加载并可被模型调用' : t('skills.subtitle')}
+              {activeTab === 'mcp' ? 'Auto-load and available to models when enabled' : t('skills.subtitle')}
             </p>
           </div>
         </div>
@@ -230,7 +233,7 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
         <div className="flex items-center gap-3">
           <div className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl flex flex-col items-center justify-center min-w-[80px]">
             <span className="text-lg font-bold text-slate-900 leading-none">{enabledCount}</span>
-            <span className="text-[10px] font-bold text-slate-400 uppercase mt-1">已启用</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase mt-1">Enabled</span>
           </div>
 
           {(activeTab === 'skills' || activeTab === 'mcp') && (
