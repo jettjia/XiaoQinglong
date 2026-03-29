@@ -168,3 +168,106 @@ export const modelApi = {
     return json.data || json;
   },
 };
+
+export interface KnowledgeBase {
+  ulid: string;
+  created_at: number;
+  updated_at: number;
+  created_by: string;
+  updated_by: string;
+  name: string;
+  description: string;
+  retrievalUrl: string;
+  token: string;
+  enabled: boolean;
+}
+
+export interface RecallResult {
+  title: string;
+  content: string;
+  score: number;
+}
+
+export const knowledgeBaseApi = {
+  async create(data: {
+    name: string;
+    description?: string;
+    retrievalUrl: string;
+    token?: string;
+    enabled?: boolean;
+  }): Promise<{ ulid: string }> {
+    const res = await fetch(`${API_BASE}/knowledge_base`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to create knowledge base');
+    }
+    return json.data;
+  },
+
+  async update(ulid: string, data: {
+    name?: string;
+    description?: string;
+    retrievalUrl?: string;
+    token?: string;
+    enabled?: boolean;
+  }): Promise<void> {
+    const res = await fetch(`${API_BASE}/knowledge_base/${ulid}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const json = await res.json();
+      throw new Error(json.message || 'Failed to update knowledge base');
+    }
+  },
+
+  async delete(ulid: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/knowledge_base/${ulid}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      const json = await res.json();
+      throw new Error(json.message || 'Failed to delete knowledge base');
+    }
+  },
+
+  async findById(ulid: string): Promise<KnowledgeBase> {
+    const res = await fetch(`${API_BASE}/knowledge_base/${ulid}`);
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to find knowledge base');
+    }
+    return json.data || json;
+  },
+
+  async findAll(): Promise<KnowledgeBase[]> {
+    const res = await fetch(`${API_BASE}/knowledge_base/all`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to find knowledge bases');
+    }
+    return Array.isArray(json) ? json : (json.data || []);
+  },
+
+  async recallTest(ulid: string, query: string, topK: number = 5): Promise<RecallResult[]> {
+    const res = await fetch(`${API_BASE}/knowledge_base/${ulid}/recall`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, top_k: topK }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to recall');
+    }
+    return json.data || json;
+  },
+};

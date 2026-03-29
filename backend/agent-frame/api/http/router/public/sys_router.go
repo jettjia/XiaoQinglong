@@ -6,12 +6,14 @@ import (
 	handUser "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/user"
 	handConfig "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/config"
 	handModel "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/model"
+	handKnowledgeBase "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/knowledge_base"
 )
 
 func SetPublicRouter(Router *gin.RouterGroup) {
 	handUser := handUser.NewHandler()
 	handConfig := handConfig.NewHandler()
 	handModel := handModel.NewHandler()
+	handKnowledgeBase := handKnowledgeBase.NewHandler()
 
 	GRouter := Router.Group("/user")
 	{
@@ -44,5 +46,17 @@ func SetPublicRouter(Router *gin.RouterGroup) {
 		MRouter.GET("/:ulid", handModel.FindSysModelById)      // 查询ByID
 		MRouter.POST("/all", handModel.FindSysModelAll)         // 查询所有
 		MRouter.POST("/page", handModel.FindSysModelPage)       // 分页查询
+	}
+
+	// knowledge_base
+	KBRouter := Router.Group("/knowledge_base")
+	{
+		KBRouter.POST("", handKnowledgeBase.CreateSysKnowledgeBase)              // 创建
+		KBRouter.DELETE("/:ulid", handKnowledgeBase.DeleteSysKnowledgeBase)     // 删除
+		KBRouter.PUT("/:ulid", handKnowledgeBase.UpdateSysKnowledgeBase)        // 修改
+		KBRouter.GET("/:ulid", handKnowledgeBase.FindSysKnowledgeBaseById)      // 查询ByID
+		KBRouter.POST("/all", handKnowledgeBase.FindSysKnowledgeBaseAll)         // 查询所有
+		KBRouter.POST("/page", handKnowledgeBase.FindSysKnowledgeBasePage)      // 分页查询
+		KBRouter.POST("/:ulid/recall", handKnowledgeBase.RecallTest)            // 召回测试
 	}
 }

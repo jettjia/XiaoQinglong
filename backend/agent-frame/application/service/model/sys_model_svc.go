@@ -3,11 +3,13 @@ package model
 import (
 	"context"
 
+	"github.com/jettjia/igo-pkg/pkg/xerror"
 	"github.com/jettjia/igo-pkg/pkg/xsql/builder"
 
 	assModel "github.com/jettjia/xiaoqinglong/agent-frame/application/assembler/model"
 	dtoModel "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/model"
 	srvModel "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/model"
+	"github.com/jettjia/xiaoqinglong/agent-frame/types/apierror"
 )
 
 type SysModelService struct {
@@ -53,13 +55,20 @@ func (s *SysModelService) FindSysModelById(ctx context.Context, req *dtoModel.Fi
 		return nil, err
 	}
 
+	// 过滤已删除的记录
+	if en == nil || en.DeletedAt != 0 {
+		return nil, xerror.NewErrorOpt(apierror.NotFoundErr, xerror.WithCause("model not found or deleted"))
+	}
+
 	dto := s.sysModelDto.E2DFindSysModelRsp(en)
 
 	return dto, nil
 }
 
 func (s *SysModelService) FindSysModelAll(ctx context.Context, req *dtoModel.FindSysModelAllReq) ([]*dtoModel.FindSysModelRsp, error) {
-	var queries []*builder.Query
+	queries := []*builder.Query{
+		{Key: "deleted_at", Operator: builder.Operator_opEq, Value: 0},
+	}
 	if req.ModelType != "" {
 		queries = append(queries, &builder.Query{Key: "model_type", Operator: builder.Operator_opEq, Value: req.ModelType})
 	}

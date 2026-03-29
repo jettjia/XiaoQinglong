@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { 
-  Plus, 
-  Search, 
-  Database, 
-  Clock, 
+import {
+  Plus,
+  Search,
+  Database,
+  Clock,
   RefreshCw,
   Trash2,
   X,
@@ -12,45 +12,29 @@ import {
   Check,
   Play,
   HelpCircle,
-  Info
+  Info,
+  Loader2
 } from 'lucide-react';
-import { INITIAL_KNOWLEDGE_BASES } from '../constants';
 import { cn } from '../lib/utils';
 import { useTranslation } from 'react-i18next';
 import { KnowledgeBase, RecallTestRecord } from '../types';
+import { knowledgeBaseApi, RecallResult } from '../lib/api';
 
 export function KnowledgeBaseManager() {
   const { t } = useTranslation();
-  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>(INITIAL_KNOWLEDGE_BASES);
-  const [testRecords, setTestRecords] = useState<RecallTestRecord[]>([
-    {
-      id: 'demo-1',
-      kbId: 'kb-1',
-      kbName: 'External Search API',
-      query: 'What is the company policy on remote work?',
-      timestamp: '10:45 AM',
-      results: [
-        { title: 'Remote Work Policy', score: 0.98, content: 'Employees are eligible for remote work after 3 months of tenure.' }
-      ]
-    },
-    {
-      id: 'demo-2',
-      kbId: 'kb-1',
-      kbName: 'External Search API',
-      query: 'How to reset my password?',
-      timestamp: '09:30 AM',
-      results: [
-        { title: 'IT Support Guide', score: 0.95, content: 'Visit the self-service portal at https://reset.company.com' }
-      ]
-    }
-  ]);
+  const [loading, setLoading] = useState(true);
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
+  const [testRecords, setTestRecords] = useState<RecallTestRecord[]>([]);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isTestModalOpen, setIsTestModalOpen] = useState(false);
   const [isSpecModalOpen, setIsSpecModalOpen] = useState(false);
   const [selectedKB, setSelectedKB] = useState<KnowledgeBase | null>(null);
   const [showToken, setShowToken] = useState(false);
   const [testQuery, setTestQuery] = useState('');
-  const [testResults, setTestResults] = useState<any[]>([]);
+  const [testResults, setTestResults] = useState<RecallResult[]>([]);
+  const [testLoading, setTestLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [editingKBId, setEditingKBId] = useState<string | null>(null);
 
   const [newKB, setNewKB] = useState<Partial<KnowledgeBase>>({
     name: '',
@@ -60,18 +44,67 @@ export function KnowledgeBaseManager() {
     enabled: true
   });
 
-  const handleAddKB = () => {
-    const kb: KnowledgeBase = {
-      id: `kb-${Date.now()}`,
-      name: newKB.name || '',
-      description: newKB.description,
-      lastUpdated: new Date().toISOString().split('T')[0],
-      retrievalUrl: newKB.retrievalUrl || '',
-      token: newKB.token,
-      enabled: newKB.enabled,
-    };
-    setKnowledgeBases([...knowledgeBases, kb]);
+  const loadKnowledgeBases = React.useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await knowledgeBaseApi.findAll();
+      const mapped: KnowledgeBase[] = data.map((kb: any) => ({
+        id: kb.ulid,
+        name: kb.name,
+        description: kb.description || '',
+        lastUpdated: new Date(kb.updated_at).toISOString().split('T')[0],
+        retrievalUrl: kb.retrievalUrl,
+        token: kb.token || '',
+        enabled: kb.enabled,
+      }));
+      setKnowledgeBases(mapped);
+    } catch (err) {
+      console.error('Failed to load knowledge bases:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    loadKnowledgeBases();
+  }, [loadKnowledgeBases]);
+
+  // Filter knowledge bases based on search query
+  const filteredKnowledgeBases = React.useMemo(() => {
+    if (!searchQuery.trim()) return knowledgeBases;
+    const query = searchQuery.toLowerCase();
+    return knowledgeBases.filter(kb =>
+      kb.name.toLowerCase().includes(query) ||
+      kb.description.toLowerCase().includes(query) ||
+      kb.retrievalUrl.toLowerCase().includes(query)
+    );
+  }, [knowledgeBases, searchQuery]);
+
+  const handleAddKB = async () => {
+    try {
+      if (editingKBId) {
+        await knowledgeBaseApi.update(editingKBId, {
+          name: newKB.name || '',
+          description: newKB.description || '',
+          retrievalUrl: newKB.retrievalUrl || '',
+          token: newKB.token || '',
+          enabled: newKB.enabled ?? true,
+        });
+      } else {
+        await knowledgeBaseApi.create({
+          name: newKB.name || '',
+          description: newKB.description || '',
+          retrievalUrl: newKB.retrievalUrl || '',
+          token: newKB.token || '',
+          enabled: newKB.enabled ?? true,
+        });
+      }
+      await loadKnowledgeBases();
+    } catch (err) {
+      console.error('Failed to save knowledge base:', err);
+    }
     setIsAddModalOpen(false);
+    setEditingKBId(null);
     setNewKB({
       name: '',
       description: '',
@@ -81,8 +114,25 @@ export function KnowledgeBaseManager() {
     });
   };
 
-  const handleDeleteKB = (id: string) => {
-    setKnowledgeBases(knowledgeBases.filter(kb => kb.id !== id));
+  const handleDeleteKB = async (id: string) => {
+    try {
+      await knowledgeBaseApi.delete(id);
+      await loadKnowledgeBases();
+    } catch (err) {
+      console.error('Failed to delete knowledge base:', err);
+    }
+  };
+
+  const handleEditKB = (kb: KnowledgeBase) => {
+    setEditingKBId(kb.id);
+    setNewKB({
+      name: kb.name,
+      description: kb.description,
+      retrievalUrl: kb.retrievalUrl,
+      token: kb.token,
+      enabled: kb.enabled,
+    });
+    setIsAddModalOpen(true);
   };
 
   const handleTestRecall = (kb: KnowledgeBase) => {
@@ -92,28 +142,29 @@ export function KnowledgeBaseManager() {
     setTestQuery('');
   };
 
-  const runTest = () => {
+  const runTest = async () => {
     if (!selectedKB) return;
-    
-    // Mock test results
-    const results = [
-      { title: 'Document A', score: 0.92, content: 'This is a sample content from document A that matches the query.' },
-      { title: 'Document B', score: 0.85, content: 'Another piece of information found in the knowledge base.' },
-      { title: 'Document C', score: 0.78, content: 'Relevant data extracted from the indexed sources.' },
-    ];
-    
-    setTestResults(results);
 
-    const record: RecallTestRecord = {
-      id: `test-${Date.now()}`,
-      kbId: selectedKB.id,
-      kbName: selectedKB.name,
-      query: testQuery,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      results
-    };
+    try {
+      setTestLoading(true);
+      const results = await knowledgeBaseApi.recallTest(selectedKB.id, testQuery, 5);
+      setTestResults(results);
 
-    setTestRecords([record, ...testRecords]);
+      const record: RecallTestRecord = {
+        id: `test-${Date.now()}`,
+        kbId: selectedKB.id,
+        kbName: selectedKB.name,
+        query: testQuery,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        results
+      };
+
+      setTestRecords([record, ...testRecords]);
+    } catch (err) {
+      console.error('Failed to run recall test:', err);
+    } finally {
+      setTestLoading(false);
+    }
   };
 
   const deleteTestRecord = (id: string) => {
@@ -169,15 +220,17 @@ export function KnowledgeBaseManager() {
             <h2 className="font-bold text-slate-800">{t('knowledge.activeSources')}</h2>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-              <input 
+              <input
                 type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
                 placeholder={t('knowledge.search')}
                 className="pl-9 pr-4 py-1.5 bg-slate-100 border-none rounded-lg text-sm focus:ring-2 focus:ring-brand-500/20 w-64"
               />
             </div>
           </div>
           
-          {knowledgeBases.map((kb) => (
+          {filteredKnowledgeBases.map((kb) => (
             <div key={kb.id} className="bg-white border border-slate-200 rounded-xl p-5 hover:border-brand-500/30 transition-all group">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
@@ -198,17 +251,21 @@ export function KnowledgeBaseManager() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button 
+                  <button
                     onClick={() => handleTestRecall(kb)}
                     className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-brand-500 transition-colors"
                     title={t('knowledge.recallTest')}
                   >
                     <Play size={16} />
                   </button>
-                  <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 transition-colors">
+                  <button
+                    onClick={() => handleEditKB(kb)}
+                    className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-brand-500 transition-colors"
+                    title={t('knowledge.edit')}
+                  >
                     <RefreshCw size={16} />
                   </button>
-                  <button 
+                  <button
                     onClick={() => handleDeleteKB(kb.id)}
                     className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-red-500 transition-colors"
                   >
@@ -219,12 +276,16 @@ export function KnowledgeBaseManager() {
             </div>
           ))}
 
-          {knowledgeBases.length === 0 && (
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="animate-spin text-brand-500" size={32} />
+            </div>
+          ) : knowledgeBases.length === 0 ? (
             <div className="text-center py-12 bg-slate-50 rounded-xl border border-dashed border-slate-200">
               <Database className="mx-auto text-slate-300 mb-3" size={48} />
               <p className="text-slate-500 font-medium">No knowledge bases found.</p>
             </div>
-          )}
+          ) : null}
         </div>
 
         {/* Sidebar / Quick Actions */}
@@ -273,7 +334,7 @@ export function KnowledgeBaseManager() {
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-6 border-b border-slate-100 flex items-center justify-between shrink-0">
-              <h2 className="text-xl font-bold text-slate-900">{t('knowledge.addKB')}</h2>
+              <h2 className="text-xl font-bold text-slate-900">{editingKBId ? t('knowledge.editKB') : t('knowledge.addKB')}</h2>
               <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <X size={24} />
               </button>
@@ -397,11 +458,12 @@ export function KnowledgeBaseManager() {
                   placeholder={t('knowledge.testQuery')}
                   className="flex-1 px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none transition-all"
                 />
-                <button 
+                <button
                   onClick={runTest}
-                  disabled={!testQuery}
-                  className="px-6 bg-brand-500 text-white rounded-lg font-bold text-sm hover:bg-brand-600 transition-all disabled:opacity-50"
+                  disabled={!testQuery || testLoading}
+                  className="px-6 bg-brand-500 text-white rounded-lg font-bold text-sm hover:bg-brand-600 transition-all disabled:opacity-50 flex items-center gap-2"
                 >
+                  {testLoading && <Loader2 className="animate-spin" size={16} />}
                   {t('knowledge.recallTest')}
                 </button>
               </div>
@@ -422,10 +484,15 @@ export function KnowledgeBaseManager() {
                       </p>
                     </div>
                   ))}
-                  {testResults.length === 0 && (
+                  {testResults.length === 0 && !testLoading && (
                     <div className="text-center py-12 text-slate-400">
                       <Search className="mx-auto mb-2 opacity-20" size={48} />
                       <p>Enter a query to test retrieval performance</p>
+                    </div>
+                  )}
+                  {testLoading && (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="animate-spin text-brand-500" size={32} />
                     </div>
                   )}
                 </div>

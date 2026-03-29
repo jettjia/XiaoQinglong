@@ -8,4 +8,7 @@ port: 28081
 
 mcp:
 port: 28082
+
+kb-service:
+port: 28083
 ```
