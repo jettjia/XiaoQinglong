@@ -9,6 +9,7 @@ import (
 	"github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/knowledge_base"
 	"github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/skill"
 	"github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/agent"
+	"github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/channel"
 )
 
 // AutoTable auto create table
@@ -23,6 +24,7 @@ func AutoTable() (err error) {
 		knowledge_base.SysKnowledgeBase{},
 		skill.SysSkill{},
 		agent.SysAgent{},
+		channel.SysChannel{},
 	)
 
 	return

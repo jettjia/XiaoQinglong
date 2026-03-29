@@ -312,9 +312,8 @@ export function AgentManager({ onViewChange }: AgentManagerProps) {
           <div
             key={agent.id}
             className={cn(
-              "rounded-xl p-6 transition-all group",
-              !agent.isBuiltIn && !agent.is_system ? "bg-white border hover:shadow-md hover:border-brand-300 cursor-pointer" : "bg-slate-50 border border-slate-200 hover:shadow-sm",
-              agent.enabled ? "border-brand-200" : "opacity-60 grayscale-[0.5] border-slate-300"
+              "bg-white border border-slate-200 rounded-2xl p-6 transition-all group relative",
+              agent.enabled ? "shadow-sm hover:shadow-md" : "opacity-60 grayscale-[0.5]"
             )}
           >
             <div className="flex items-start justify-between mb-4">
@@ -381,12 +380,19 @@ export function AgentManager({ onViewChange }: AgentManagerProps) {
             </p>
 
             <div className="flex flex-wrap gap-2 mb-4">
-              {agent.channels?.map(channel => (
-                <span key={channel} className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-500 px-2 py-0.5 rounded flex items-center gap-1">
-                  <Globe size={10} />
-                  {channel}
-                </span>
-              ))}
+              {(() => {
+                let channels = agent.channels;
+                if (typeof channels === 'string' && channels) {
+                  try { channels = JSON.parse(channels); } catch { channels = []; }
+                }
+                if (!Array.isArray(channels)) channels = [];
+                return channels.map(channel => (
+                  <span key={channel} className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-500 px-2 py-0.5 rounded flex items-center gap-1">
+                    <Globe size={10} />
+                    {channel}
+                  </span>
+                ));
+              })()}
             </div>
 
             <div className="flex flex-wrap gap-2 mb-4">

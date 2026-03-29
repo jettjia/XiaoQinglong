@@ -1,0 +1,64 @@
+package channel
+
+import (
+	"time"
+
+	"github.com/jinzhu/copier"
+
+	entity "github.com/jettjia/xiaoqinglong/agent-frame/domain/entity/channel"
+	po "github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/channel"
+)
+
+// E2PSysChannelAdd entity数据转换成数据库po
+func E2PSysChannelAdd(en *entity.SysChannel) *po.SysChannel {
+	var po po.SysChannel
+	po.CreatedAt = time.Now().UnixNano()
+	if err := copier.Copy(&po, &en); err != nil {
+		panic(any(err))
+	}
+
+	return &po
+}
+
+// E2PSysChannelDel entity数据转换成数据库po
+func E2PSysChannelDel(en *entity.SysChannel) *po.SysChannel {
+	var po po.SysChannel
+	po.DeletedAt = time.Now().UnixMilli()
+
+	return &po
+}
+
+// E2PSysChannelUpdate entity数据转换成数据库po
+func E2PSysChannelUpdate(en *entity.SysChannel) *po.SysChannel {
+	var po po.SysChannel
+	if err := copier.Copy(&po, &en); err != nil {
+		panic(any(err))
+	}
+
+	po.UpdatedAt = time.Now().UnixNano()
+	return &po
+}
+
+// P2ESysChannel 数据库po转换成entity
+func P2ESysChannel(p *po.SysChannel) *entity.SysChannel {
+	var en entity.SysChannel
+	if err := copier.Copy(&en, &p); err != nil {
+		panic(any(err))
+	}
+
+	return &en
+}
+
+func P2ESysChannels(pos []*po.SysChannel) []*entity.SysChannel {
+	ens := make([]*entity.SysChannel, 0)
+	if len(pos) == 0 {
+		return ens
+	}
+
+	for _, val := range pos {
+		cfg := P2ESysChannel(val)
+		ens = append(ens, cfg)
+	}
+
+	return ens
+}

@@ -1,6 +1,6 @@
-package agent
+package channel
 
-type SysAgent struct {
+type SysChannel struct {
 	Ulid        string `json:"ulid"`
 	CreatedAt   int64  `json:"created_at"`
 	UpdatedAt   int64  `json:"updated_at"`
@@ -8,14 +8,9 @@ type SysAgent struct {
 	CreatedBy   string `json:"created_by"`
 	UpdatedBy   string `json:"updated_by"`
 	Name        string `json:"name"`
+	Code        string `json:"code"`
 	Description string `json:"description"`
 	Icon        string `json:"icon"`
-	Model       string `json:"model"`
-	Config      string `json:"config"`
-	ConfigJson  string `json:"config_json"`
-	IsSystem    bool   `json:"is_system"`
 	Enabled     bool   `json:"enabled"`
-	Channels    string `json:"channels"`
-	IsPeriodic  bool   `json:"is_periodic"`
-	CronRule    string `json:"cron_rule"`
+	Sort        int    `json:"sort"`
 }

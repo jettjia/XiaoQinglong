@@ -509,3 +509,32 @@ export const agentApi = {
     return json.data || json;
   },
 };
+
+export interface Channel {
+  ulid: string;
+  created_at: number;
+  updated_at: number;
+  created_by: string;
+  updated_by: string;
+  name: string;
+  code: string;
+  description: string;
+  icon: string;
+  enabled: boolean;
+  sort: number;
+}
+
+export const channelApi = {
+  async findAll(): Promise<Channel[]> {
+    const res = await fetch(`${API_BASE}/channel/all`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to find channels');
+    }
+    return Array.isArray(json) ? json : (json.data || []);
+  },
+};

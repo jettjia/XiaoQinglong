@@ -17,6 +17,9 @@ type (
 		ConfigJson  string `json:"config_json"`
 		Enabled     bool   `json:"enabled"`
 		IsSystem    bool   `json:"is_system"`
+		Channels    string `json:"channels"`
+		IsPeriodic  bool   `json:"is_periodic"`
+		CronRule    string `json:"cron_rule"`
 	}
 
 	// DelSysAgentReq 删除请求对象
@@ -35,6 +38,9 @@ type (
 		Config      string `json:"config"`
 		ConfigJson  string `json:"config_json"`
 		Enabled     *bool  `json:"enabled"`
+		Channels    string `json:"channels"`
+		IsPeriodic  *bool  `json:"is_periodic"`
+		CronRule    string `json:"cron_rule"`
 	}
 
 	// UpdateSysAgentEnabledReq 修改启用状态请求对象
@@ -93,6 +99,9 @@ type (
 		ConfigJson  string `json:"config_json"`
 		IsSystem    bool   `json:"is_system"`
 		Enabled     bool   `json:"enabled"`
+		Channels    string `json:"channels"`
+		IsPeriodic  bool   `json:"is_periodic"`
+		CronRule    string `json:"cron_rule"`
 	}
 
 	// FindSysAgentPageRsp 列表查询返回对象

@@ -20,6 +20,9 @@ type SysAgent struct {
 	ConfigJson   string `gorm:"column:config_json;type:text;comment:可运行JSON配置;" json:"config_json"`
 	IsSystem     bool   `gorm:"column:is_system;type:boolean;default:false;comment:是否系统内置;" json:"is_system"`
 	Enabled      bool   `gorm:"column:enabled;type:boolean;default:true;comment:是否启用;" json:"enabled"`
+	Channels     string `gorm:"column:channels;type:varchar(500);comment:渠道;" json:"channels"`
+	IsPeriodic   bool   `gorm:"column:is_periodic;type:boolean;default:false;comment:是否周期任务;" json:"is_periodic"`
+	CronRule     string `gorm:"column:cron_rule;type:varchar(100);comment:Cron规则;" json:"cron_rule"`
 }
 
 func (po *SysAgent) BeforeCreate(tx *gorm.DB) (err error) {

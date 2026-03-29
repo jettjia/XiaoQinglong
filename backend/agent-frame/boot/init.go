@@ -9,14 +9,22 @@ import (
 
 	"github.com/jettjia/igo-pkg/pkg/xsql/builder"
 
+	dtoChannel "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/channel"
 	dtoSkill "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/skill"
+	"github.com/jettjia/xiaoqinglong/agent-frame/application/service/channel"
 	"github.com/jettjia/xiaoqinglong/agent-frame/application/service/skill"
+	srvChannel "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/channel"
 	srvSkill "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/skill"
 )
 
 func InitData() (err error) {
 	// 初始化扫描 skills 目录并同步到数据库
 	if err = syncSkillsFromDisk(); err != nil {
+		return
+	}
+
+	// 初始化默认渠道
+	if err = initDefaultChannels(); err != nil {
 		return
 	}
 
@@ -155,6 +163,59 @@ func parseSkillMd(skillMdPath string) (skillType, description, version string) {
 	}
 
 	return
+}
+
+// initDefaultChannels 初始化默认渠道
+func initDefaultChannels() error {
+	log.Println("[Init] Initializing default channels")
+
+	channelSvc := channel.NewSysChannelService()
+	domainChannelSvc := srvChannel.NewSysChannelSvc()
+	ctx := context.Background()
+
+	// 默认渠道列表
+	defaultChannels := []struct {
+		name        string
+		code        string
+		description string
+		icon        string
+		sort        int
+	}{
+		{"API", "api", "API Channel", "Globe", 1},
+		{"Web", "web", "Web Channel", "Globe", 2},
+		{"Feishu", "feishu", "Feishu Channel", "MessageSquare", 3},
+		{"DingTalk", "dingtalk", "DingTalk Channel", "MessageSquare", 4},
+	}
+
+	for _, ch := range defaultChannels {
+		// 检查是否已存在
+		existing, err := domainChannelSvc.FindByCode(ctx, ch.code)
+		if err != nil {
+			return err
+		}
+		if existing != nil {
+			// 已存在，跳过
+			continue
+		}
+
+		// 创建渠道
+		createReq := &dtoChannel.CreateSysChannelReq{
+			Name:        ch.name,
+			Code:        ch.code,
+			Description: ch.description,
+			Icon:        ch.icon,
+			Enabled:     true,
+			Sort:        ch.sort,
+		}
+
+		_, err = channelSvc.CreateSysChannel(ctx, createReq)
+		if err != nil {
+			return err
+		}
+		log.Printf("[Init] Created channel: %s (%s)", ch.name, ch.code)
+	}
+
+	return nil
 }
 
 type InitHandler struct {

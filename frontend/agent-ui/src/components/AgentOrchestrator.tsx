@@ -33,7 +33,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useTranslation } from 'react-i18next';
-import { modelApi, skillApi, knowledgeBaseApi, agentApi } from '../lib/api';
+import { modelApi, skillApi, knowledgeBaseApi, agentApi, channelApi } from '../lib/api';
 import { Message, Variable } from '../types';
 
 export function AgentOrchestrator() {
@@ -43,6 +43,7 @@ export function AgentOrchestrator() {
   const [backendModels, setBackendModels] = React.useState<any[]>([]);
   const [backendKBs, setBackendKBs] = React.useState<any[]>([]);
   const [backendSkills, setBackendSkills] = React.useState<any[]>([]);
+  const [backendChannels, setBackendChannels] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
 
   // Load data from backend
@@ -50,14 +51,16 @@ export function AgentOrchestrator() {
     const loadData = async () => {
       try {
         setLoading(true);
-        const [models, kbs, skills] = await Promise.all([
+        const [models, kbs, skills, channels] = await Promise.all([
           modelApi.findAll(),
           knowledgeBaseApi.findAll(),
           skillApi.findAll(),
+          channelApi.findAll(),
         ]);
         setBackendModels(models || []);
         setBackendKBs(kbs || []);
         setBackendSkills(skills || []);
+        setBackendChannels(channels || []);
       } catch (err) {
         console.error('Failed to load data:', err);
       } finally {
@@ -301,6 +304,9 @@ export function AgentOrchestrator() {
         icon: deployForm.icon,
         model: agentConfig.models.default,
         enabled: true,
+        channels: JSON.stringify(agentConfig.channels),
+        is_periodic: agentConfig.isPeriodic,
+        cron_rule: agentConfig.cronRule,
         // config: ID版本，用于数据库关联
         config: JSON.stringify({
           systemPrompt: agentConfig.systemPrompt,
@@ -333,7 +339,7 @@ export function AgentOrchestrator() {
         is_system: false,
       };
       console.log('Deploy agent:', agentData);
-      const result = await agentApi.create(agentData);
+      const result = await agentApi.create(agentData as any);
       console.log('Agent created:', result);
       alert(`Agent "${deployForm.name}" created successfully!`);
       setIsDeployModalOpen(false);
@@ -1364,7 +1370,17 @@ export function AgentOrchestrator() {
                 <h2 className="font-bold">{t('orchestrator.channels')}</h2>
               </div>
               <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2">
-                {['api', 'web', 'feishu', 'dingtalk'].map(channel => (
+                {backendChannels.length > 0 ? backendChannels.filter(ch => ch.enabled).map(channel => (
+                  <label key={channel.ulid || channel.code} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors">
+                    <span className="text-sm font-medium text-slate-700">{channel.name}</span>
+                    <input
+                      type="checkbox"
+                      checked={agentConfig.channels.includes(channel.code)}
+                      onChange={() => handleToggleChannel(channel.code)}
+                      className="rounded text-brand-500 focus:ring-brand-500"
+                    />
+                  </label>
+                )) : ['api', 'web', 'feishu', 'dingtalk'].map(channel => (
                   <label key={channel} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors">
                     <span className="text-sm font-medium text-slate-700">{t(`orchestrator.${channel}Channel`)}</span>
                     <input
