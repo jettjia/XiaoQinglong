@@ -2,16 +2,6 @@ import { Agent, Skill, KnowledgeBase } from './types';
 
 export const INITIAL_AGENTS: Agent[] = [
   {
-    id: 'quick',
-    name: '快速',
-    description: '快速响应模式',
-    model: 'gemini-3.1-pro-preview',
-    skills: ['fast-response'],
-    tools: ['all'],
-    icon: 'Zap',
-    isBuiltIn: true,
-  },
-  {
     id: 'image',
     name: '图像生成',
     description: '生成高质量图像',
@@ -133,25 +123,25 @@ export const MOCK_MODELS = [
 ];
 
 export const INITIAL_KNOWLEDGE_BASES: KnowledgeBase[] = [
-  { 
-    id: 'kb-1', 
-    name: 'External Search API', 
+  {
+    id: 'kb-1',
+    name: 'External Search API',
     description: 'Connects to internal search engine',
     lastUpdated: '2024-03-15',
     retrievalUrl: 'http://10.4.110.176:32199/api/intelli-search/',
     enabled: true
   },
-  { 
-    id: 'kb-2', 
-    name: 'Product Documentation', 
+  {
+    id: 'kb-2',
+    name: 'Product Documentation',
     description: 'Internal product guides and manuals',
     lastUpdated: '2024-03-20',
     retrievalUrl: 'http://docs.internal.com/api/v1/search',
     enabled: true
   },
-  { 
-    id: 'kb-3', 
-    name: 'Customer Support Wiki', 
+  {
+    id: 'kb-3',
+    name: 'Customer Support Wiki',
     description: 'Common issues and troubleshooting steps',
     lastUpdated: '2024-03-25',
     retrievalUrl: 'http://wiki.support.com/api/query',

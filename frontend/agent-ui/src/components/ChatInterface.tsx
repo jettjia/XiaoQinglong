@@ -648,78 +648,70 @@ export function ChatInterface() {
               />
               
               <div className="flex items-center justify-between px-4 pb-4">
-                <div className="flex items-center gap-3 flex-wrap py-1 flex-1 mr-2">
-                  <button 
+                <div className="flex items-center gap-1 flex-1 mr-2">
+                  <button
                     onClick={() => document.getElementById('file-upload')?.click()}
                     className="p-1.5 hover:bg-slate-50 rounded-full text-slate-600 transition-colors shrink-0"
                   >
-                    <Paperclip size={18} />
+                    <Paperclip size={16} />
                   </button>
-                  
-                  <div className="h-5 w-px bg-slate-100 shrink-0" />
 
-                  <button 
+                  <div className="h-4 w-px bg-slate-100 shrink-0" />
+
+                  <button
                     onClick={runDemo}
-                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-brand-50 text-brand-600 hover:bg-brand-100 transition-all text-[11px] font-bold whitespace-nowrap shrink-0"
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg bg-brand-50 text-brand-600 hover:bg-brand-100 transition-all text-[10px] font-bold whitespace-nowrap shrink-0"
                   >
-                    <Zap size={14} />
+                    <Zap size={12} />
                     演示全场景
                   </button>
-                  
-                  <div className="h-5 w-px bg-slate-100 shrink-0" />
 
-                  <div className="flex items-center gap-2">
+                  <div className="h-4 w-px bg-slate-100 shrink-0" />
+
+                  <div className="flex items-center gap-1">
                     {visibleAgents.map(agent => (
-                      <button 
+                      <button
                         key={agent.id}
                         onClick={() => setActiveAgent(agent)}
                         className={cn(
-                          "flex items-center gap-2 px-3 py-2 rounded-xl transition-all shrink-0 text-sm font-medium whitespace-nowrap",
-                          activeAgent.id === agent.id 
-                            ? "bg-slate-50 text-slate-900" 
-                            : "text-slate-900 hover:bg-slate-50"
+                          "flex items-center gap-1 px-2 py-1.5 rounded-lg transition-all text-xs font-medium whitespace-nowrap shrink-0",
+                          activeAgent.id === agent.id
+                            ? "bg-slate-100 text-slate-900"
+                            : "text-slate-600 hover:bg-slate-50"
                         )}
                       >
-                        <div className={cn(
-                          "flex items-center gap-2",
-                          agent.id === 'quick' && "text-slate-900"
-                        )}>
-                          {getAgentIcon(agent.icon || '')}
-                          <span>{agent.name}</span>
-                          {agent.id === 'quick' && (
-                            <div className="flex items-center gap-1">
-                              <span className="bg-blue-50 text-blue-500 text-[10px] px-1.5 py-0.5 rounded font-bold">新</span>
-                              <ChevronRight size={14} className="text-slate-300" />
-                            </div>
-                          )}
-                        </div>
+                        {getAgentIcon(agent.icon || '', 12)}
+                        <span>{agent.name}</span>
+                        {agent.id === 'quick' && (
+                          <span className="bg-blue-50 text-blue-500 text-[9px] px-1 py-0.5 rounded font-bold">新</span>
+                        )}
                       </button>
                     ))}
                     {moreAgents.length > 0 && (
                       <div className="relative shrink-0">
-                        <button 
+                        <button
                           onClick={() => setIsMoreAgentsOpen(!isMoreAgentsOpen)}
                           className={cn(
-                            "flex items-center gap-2 px-3 py-2 rounded-xl transition-all text-sm font-medium whitespace-nowrap",
-                            isMoreAgentsOpen ? "bg-slate-50 text-slate-900" : "text-slate-900 hover:bg-slate-50"
+                            "flex items-center gap-1 px-2 py-1.5 rounded-lg transition-all text-xs font-medium whitespace-nowrap",
+                            isMoreAgentsOpen ? "bg-slate-100 text-slate-900" : "text-slate-600 hover:bg-slate-50"
                           )}
                         >
-                          <LayoutGrid size={18} />
+                          <LayoutGrid size={14} />
                           <span>{t('chat.more')}</span>
                         </button>
 
                         <AnimatePresence>
                           {isMoreAgentsOpen && (
                             <>
-                              <div 
-                                className="fixed inset-0 z-20" 
-                                onClick={() => setIsMoreAgentsOpen(false)} 
+                              <div
+                                className="fixed inset-0 z-20"
+                                onClick={() => setIsMoreAgentsOpen(false)}
                               />
-                              <motion.div 
+                              <motion.div
                                 initial={{ opacity: 0, y: 10, scale: 0.95 }}
                                 animate={{ opacity: 1, y: 0, scale: 1 }}
                                 exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                                className="absolute bottom-full right-0 mb-3 w-56 bg-white border border-slate-100 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.08)] z-30 py-2 overflow-hidden"
+                                className="absolute bottom-full right-0 mb-2 w-48 bg-white border border-slate-100 rounded-xl shadow-lg z-30 py-1.5 overflow-hidden"
                               >
                                 {moreAgents.map(agent => (
                                   <button
@@ -729,14 +721,12 @@ export function ChatInterface() {
                                       setIsMoreAgentsOpen(false);
                                     }}
                                     className={cn(
-                                      "w-full flex items-center gap-3 px-4 py-2.5 text-base transition-colors",
-                                      activeAgent.id === agent.id ? "bg-slate-50 text-slate-900 font-semibold" : "text-slate-900 hover:bg-slate-50"
+                                      "w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors",
+                                      activeAgent.id === agent.id ? "bg-slate-50 text-slate-900 font-semibold" : "text-slate-700 hover:bg-slate-50"
                                     )}
                                   >
-                                    <div className="text-slate-900 shrink-0">
-                                      {getAgentIcon(agent.icon || '', 20)}
-                                    </div>
-                                    <span className="whitespace-nowrap font-medium">{agent.name}</span>
+                                    {getAgentIcon(agent.icon || '', 14)}
+                                    <span className="font-medium">{agent.name}</span>
                                   </button>
                                 ))}
                               </motion.div>
