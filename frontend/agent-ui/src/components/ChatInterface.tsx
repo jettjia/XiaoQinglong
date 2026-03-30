@@ -320,7 +320,7 @@ export function ChatInterface() {
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: data.output || "I'm sorry, I couldn't generate a response.",
+        content: data.content || data.output || "I'm sorry, I couldn't generate a response.",
         timestamp: new Date(),
         thinking: data.thinking,
         trace: data.trace,

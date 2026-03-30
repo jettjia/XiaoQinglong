@@ -74,7 +74,7 @@ func (h *Handler) Run(c *gin.Context) {
 		runnerReq["models"] = models
 	}
 	if systemPrompt, ok := agentConfig["system_prompt"].(string); ok {
-		runnerReq["system_prompt"] = systemPrompt
+		runnerReq["prompt"] = systemPrompt
 	}
 	if tools, ok := agentConfig["tools"].([]any); ok && len(tools) > 0 {
 		runnerReq["tools"] = tools
@@ -98,8 +98,10 @@ func (h *Handler) Run(c *gin.Context) {
 		runnerReq["sandbox"] = sandbox
 	}
 
-	// 添加user_message和context
-	runnerReq["user_message"] = chatReq.Input
+	// 添加messages和context
+	runnerReq["messages"] = []map[string]any{
+		{"role": "user", "content": chatReq.Input},
+	}
 	runnerReq["context"] = map[string]any{
 		"session_id": chatReq.SessionID,
 		"user_id":    chatReq.UserID,
