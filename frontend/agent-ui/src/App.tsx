@@ -14,8 +14,10 @@ import { AgentOrchestrator } from './components/AgentOrchestrator';
 import { ModelManager } from './components/ModelManager';
 import { Settings } from './components/Settings';
 import { Inbox } from './components/Inbox';
+import { CommandCenter } from './components/CommandCenter';
 import { View, Agent } from './types';
 import { AnimatePresence, motion } from 'motion/react';
+import { Toaster } from 'sonner';
 
 export default function App() {
   const [activeView, setActiveView] = React.useState<View>('dashboard');
@@ -66,6 +68,9 @@ export default function App() {
           </motion.div>
         </AnimatePresence>
       </main>
+
+      <CommandCenter onViewChange={setActiveView} />
+      <Toaster position="top-right" richColors />
     </div>
   );
 }

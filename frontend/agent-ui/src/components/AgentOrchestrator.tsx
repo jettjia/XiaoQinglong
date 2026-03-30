@@ -401,6 +401,7 @@ export function AgentOrchestrator() {
   const testScrollRef = React.useRef<HTMLDivElement>(null);
   const testAbortControllerRef = React.useRef<AbortController | null>(null);
   const [deployedAgentId, setDeployedAgentId] = React.useState<string | null>(null);
+  const [testCheckpointId, setTestCheckpointId] = React.useState<string | null>(null);
 
   // Skill Category State
   const [skillCategory, setSkillCategory] = React.useState<'all' | 'built-in' | 'mcp' | 'tool' | 'a2a' | 'skill'>('all');
@@ -444,12 +445,19 @@ export function AgentOrchestrator() {
       return;
     }
 
+    if (!testCheckpointId) {
+      console.error('No checkpoint_id found for resume');
+      return;
+    }
+
     try {
-      // 调用 resume API
+      // 调用 resume API，使用正确的 checkpoint_id 格式
       const response = await chatApi.resumeAgent({
-        interrupt_id: msg.interruptId,
-        approved: true,
-        approved_by: 'test-user'
+        checkpoint_id: testCheckpointId,
+        approvals: [{
+          interrupt_id: msg.interruptId,
+          approved: true
+        }]
       });
 
       // 更新消息状态
@@ -488,13 +496,19 @@ export function AgentOrchestrator() {
       return;
     }
 
+    if (!testCheckpointId) {
+      console.error('No checkpoint_id found for resume');
+      return;
+    }
+
     try {
-      // 调用 resume API
+      // 调用 resume API，使用正确的 checkpoint_id 格式
       const response = await chatApi.resumeAgent({
-        interrupt_id: msg.interruptId,
-        approved: false,
-        approved_by: 'test-user',
-        reason: 'User rejected'
+        checkpoint_id: testCheckpointId,
+        approvals: [{
+          interrupt_id: msg.interruptId,
+          approved: false
+        }]
       });
 
       // 更新消息状态
@@ -565,6 +579,11 @@ export function AgentOrchestrator() {
         status: response.status
       };
       setTestMessages(prev => [...prev, aiMsg]);
+
+      // Store checkpoint_id for resume
+      if (response.checkpoint_id) {
+        setTestCheckpointId(response.checkpoint_id);
+      }
 
       // 处理 pending approvals
       if (response.pending_approvals && response.pending_approvals.length > 0) {

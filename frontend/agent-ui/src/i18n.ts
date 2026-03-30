@@ -371,6 +371,20 @@ const resources = {
           approved: 'Approved',
           rejected: 'Rejected'
         }
+      },
+      commandCenter: {
+        title: 'Magic Box',
+        subtitle: 'AI Command Center',
+        placeholder: 'Type a command...',
+        howCanIHelp: 'How can I help you?',
+        helpDesc: 'Try saying "Add a GPT-4 model" or "Create a translation agent". I can help you manage the entire platform.',
+        confirm: 'Confirm Action',
+        cancel: 'Cancel',
+        executing: 'Executing command...',
+        completed: 'Action completed successfully',
+        models: 'Models',
+        agents: 'Agents',
+        skills: 'Skills'
       }
     }
   },
@@ -742,6 +756,20 @@ const resources = {
           approved: '已批准',
           rejected: '已拒绝'
         }
+      },
+      commandCenter: {
+        title: '魔法盒',
+        subtitle: 'AI 智能指挥中心',
+        placeholder: '输入指令...',
+        howCanIHelp: '我能帮您做什么？',
+        helpDesc: '试着说"添加 GPT-4 模型"或"创建一个翻译智能体"。我可以帮您管理整个平台。',
+        confirm: '确认执行',
+        cancel: '取消',
+        executing: '正在执行指令...',
+        completed: '操作已成功完成',
+        models: '模型',
+        agents: '智能体',
+        skills: '技能'
       }
     }
   }
