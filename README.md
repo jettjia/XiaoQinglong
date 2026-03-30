@@ -23,7 +23,6 @@ summarize - 内容摘要模型
 HTTP - RESTful API，通用性强
 gRPC - 高性能内部通信
 MCP (Model Context Protocol) - 标准化工具扩展协议
-WebSocket - 实时消息推送
 5. 技能中心 (Skill Center)
 内置 Skills 市场，支持自定义技能开发
 支持 MCP Server 接入外部工具
@@ -49,7 +48,8 @@ json - 结构化数据
 a2ui - 前端组件化渲染
 image/audio/video - 多媒体生成
 multipart - 混合响应
-10. 完善的运维支持
+
+10.  完善的运维支持
 流式响应 (SSE)
 指数退避重试机制
 完整执行追踪 (Trace) - 模型/延迟/Token/工具调用详情
@@ -61,11 +61,13 @@ multipart - 混合响应
 架构	DDD (Domain-Driven Design) 分层
 协议	HTTP / gRPC / MCP / WebSocket
 运行	Docker 沙箱隔离
-适用场景
+
+11. 适用场景
 智能客服 - 多渠道接入，统一回复
 企业知识助手 - RAG 增强的内部知识检索
 流程自动化 - 编排复杂业务流程，多工具协作
 Agent 开发平台 - 为第三方提供 Agent 能力输出
+任意系统的互联互通
 
 
 ## Overall Architecture

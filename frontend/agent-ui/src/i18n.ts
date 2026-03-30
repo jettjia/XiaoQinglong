@@ -28,6 +28,8 @@ const resources = {
         activeAgents: 'Active Agents',
         tasksCompleted: 'Tasks Completed',
         modelLatency: 'Model Latency',
+        periodicAgents: 'Periodic Agents',
+        totalTokens: 'Total Tokens',
         systemActivity: 'System Activity',
         recentEvents: 'Recent Events',
         viewAll: 'View All Activity',
@@ -36,7 +38,15 @@ const resources = {
         sandboxMonitoring: 'Sandbox Monitoring',
         cpuUsage: 'CPU Usage',
         memoryUsage: 'Memory Usage',
-        activeContainers: 'Active Containers'
+        activeContainers: 'Active Containers',
+        quickActions: 'Quick Actions',
+        createAgent: 'Create Agent',
+        addKnowledge: 'Add Knowledge',
+        configureModel: 'Configure Model',
+        pendingApprovals: 'Pending Approvals',
+        recentConversations: 'Recent Conversations',
+        noPending: 'No pending approvals',
+        noConversations: 'No recent conversations'
       },
       agents: {
         title: 'Agent Management',
@@ -413,6 +423,8 @@ const resources = {
         activeAgents: '活跃智能体',
         tasksCompleted: '任务已完成',
         modelLatency: '模型延迟',
+        periodicAgents: '周期智能体',
+        totalTokens: '总 Token 消耗',
         systemActivity: '系统活动',
         recentEvents: '最近事件',
         viewAll: '查看所有活动',
@@ -421,7 +433,15 @@ const resources = {
         sandboxMonitoring: '沙箱资源监控',
         cpuUsage: 'CPU 使用率',
         memoryUsage: '内存使用率',
-        activeContainers: '活跃容器'
+        activeContainers: '活跃容器',
+        quickActions: '快捷操作',
+        createAgent: '创建智能体',
+        addKnowledge: '添加知识库',
+        configureModel: '配置模型',
+        pendingApprovals: '待审批事项',
+        recentConversations: '最近对话',
+        noPending: '暂无待审批事项',
+        noConversations: '暂无最近对话'
       },
       agents: {
         title: '智能体管理',

@@ -1,37 +1,99 @@
 import React from 'react';
-import { 
-  Users, 
-  Zap, 
-  Database, 
-  Cpu, 
-  TrendingUp, 
-  ArrowUpRight, 
+import {
+  Users,
+  Zap,
+  Database,
+  ArrowUpRight,
   ArrowDownRight,
-  Clock
+  Clock,
+  Plus,
+  MessageSquare,
+  ShieldCheck,
+  Cpu,
+  Globe,
+  CheckCircle2,
+  AlertCircle,
+  ChevronRight
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useTranslation } from 'react-i18next';
+import { View } from '../types';
+import { motion } from 'motion/react';
 
-export function Dashboard() {
+interface DashboardProps {
+  onViewChange: (view: View) => void;
+}
+
+export function Dashboard({ onViewChange }: DashboardProps) {
   const { t } = useTranslation();
-  
+
   const stats = [
-    { label: t('dashboard.activeAgents'), value: '12', change: '+2', trend: 'up', icon: Users, color: 'text-blue-500', bg: 'bg-blue-50' },
+    { label: t('dashboard.activeAgents'), value: '12', change: '+2', trend: 'up', icon: Users, color: 'text-blue-500', bg: 'bg-blue-50', view: 'agents' as View },
+    { label: t('dashboard.periodicAgents'), value: '4', change: '+1', trend: 'up', icon: Clock, color: 'text-purple-500', bg: 'bg-purple-50', view: 'agents' as View },
     { label: t('dashboard.tasksCompleted'), value: '1,428', change: '+12%', trend: 'up', icon: Zap, color: 'text-orange-500', bg: 'bg-orange-50' },
-    { label: t('knowledge.activeSources'), value: '1', change: '+1', trend: 'up', icon: Database, color: 'text-green-500', bg: 'bg-green-50' },
-    { label: t('dashboard.modelLatency'), value: '0.8s', change: '-5%', trend: 'down', icon: Cpu, color: 'text-purple-500', bg: 'bg-purple-50' },
+    { label: t('dashboard.totalTokens'), value: '2.4M', change: '+18%', trend: 'up', icon: Cpu, color: 'text-indigo-500', bg: 'bg-indigo-50' },
+    { label: t('knowledge.activeSources'), value: '1', change: '+1', trend: 'up', icon: Database, color: 'text-green-500', bg: 'bg-green-50', view: 'knowledge' as View },
+  ];
+
+  const quickActions = [
+    { label: t('dashboard.createAgent'), icon: Plus, view: 'orchestrator' as View, color: 'bg-brand-500 text-white hover:bg-brand-600' },
+    { label: t('dashboard.addKnowledge'), icon: Database, view: 'knowledge' as View, color: 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50' },
+    { label: t('dashboard.configureModel'), icon: Cpu, view: 'models' as View, color: 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50' },
+  ];
+
+  const pendingApprovals = [
+    { id: 1, title: 'Sensitive Data Access', agent: 'Research-Agent', time: '2m ago', risk: 'High', type: 'Tool Call' },
+    { id: 2, title: 'External API Execution', agent: 'Data-Analyzer', time: '15m ago', risk: 'Medium', type: 'A2A' },
+    { id: 3, title: 'Knowledge Base Update', agent: 'System', time: '1h ago', risk: 'Low', type: 'Knowledge' },
+  ];
+
+  const recentConversations = [
+    { id: 1, name: 'Research-Agent', lastMessage: 'The analysis of the market trends is complete.', time: '5m ago' },
+    { id: 2, name: 'Customer-Support', lastMessage: 'How can I assist you with your order today?', time: '12m ago' },
+    { id: 3, name: 'Coding-Assistant', lastMessage: 'I have refactored the authentication logic.', time: '45m ago' },
   ];
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">{t('dashboard.welcome')}</h1>
-        <p className="text-slate-500 mt-1">{t('dashboard.subtitle')}</p>
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">{t('dashboard.welcome')}</h1>
+          <p className="text-slate-500 mt-1">{t('dashboard.subtitle')}</p>
+        </div>
+
+        {/* Quick Actions */}
+        <div className="flex items-center gap-3">
+          {quickActions.map((action) => (
+            <button
+              key={action.label}
+              onClick={() => onViewChange(action.view)}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm",
+                action.color
+              )}
+            >
+              <action.icon size={18} />
+              {action.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat) => (
-          <div key={stat.label} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all">
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
+        {stats.map((stat, i) => (
+          <motion.div
+            key={stat.label}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.1 }}
+            onClick={() => stat.view && onViewChange(stat.view)}
+            className={cn(
+              "bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all",
+              stat.view && "cursor-pointer hover:border-brand-200"
+            )}
+          >
             <div className="flex items-start justify-between mb-4">
               <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center", stat.bg, stat.color)}>
                 <stat.icon size={24} />
@@ -46,37 +108,108 @@ export function Dashboard() {
             </div>
             <p className="text-sm font-medium text-slate-500">{stat.label}</p>
             <p className="text-2xl font-bold text-slate-900 mt-1">{stat.value}</p>
-          </div>
+          </motion.div>
         ))}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-6">
+        {/* Pending Approvals - Core Workflow */}
+        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
           <div className="flex items-center justify-between mb-6">
-            <h3 className="font-bold text-slate-900">{t('dashboard.systemActivity')}</h3>
-            <select className="text-xs font-bold text-slate-500 bg-slate-50 border-none rounded-lg focus:ring-0">
-              <option>Last 7 Days</option>
-              <option>Last 30 Days</option>
-            </select>
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="text-brand-500" size={20} />
+              <h3 className="font-bold text-slate-900">{t('dashboard.pendingApprovals')}</h3>
+            </div>
+            <button
+              onClick={() => onViewChange('inbox')}
+              className="text-xs font-bold text-brand-500 hover:text-brand-600 flex items-center gap-1"
+            >
+              {t('dashboard.viewAll')}
+              <ChevronRight size={14} />
+            </button>
           </div>
-          <div className="h-64 w-full flex items-end gap-2 px-2">
-            {[40, 65, 45, 90, 55, 70, 85, 60, 75, 50, 80, 95].map((h, i) => (
-              <div key={i} className="flex-1 bg-brand-500/10 rounded-t-md relative group">
-                <div 
-                  className="absolute bottom-0 left-0 right-0 bg-brand-500 rounded-t-md transition-all duration-500 group-hover:bg-brand-600" 
-                  style={{ height: `${h}%` }}
-                />
+
+          <div className="space-y-4">
+            {pendingApprovals.map((item) => (
+              <div
+                key={item.id}
+                className="flex items-center justify-between p-4 rounded-xl border border-slate-100 hover:border-brand-200 hover:bg-brand-50/30 transition-all cursor-pointer group"
+                onClick={() => onViewChange('inbox')}
+              >
+                <div className="flex items-center gap-4">
+                  <div className={cn(
+                    "w-10 h-10 rounded-lg flex items-center justify-center",
+                    item.risk === 'High' ? "bg-red-50 text-red-500" :
+                      item.risk === 'Medium' ? "bg-orange-50 text-orange-500" : "bg-blue-50 text-blue-500"
+                  )}>
+                    <AlertCircle size={20} />
+                  </div>
+                  <div>
+                    <p className="font-bold text-slate-900 group-hover:text-brand-600 transition-colors">{item.title}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-xs font-medium text-slate-500">{item.agent}</span>
+                      <span className="text-[10px] text-slate-300">•</span>
+                      <span className="text-xs text-slate-400">{item.time}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className={cn(
+                    "text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md",
+                    item.risk === 'High' ? "bg-red-100 text-red-700" :
+                      item.risk === 'Medium' ? "bg-orange-100 text-orange-700" : "bg-blue-100 text-blue-700"
+                  )}>
+                    {item.risk} Risk
+                  </span>
+                  <ChevronRight size={16} className="text-slate-300 group-hover:text-brand-500 transition-colors" />
+                </div>
               </div>
-            ))}
-          </div>
-          <div className="flex justify-between mt-4 px-2">
-            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => (
-              <span key={d} className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{d}</span>
             ))}
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-2xl p-6">
+        {/* Recent Conversations */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="text-slate-400" size={20} />
+              <h3 className="font-bold text-slate-900">{t('dashboard.recentConversations')}</h3>
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            {recentConversations.map((chat) => (
+              <div
+                key={chat.id}
+                className="flex gap-3 cursor-pointer group"
+                onClick={() => onViewChange('chat')}
+              >
+                <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center shrink-0 group-hover:bg-brand-50 transition-colors">
+                  <Users size={18} className="text-slate-400 group-hover:text-brand-500" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex justify-between items-start mb-0.5">
+                    <p className="text-sm font-bold text-slate-900 truncate group-hover:text-brand-600 transition-colors">{chat.name}</p>
+                    <span className="text-[10px] text-slate-400 shrink-0">{chat.time}</span>
+                  </div>
+                  <p className="text-xs text-slate-500 truncate">{chat.lastMessage}</p>
+                </div>
+              </div>
+            ))}
+
+            <button
+              onClick={() => onViewChange('chat')}
+              className="w-full py-2 text-xs font-bold text-slate-400 hover:text-brand-500 transition-colors border-t border-slate-50 mt-2"
+            >
+              {t('chat.history')}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Token Usage Ranking - Kept as it is a real list */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
           <h3 className="font-bold text-slate-900 mb-6">{t('dashboard.tokenUsageRanking')}</h3>
           <div className="space-y-4">
             {[
@@ -91,8 +224,8 @@ export function Dashboard() {
                   <span className="text-slate-400">{item.usage} tokens</span>
                 </div>
                 <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-brand-500 rounded-full" 
+                  <div
+                    className="h-full bg-brand-500 rounded-full"
                     style={{ width: `${item.percentage}%` }}
                   />
                 </div>
@@ -100,19 +233,18 @@ export function Dashboard() {
             ))}
           </div>
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-white border border-slate-200 rounded-2xl p-6">
+        {/* Channel Activity */}
+        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
           <h3 className="font-bold text-slate-900 mb-6">{t('dashboard.channelActivity')}</h3>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
-              { name: 'Feishu', status: 'Active', color: 'bg-blue-500', messages: '1,240' },
-              { name: 'DingTalk', status: 'Active', color: 'bg-blue-600', messages: '850' },
-              { name: 'WeChat', status: 'Inactive', color: 'bg-green-500', messages: '0' },
-              { name: 'API', status: 'Active', color: 'bg-slate-900', messages: '4,500' },
+              { name: 'Feishu', status: 'Active', messages: '1,240' },
+              { name: 'DingTalk', status: 'Active', messages: '850' },
+              { name: 'WeChat', status: 'Inactive', messages: '0' },
+              { name: 'API', status: 'Active', messages: '4,500' },
             ].map((channel, i) => (
-              <div key={i} className="p-4 rounded-xl border border-slate-100 bg-slate-50/50">
+              <div key={i} className="p-4 rounded-xl border border-slate-100 bg-slate-50/50 hover:border-brand-100 transition-colors">
                 <div className="flex items-center gap-2 mb-2">
                   <div className={cn("w-2 h-2 rounded-full", channel.status === 'Active' ? "bg-green-500" : "bg-slate-300")} />
                   <span className="text-xs font-bold text-slate-700">{channel.name}</span>
@@ -123,50 +255,7 @@ export function Dashboard() {
             ))}
           </div>
         </div>
-
-        <div className="bg-white border border-slate-200 rounded-2xl p-6">
-          <h3 className="font-bold text-slate-900 mb-6">{t('dashboard.sandboxMonitoring')}</h3>
-          <div className="space-y-6">
-            <div className="grid grid-cols-3 gap-4">
-              <div className="text-center">
-                <p className="text-2xl font-bold text-brand-500">12</p>
-                <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">{t('dashboard.activeContainers')}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-slate-900">24%</p>
-                <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">{t('dashboard.cpuUsage')}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-slate-900">1.2GB</p>
-                <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">{t('dashboard.memoryUsage')}</p>
-              </div>
-            </div>
-            <div className="h-24 w-full flex items-end gap-1 px-2">
-              {[20, 25, 22, 30, 28, 35, 32, 40, 38, 45, 42, 50, 48, 55, 52, 60, 58, 65, 62, 70].map((h, i) => (
-                <div key={i} className="flex-1 bg-brand-500/20 rounded-t-sm" style={{ height: `${h}%` }} />
-              ))}
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );
 }
-
-const Box = ({ size, className }: { size: number, className?: string }) => (
-  <svg 
-    width={size} 
-    height={size} 
-    viewBox="0 0 24 24" 
-    fill="none" 
-    stroke="currentColor" 
-    strokeWidth="2" 
-    strokeLinecap="round" 
-    strokeLinejoin="round" 
-    className={className}
-  >
-    <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
-    <path d="m3.3 7 8.7 5 8.7-5" />
-    <path d="M12 22V12" />
-  </svg>
-);

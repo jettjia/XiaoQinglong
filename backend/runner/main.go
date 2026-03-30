@@ -8,6 +8,9 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/schema"
 )
 
 func main() {
@@ -32,6 +35,12 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 	// 展开环境变量
 	expandEnvInRequest(&req)
 
+	// 检查是否需要流式输出
+	if req.Options != nil && req.Options.Stream {
+		handleRunStream(w, r, &req)
+		return
+	}
+
 	runner := NewRunner(&req)
 	resp, err := runner.Run(r.Context())
 	if err != nil {
@@ -41,6 +50,102 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// handleRunStream 处理流式输出
+func handleRunStream(w http.ResponseWriter, r *http.Request, req *RunRequest) {
+	runner := NewRunner(req)
+
+	// 设置 SSE 头
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "SSE not supported", http.StatusInternalServerError)
+		return
+	}
+
+	// 创建 context 用于取消
+	ctx := r.Context()
+
+	// 将 []Message 转换为 adk.Message
+	messages := make([]adk.Message, len(req.Messages))
+	for i, m := range req.Messages {
+		messages[i] = schema.UserMessage(m.Content)
+	}
+
+	checkpointID := ""
+	if req.Options != nil {
+		checkpointID = req.Options.CheckPointID
+	}
+
+	events, err := runner.Run(ctx, messages, adk.WithCheckPointID(checkpointID))
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Run failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	for {
+		event, ok := events.Next()
+		if !ok {
+			// 发送结束事件
+			fmt.Fprintf(w, "event: done\ndata: {\"done\":true}\n\n")
+			flusher.Flush()
+			break
+		}
+
+		if event.Err != nil {
+			// 发送错误事件
+			errMsg := fmt.Sprintf("{\"error\":\"%v\"}", event.Err)
+			fmt.Fprintf(w, "event: error\ndata: %s\n\n", errMsg)
+			flusher.Flush()
+			break
+		}
+
+		// 处理不同类型的事件
+		if event.Action != nil {
+			if event.Action.Interrupted != nil {
+				// 中断事件 - 包含待审批信息
+				data, _ := json.Marshal(map[string]interface{}{
+					"type":       "interrupted",
+					"data":       event.Action.Interrupted.Data,
+					"checkpoint": checkpointID,
+				})
+				fmt.Fprintf(w, "event: interrupted\ndata: %s\n\n", data)
+				flusher.Flush()
+			}
+
+			if event.Action.ToolsCall != nil {
+				// 工具调用事件
+				for _, tc := range event.Action.ToolsCall {
+					data, _ := json.Marshal(map[string]interface{}{
+						"type":      "tool_call",
+						"tool":      tc.Function.Name,
+						"arguments": tc.Function.Arguments,
+					})
+					fmt.Fprintf(w, "event: tool_call\ndata: %s\n\n", data)
+					flusher.Flush()
+				}
+			}
+		}
+
+		// 处理消息输出
+		if event.Output != nil && event.Output.MessageOutput != nil {
+			msg := event.Output.MessageOutput
+			if msg.Content != "" {
+				data, _ := json.Marshal(map[string]interface{}{
+					"type":    "content",
+					"content": msg.Content,
+				})
+				fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
+				flusher.Flush()
+			}
+		}
+	}
 }
 
 func handleResume(w http.ResponseWriter, r *http.Request) {
@@ -74,36 +179,24 @@ func handleResume(w http.ResponseWriter, r *http.Request) {
 					if approved, ok := approvalMap["approved"].(bool); ok {
 						approval.Approved = approved
 					}
-					if reason, ok := approvalMap["disapprove_reason"].(string); ok {
-						approval.DisapproveReason = &reason
-					}
 					req.Approvals = append(req.Approvals, approval)
 				}
 			}
 		}
 	} else if interruptID, ok := rawReq["interrupt_id"].(string); ok {
-		// Old/direct format
-		req.CheckPointID = interruptID // interrupt_id used as checkpoint_id
+		// Old/direct format - interrupt_id is used as checkpoint_id
+		req.CheckPointID = interruptID
 		approved := true
 		if a, ok := rawReq["approved"].(bool); ok {
 			approved = a
 		}
-		var reason *string
-		if r, ok := rawReq["reason"].(string); ok && r != "" {
-			reason = &r
-		}
 		req.Approvals = []ResumeApproval{{
-			InterruptID:      interruptID,
-			Approved:         approved,
-			DisapproveReason: reason,
+			InterruptID: interruptID,
+			Approved:    approved,
 		}}
 	}
 
 	runner := NewRunner(&RunRequest{})
-	log.Printf("[handleResume] checkpointID=%s, Looking up runner...", req.CheckPointID)
-	log.Printf("[handleResume] runners map has %d entries", len(runners))
-	adkRunner := GetRunner(req.CheckPointID)
-	log.Printf("[handleResume] GetRunner result: %v", adkRunner)
 	resp, err := runner.Resume(r.Context(), &req)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Resume failed: %v", err), http.StatusInternalServerError)

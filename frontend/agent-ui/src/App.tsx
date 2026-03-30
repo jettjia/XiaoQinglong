@@ -26,7 +26,7 @@ export default function App() {
   const renderView = () => {
     switch (activeView) {
       case 'dashboard':
-        return <Dashboard />;
+        return <Dashboard onViewChange={setActiveView} />;
       case 'agents':
         return <AgentManager onViewChange={setActiveView} onPlayAgent={(agent) => {
           setPreselectedAgent(agent);
@@ -46,7 +46,7 @@ export default function App() {
       case 'inbox':
         return <Inbox />;
       default:
-        return <Dashboard />;
+        return <Dashboard onViewChange={setActiveView} />;
     }
   };
 
