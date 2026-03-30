@@ -419,6 +419,102 @@ func (t *skillExecCommandTool) execInSandbox(ctx context.Context, command string
 		return "", fmt.Errorf("sandbox is not enabled")
 	}
 
+	// 根据 Mode 决定执行方式
+	mode := t.sandboxCfg.Mode
+	if mode == "" {
+		mode = "docker" // 默认使用 docker
+	}
+
+	if mode == "local" {
+		return t.execLocally(ctx, command)
+	}
+
+	// Docker 模式
+	return t.execInDocker(ctx, command)
+}
+
+// execLocally 本地执行命令（不使用沙箱）
+func (t *skillExecCommandTool) execLocally(ctx context.Context, command string) (string, error) {
+	workdir := t.sandboxCfg.Workdir
+	if workdir == "" {
+		workdir = t.workDir
+	}
+
+	// 构建 baseDir 路径
+	baseDir := strings.TrimSpace(t.baseDir)
+	baseForCommand := workdir
+	if baseDir != "" {
+		baseForCommand = filepath.Join(workdir, baseDir)
+	}
+
+	// 替换命令中的占位符
+	command = strings.ReplaceAll(command, "{{.BaseDirectory}}", baseForCommand)
+
+	timeoutMs := t.sandboxCfg.TimeoutMs
+	if timeoutMs <= 0 {
+		timeoutMs = 60000
+	}
+
+	// 构建环境变量
+	env := os.Environ()
+	for k, v := range t.sandboxCfg.Env {
+		kk := strings.TrimSpace(k)
+		if kk == "" {
+			continue
+		}
+		env = append(env, kk+"="+strings.TrimSpace(v))
+	}
+
+	// 添加 skill 专用配置的环境变量
+	if t.configMgr != nil && t.skillName != "" {
+		skillEnvVars := t.configMgr.ToEnvVars(t.skillName)
+		for k, v := range skillEnvVars {
+			if k == "" {
+				continue
+			}
+			env = append(env, k+"="+v)
+		}
+	}
+
+	// 添加 SKILL_INPUT 环境变量
+	if t.skillInput != "" {
+		env = append(env, "SKILL_INPUT="+t.skillInput)
+	}
+
+	// 执行命令
+	callCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMs)*time.Millisecond)
+	defer cancel()
+
+	cmd := exec.CommandContext(callCtx, "sh", "-c", command)
+	cmd.Dir = baseForCommand
+	cmd.Env = env
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		stderrText := strings.TrimSpace(stderr.String())
+		if stderrText == "" {
+			stderrText = err.Error()
+		}
+		return "", fmt.Errorf("local exec failed: %s", stderrText)
+	}
+
+	stdoutText := strings.TrimSpace(stdout.String())
+	stderrText := strings.TrimSpace(stderr.String())
+	if stdoutText != "" {
+		return stdoutText, nil
+	}
+	if stderrText != "" {
+		return stderrText, nil
+	}
+	return "", nil
+}
+
+// execInDocker 在 Docker 容器中执行命令
+func (t *skillExecCommandTool) execInDocker(ctx context.Context, command string) (string, error) {
 	dockerBin := t.dockerBin
 	if dockerBin == "" {
 		dockerBin = "docker"
