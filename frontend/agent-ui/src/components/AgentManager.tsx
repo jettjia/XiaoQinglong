@@ -37,11 +37,12 @@ import { agentApi, modelApi, skillApi, knowledgeBaseApi } from '../lib/api';
 
 interface AgentManagerProps {
   onViewChange: (view: View) => void;
+  onPlayAgent?: (agent: Agent) => void;
 }
 
 const AGENT_ICONS = ['Bot', 'Users', 'Sparkles', 'Brain', 'Zap', 'Workflow', 'MessageSquare', 'Globe', 'Terminal', 'Code'];
 
-export function AgentManager({ onViewChange }: AgentManagerProps) {
+export function AgentManager({ onViewChange, onPlayAgent }: AgentManagerProps) {
   const { t } = useTranslation();
   const [agents, setAgents] = React.useState<Agent[]>(INITIAL_AGENTS);
   const [searchQuery, setSearchQuery] = React.useState('');
@@ -324,7 +325,10 @@ export function AgentManager({ onViewChange }: AgentManagerProps) {
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    // Handle play
+                    if (onPlayAgent) {
+                      onPlayAgent(agent);
+                    }
+                    onViewChange('chat');
                   }}
                   className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 transition-colors"
                 >

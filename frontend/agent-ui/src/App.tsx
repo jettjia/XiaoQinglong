@@ -14,20 +14,23 @@ import { AgentOrchestrator } from './components/AgentOrchestrator';
 import { ModelManager } from './components/ModelManager';
 import { Settings } from './components/Settings';
 import { Inbox } from './components/Inbox';
-import { View } from './types';
+import { View, Agent } from './types';
 import { AnimatePresence, motion } from 'motion/react';
 
 export default function App() {
   const [activeView, setActiveView] = React.useState<View>('dashboard');
+  const [preselectedAgent, setPreselectedAgent] = React.useState<Agent | null>(null);
 
   const renderView = () => {
     switch (activeView) {
       case 'dashboard':
         return <Dashboard />;
       case 'agents':
-        return <AgentManager onViewChange={setActiveView} />;
+        return <AgentManager onViewChange={setActiveView} onPlayAgent={(agent) => {
+          setPreselectedAgent(agent);
+        }} />;
       case 'chat':
-        return <ChatInterface />;
+        return <ChatInterface preselectedAgent={preselectedAgent} onAgentUsed={() => setPreselectedAgent(null)} />;
       case 'knowledge':
         return <KnowledgeBaseManager />;
       case 'skills':

@@ -59,7 +59,12 @@ import { useTranslation } from 'react-i18next';
 const API_BASE = '/api/xiaoqinglong/agent-frame/v1';
 const CURRENT_USER_ID = 'user-1'; // TODO: Get from auth context
 
-export function ChatInterface() {
+interface ChatInterfaceProps {
+  preselectedAgent?: Agent | null;
+  onAgentUsed?: () => void;
+}
+
+export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfaceProps) {
   const { t } = useTranslation();
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [input, setInput] = React.useState('');
@@ -71,6 +76,7 @@ export function ChatInterface() {
   const [activeConversationId, setActiveConversationId] = React.useState<string | null>(null);
   const [currentSession, setCurrentSession] = React.useState<ChatSession | null>(null);
   const [isMoreAgentsOpen, setIsMoreAgentsOpen] = React.useState(false);
+  const [searchQuery, setSearchQuery] = React.useState('');
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(true);
   const [isTraceOpen, setIsTraceOpen] = React.useState(false);
   const [selectedMessageId, setSelectedMessageId] = React.useState<string | null>(null);
@@ -112,6 +118,16 @@ export function ChatInterface() {
     };
     loadSessions();
   }, []);
+
+  // Handle preselected agent from AgentManager
+  React.useEffect(() => {
+    if (preselectedAgent) {
+      setActiveAgent(preselectedAgent);
+      if (onAgentUsed) {
+        onAgentUsed();
+      }
+    }
+  }, [preselectedAgent, onAgentUsed]);
 
   // Poll for pending approvals
   React.useEffect(() => {
@@ -260,6 +276,14 @@ export function ChatInterface() {
           updated_by: CURRENT_USER_ID
         });
         setActiveConversationId(result.ulid);
+        // Add to conversations list for sidebar display
+        const newConv: Conversation = {
+          id: result.ulid,
+          title: sessionTitle,
+          timestamp: new Date(),
+          agentId: activeAgent.ulid || activeAgent.id
+        };
+        setConversations(prev => [newConv, ...prev]);
       }
 
       // Save user message to database
@@ -494,20 +518,28 @@ export function ChatInterface() {
         <div className="p-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-3.5 h-3.5" />
-            <input 
+            <input
               type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t('agents.search')}
               className="w-full pl-9 pr-4 py-1.5 bg-white border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-brand-500/20"
             />
           </div>
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-1 min-w-[280px]">
-          {conversations.length === 0 ? (
-            <div className="p-4 text-center">
-              <p className="text-xs text-slate-400">{t('chat.noConversations')}</p>
-            </div>
-          ) : (
-            conversations.map(conv => (
+          {(() => {
+            const filteredConvs = conversations.filter(c =>
+              c.title.toLowerCase().includes(searchQuery.toLowerCase())
+            );
+            if (filteredConvs.length === 0) {
+              return (
+                <div className="p-4 text-center">
+                  <p className="text-xs text-slate-400">{searchQuery ? t('chat.noConversations') : t('chat.noConversations')}</p>
+                </div>
+              );
+            }
+            return filteredConvs.map(conv => (
               <div key={conv.id} className="group relative">
                 <button
                   onClick={() => handleSelectConversation(conv)}
@@ -529,8 +561,8 @@ export function ChatInterface() {
                   <Trash2 size={14} />
                 </button>
               </div>
-            ))
-          )}
+            ));
+          })()}
         </div>
       </motion.div>
 
@@ -673,10 +705,10 @@ export function ChatInterface() {
                 )}
 
                 <div className={cn(
-                  "p-3 lg:p-4 rounded-2xl text-sm leading-relaxed shadow-sm w-fit max-w-[90%]",
-                  msg.role === 'user' 
-                    ? "bg-slate-900 text-white rounded-tr-none" 
-                    : "bg-white border border-slate-200 text-slate-800 rounded-tl-none"
+                  "p-3 lg:p-4 rounded-2xl text-sm leading-relaxed shadow-sm",
+                  msg.role === 'user'
+                    ? "bg-slate-900 text-white rounded-tr-none max-w-[95%]"
+                    : "bg-white border border-slate-200 text-slate-800 rounded-tl-none w-fit max-w-[85%]"
                 )}>
                   {msg.role === 'assistant' ? (
                     <div className="markdown-body prose prose-slate prose-sm max-w-none">
