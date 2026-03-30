@@ -818,4 +818,44 @@ export const chatApi = {
     }
     return Array.isArray(json) ? json : (json.data || []);
   },
+
+  // Runner API - for agent execution
+  async runAgent(data: {
+    agent_id: string;
+    user_id: string;
+    session_id?: string;
+    input: string;
+    files?: any[];
+    is_test?: boolean;
+  }): Promise<any> {
+    const res = await fetch(`${API_BASE}/runner/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const json = await res.json();
+      throw new Error(json.message || 'Failed to run agent');
+    }
+    return res.json();
+  },
+
+  // Resume agent execution after approval
+  async resumeAgent(data: {
+    interrupt_id: string;
+    approved: boolean;
+    approved_by?: string;
+    reason?: string;
+  }): Promise<any> {
+    const res = await fetch(`${API_BASE}/runner/resume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const json = await res.json();
+      throw new Error(json.message || 'Failed to resume agent');
+    }
+    return res.json();
+  },
 };

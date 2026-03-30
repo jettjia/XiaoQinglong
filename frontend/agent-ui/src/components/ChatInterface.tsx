@@ -91,7 +91,12 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
     const loadAgents = async () => {
       try {
         const backendAgents = await agentApi.findAll();
-        setAgents(backendAgents);
+        // 系统 Agent 排在前面，用户 Agent 排在后面
+        const sortedAgents = backendAgents.sort((a, b) => {
+          if (a.is_system === b.is_system) return 0;
+          return a.is_system ? -1 : 1;
+        });
+        setAgents(sortedAgents);
       } catch (err) {
         console.error('Failed to load agents:', err);
       }

@@ -33,7 +33,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useTranslation } from 'react-i18next';
-import { modelApi, skillApi, knowledgeBaseApi, agentApi, channelApi } from '../lib/api';
+import { modelApi, skillApi, knowledgeBaseApi, agentApi, channelApi, chatApi } from '../lib/api';
 import { Message, Variable } from '../types';
 
 export function AgentOrchestrator() {
@@ -175,7 +175,7 @@ export function AgentOrchestrator() {
               provider: model.provider,
               name: model.name,
               api_key: model.api_key || '',
-              api_base: model.base_url || '',
+              api_base: model.baseUrl || '',
             };
           }
         });
@@ -346,6 +346,10 @@ export function AgentOrchestrator() {
       console.log('Deploy agent:', agentData);
       const result = await agentApi.create(agentData as any);
       console.log('Agent created:', result);
+      // 保存部署的 agent ID 用于测试
+      if (result && result.ulid) {
+        setDeployedAgentId(result.ulid);
+      }
       alert(`Agent "${deployForm.name}" created successfully!`);
       setIsDeployModalOpen(false);
     } catch (err: any) {
@@ -396,6 +400,7 @@ export function AgentOrchestrator() {
   const [isTestPanelCollapsed, setIsTestPanelCollapsed] = React.useState(false);
   const testScrollRef = React.useRef<HTMLDivElement>(null);
   const testAbortControllerRef = React.useRef<AbortController | null>(null);
+  const [deployedAgentId, setDeployedAgentId] = React.useState<string | null>(null);
 
   // Skill Category State
   const [skillCategory, setSkillCategory] = React.useState<'all' | 'built-in' | 'mcp' | 'tool' | 'a2a' | 'skill'>('all');
@@ -431,36 +436,102 @@ export function AgentOrchestrator() {
     }));
   };
 
-  const handleApprove = (messageId: string) => {
-    setTestMessages(prev => prev.map(msg => {
-      if (msg.id === messageId) {
-        return {
-          ...msg,
-          status: 'completed',
-          content: msg.content + "\n\n✅ **已批准**。工具已成功执行。",
-          trace: msg.trace?.map(t => t.type === 'tool' ? { ...t, status: 'success', content: '工具执行已完成。' } : t)
-        };
-      }
-      return msg;
-    }));
+  const handleApprove = async (messageId: string) => {
+    // 找到待审批消息
+    const msg = testMessages.find(m => m.id === messageId);
+    if (!msg || !msg.interruptId) {
+      console.error('No interrupt_id found for approval');
+      return;
+    }
+
+    try {
+      // 调用 resume API
+      const response = await chatApi.resumeAgent({
+        interrupt_id: msg.interruptId,
+        approved: true,
+        approved_by: 'test-user'
+      });
+
+      // 更新消息状态
+      setTestMessages(prev => prev.map(m => {
+        if (m.id === messageId) {
+          return {
+            ...m,
+            status: 'completed',
+            content: response.content || response.output || "工具已成功执行。",
+            thinking: response.thinking,
+            trace: response.trace
+          };
+        }
+        return m;
+      }));
+    } catch (err: any) {
+      console.error('Failed to approve:', err);
+      setTestMessages(prev => prev.map(m => {
+        if (m.id === messageId) {
+          return {
+            ...m,
+            status: 'failed',
+            content: m.content + `\n\n❌ **批准失败**: ${err.message}`
+          };
+        }
+        return m;
+      }));
+    }
   };
 
-  const handleReject = (messageId: string) => {
-    setTestMessages(prev => prev.map(msg => {
-      if (msg.id === messageId) {
-        return {
-          ...msg,
-          status: 'failed',
-          content: msg.content + "\n\n❌ **已拒绝**。操作已被用户取消。",
-          trace: msg.trace?.map(t => t.type === 'tool' ? { ...t, status: 'error', content: '用户拒绝了该操作。' } : t)
-        };
-      }
-      return msg;
-    }));
+  const handleReject = async (messageId: string) => {
+    // 找到待审批消息
+    const msg = testMessages.find(m => m.id === messageId);
+    if (!msg || !msg.interruptId) {
+      console.error('No interrupt_id found for rejection');
+      return;
+    }
+
+    try {
+      // 调用 resume API
+      const response = await chatApi.resumeAgent({
+        interrupt_id: msg.interruptId,
+        approved: false,
+        approved_by: 'test-user',
+        reason: 'User rejected'
+      });
+
+      // 更新消息状态
+      setTestMessages(prev => prev.map(m => {
+        if (m.id === messageId) {
+          return {
+            ...m,
+            status: 'failed',
+            content: response.content || "操作已被用户拒绝。",
+            trace: response.trace
+          };
+        }
+        return m;
+      }));
+    } catch (err: any) {
+      console.error('Failed to reject:', err);
+      setTestMessages(prev => prev.map(m => {
+        if (m.id === messageId) {
+          return {
+            ...m,
+            status: 'failed',
+            content: m.content + `\n\n❌ **拒绝失败**: ${err.message}`
+          };
+        }
+        return m;
+      }));
+    }
   };
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!testInput.trim()) return;
+
+    // 检查是否已部署 agent
+    if (!deployedAgentId) {
+      alert('请先部署 Agent 再进行测试');
+      return;
+    }
 
     const userMsg: Message = {
       id: Date.now().toString(),
@@ -474,64 +545,59 @@ export function AgentOrchestrator() {
     setIsTesting(true);
     testAbortControllerRef.current = new AbortController();
 
-    // Mock AI Response with Trace Data
-    const timerId = setTimeout(() => {
-      // Check for risk-based intervention
-      const selectedSkillsData = backendSkills.filter(s => agentConfig.selectedSkills.includes(s.id));
-
-      // For demo: if user mentions a tool name, simulate calling it
-      const mentionedSkill = selectedSkillsData.find(s =>
-        testInput.toLowerCase().includes(s.name.toLowerCase()) ||
-        testInput.toLowerCase().includes(s.id.toLowerCase())
-      );
-
-      if (mentionedSkill && agentConfig.requireApproval) {
-        const isIntercepted =
-          (agentConfig.approvalThreshold === 'low') ||
-          (agentConfig.approvalThreshold === 'medium' && (mentionedSkill.riskLevel === 'medium' || mentionedSkill.riskLevel === 'high')) ||
-          (agentConfig.approvalThreshold === 'high' && mentionedSkill.riskLevel === 'high');
-
-        if (isIntercepted) {
-          const approvalMsg: Message = {
-            id: (Date.now() + 1).toString(),
-            role: 'assistant',
-            content: `我需要使用 **${mentionedSkill.name}** 工具来处理您的请求。由于这是一个 **${mentionedSkill.riskLevel}** 风险的操作，需要您的审批。`,
-            timestamp: new Date(),
-            status: 'pending_approval',
-            trace: [
-              { id: '1', type: 'thought' as const, label: '思考', content: `用户请求：${testInput}。需要调用 ${mentionedSkill.name}。`, status: 'success' as const, timestamp: new Date() },
-              { id: '2', type: 'tool' as const, label: mentionedSkill.name, content: '等待人工审批...', status: 'pending' as const, timestamp: new Date() }
-            ]
-          };
-          setTestMessages(prev => [...prev, approvalMsg]);
-          setIsTesting(false);
-          testAbortControllerRef.current = null;
-          return;
-        }
-      }
+    try {
+      // 调用真实的 runner API
+      const response = await chatApi.runAgent({
+        agent_id: deployedAgentId,
+        user_id: 'test-user',
+        session_id: '',  // 测试模式不需要 session
+        input: testInput,
+        is_test: true
+      });
 
       const aiMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: `我已根据以下配置完成测试：\n- 默认模型：${agentConfig.models.default}\n- 知识库：${agentConfig.selectedKBs.length} 个\n- skill：${agentConfig.selectedSkills.length} 个`,
+        content: response.content || response.output || "I'm sorry, I couldn't generate a response.",
         timestamp: new Date(),
-        trace: [
-          { id: '1', type: 'thought' as const, label: '推理', content: '正在分析用户查询并识别意图...', status: 'success' as const, timestamp: new Date() },
-          ...(agentConfig.selectedKBs.length > 0 ? [{ id: '2', type: 'retrieval' as const, label: '检索', content: `正在 ${agentConfig.selectedKBs.length} 个知识库中搜索... 找到 3 个相关片段。`, status: 'success' as const, timestamp: new Date() }] : []),
-          ...(agentConfig.selectedSkills.length > 0 ? [{ id: '3', type: 'tool' as const, label: '工具执行', content: `正在执行工具：${backendSkills.find(s => agentConfig.selectedSkills.includes(s.id))?.name}...`, status: 'success' as const, timestamp: new Date() }] : []),
-          { id: '4', type: 'thought' as const, label: '综合', content: '基于检索数据和工具输出综合最终回复。', status: 'success' as const, timestamp: new Date() }
-        ]
+        thinking: response.thinking,
+        trace: response.trace,
+        status: response.status
       };
       setTestMessages(prev => [...prev, aiMsg]);
-      setIsTesting(false);
-      testAbortControllerRef.current = null;
-    }, 1500);
 
-    testAbortControllerRef.current.signal.addEventListener('abort', () => {
-      clearTimeout(timerId);
+      // 处理 pending approvals
+      if (response.pending_approvals && response.pending_approvals.length > 0) {
+        for (const approval of response.pending_approvals) {
+          const pendingApproval: Message = {
+            id: (Date.now() + 2).toString(),
+            role: 'assistant',
+            content: `我需要使用 **${approval.tool_name}** 工具来处理您的请求。由于这是一个 **${approval.risk_level}** 风险的操作，需要您的审批。`,
+            timestamp: new Date(),
+            status: 'pending_approval',
+            interruptId: approval.interrupt_id,
+            trace: [
+              { id: '1', type: 'thought' as const, label: '思考', content: `用户请求：${testInput}。需要调用 ${approval.tool_name}。`, status: 'success' as const, timestamp: new Date() },
+              { id: '2', type: 'tool' as const, label: approval.tool_name, content: '等待人工审批...', status: 'pending' as const, timestamp: new Date() }
+            ]
+          };
+          setTestMessages(prev => [...prev, pendingApproval]);
+        }
+      }
+    } catch (err: any) {
+      console.error('Failed to run agent:', err);
+      const errorMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: `错误: ${err.message || 'Failed to get response'}`,
+        timestamp: new Date(),
+        status: 'failed'
+      };
+      setTestMessages(prev => [...prev, errorMsg]);
+    } finally {
       setIsTesting(false);
       testAbortControllerRef.current = null;
-    });
+    }
   };
 
   const stopTestGeneration = () => {
@@ -1474,6 +1540,16 @@ export function AgentOrchestrator() {
                 <div className="flex items-center gap-2">
                   <MessageSquare size={18} className="text-brand-500" />
                   <h3 className="font-bold text-slate-900">{t('orchestrator.testPlayground')}</h3>
+                  {deployedAgentId && (
+                    <span className="text-[10px] px-2 py-0.5 bg-green-100 text-green-600 rounded-full">
+                      已部署
+                    </span>
+                  )}
+                  {!deployedAgentId && (
+                    <span className="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-600 rounded-full">
+                      请先部署
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -1491,7 +1567,14 @@ export function AgentOrchestrator() {
                     <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-300 mb-4">
                       <Bot size={24} />
                     </div>
-                    <p className="text-sm font-medium text-slate-500">Configure your agent and start testing here.</p>
+                    {!deployedAgentId ? (
+                      <>
+                        <p className="text-sm font-medium text-slate-500">{t('orchestrator.deployFirst')}</p>
+                        <p className="text-xs text-slate-400 mt-1">{t('orchestrator.deployFirstDesc')}</p>
+                      </>
+                    ) : (
+                      <p className="text-sm font-medium text-slate-500">{t('orchestrator.startTesting') || 'Start chatting'}</p>
+                    )}
                   </div>
                 ) : (
                   testMessages.map((msg) => (

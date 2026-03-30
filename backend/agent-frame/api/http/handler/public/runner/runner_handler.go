@@ -5,18 +5,18 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
 	agentDto "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/agent"
-	agentSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/agent"
 	chatDto "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/chat"
+	agentSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/agent"
 	chatSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/chat"
-	memorySvc "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/memory"
 	memoryEntity "github.com/jettjia/xiaoqinglong/agent-frame/domain/entity/memory"
 	kbSvc "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/knowledge_base"
+	memorySvc "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/memory"
+	"github.com/jettjia/xiaoqinglong/agent-frame/pkg/logger"
 )
 
 // ChatRunReq 前端聊天请求
@@ -26,15 +26,16 @@ type ChatRunReq struct {
 	SessionID string `json:"session_id"`
 	Input     string `json:"input"`
 	Files     []any  `json:"files"`
+	IsTest    bool   `json:"is_test"` // 是否测试模式，测试模式不保存消息
 }
 
 // Handler runner代理处理器
 type Handler struct {
-	runnerURL  string
-	agentSvc   *agentSvc.SysAgentService
-	chatSvc    *chatSvc.ChatMessageService
-	memorySvc  *memorySvc.AgentMemorySvc
-	kbSvc      *kbSvc.KnowledgeRetrievalSvc
+	runnerURL string
+	agentSvc  *agentSvc.SysAgentService
+	chatSvc   *chatSvc.ChatMessageService
+	memorySvc *memorySvc.AgentMemorySvc
+	kbSvc     *kbSvc.KnowledgeRetrievalSvc
 }
 
 // NewHandler NewHandler
@@ -110,21 +111,21 @@ func (h *Handler) Run(c *gin.Context) {
 		runnerReq["sandbox"] = sandbox
 	}
 
-	// 4. 加载历史消息并应用context_window策略
+	// 4. 加载历史消息并应用context_window策略（非测试模式）
 	var historicalMessages []map[string]any
-	if chatReq.SessionID != "" {
+	if chatReq.SessionID != "" && !chatReq.IsTest {
 		historicalMessages, err = h.loadHistoricalMessages(c.Request.Context(), chatReq.SessionID, agentConfig)
 		if err != nil {
-			log.Printf("[Runner Proxy] Failed to load historical messages: %v", err)
+			logger.GetRunnerLogger().WithError(err).Error("[Runner Proxy] Failed to load historical messages")
 		}
 	}
 
-	// 5. 加载长期记忆
+	// 5. 加载长期记忆（非测试模式）
 	var memoryContext []map[string]any
-	if chatReq.SessionID != "" && chatReq.AgentID != "" {
+	if chatReq.SessionID != "" && chatReq.AgentID != "" && !chatReq.IsTest {
 		memoryContext, err = h.loadMemoryContext(c.Request.Context(), chatReq.AgentID, chatReq.UserID, chatReq.Input, agentConfig)
 		if err != nil {
-			log.Printf("[Runner Proxy] Failed to load memory context: %v", err)
+			logger.GetRunnerLogger().WithError(err).Error("[Runner Proxy] Failed to load memory context")
 		}
 	}
 
@@ -133,7 +134,7 @@ func (h *Handler) Run(c *gin.Context) {
 	if chatReq.AgentID != "" {
 		knowledgeContext, err = h.loadKnowledgeContext(c.Request.Context(), chatReq.AgentID, chatReq.Input, agentConfig)
 		if err != nil {
-			log.Printf("[Runner Proxy] Failed to load knowledge context: %v", err)
+			logger.GetRunnerLogger().WithError(err).Error("[Runner Proxy] Failed to load knowledge context")
 		}
 	}
 
@@ -164,11 +165,12 @@ func (h *Handler) Run(c *gin.Context) {
 
 	// 格式化日志输出
 	prettyReq, _ := json.MarshalIndent(runnerReq, "", "  ")
-	log.Printf("[Runner Proxy] ===== RUNNER REQUEST =====")
-	log.Printf("[Runner Proxy] Agent: %s (%s)", agentRsp.Name, chatReq.AgentID)
-	log.Printf("[Runner Proxy] ConfigJson:\n%s", agentRsp.ConfigJson)
-	log.Printf("[Runner Proxy] Request Body:\n%s", string(prettyReq))
-	log.Printf("[Runner Proxy] ==========================")
+	log := logger.GetRunnerLogger()
+	log.Info("====== RUNNER REQUEST ======")
+	log.Infof("Agent: %s (%s)", agentRsp.Name, chatReq.AgentID)
+	log.Infof("ConfigJson:\n%s", agentRsp.ConfigJson)
+	log.Infof("Request Body:\n%s", string(prettyReq))
+	log.Info("============================")
 
 	// 5. 转发请求到runner
 	req, err := http.NewRequest("POST", h.runnerURL+"/run", bytes.NewReader(runnerBody))
@@ -182,7 +184,8 @@ func (h *Handler) Run(c *gin.Context) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("[Runner Proxy] Failed to call runner: %v", err)
+		log := logger.GetRunnerLogger()
+		log.WithError(err).Error("Failed to call runner")
 		c.JSON(502, gin.H{"error": "failed to call runner service: " + err.Error()})
 		return
 	}
@@ -196,10 +199,11 @@ func (h *Handler) Run(c *gin.Context) {
 	}
 
 	// 格式化日志输出
-	log.Printf("[Runner Proxy] ===== RUNNER RESPONSE =====")
-	log.Printf("[Runner Proxy] Status: %d", resp.StatusCode)
-	log.Printf("[Runner Proxy] Response Body:\n%s", string(respBody))
-	log.Printf("[Runner Proxy] ==========================")
+	log = logger.GetRunnerLogger()
+	log.Info("====== RUNNER RESPONSE ======")
+	log.Infof("Status: %d", resp.StatusCode)
+	log.Infof("Response Body:\n%s", string(respBody))
+	log.Info("============================")
 
 	// 返回响应
 	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), respBody)
@@ -213,8 +217,14 @@ func (h *Handler) Resume(c *gin.Context) {
 		return
 	}
 
+	log := logger.GetRunnerLogger()
+	log.Info("====== RUNNER RESUME REQUEST ======")
+	log.Infof("Request Body:\n%s", string(body))
+	log.Info("============================")
+
 	req, err := http.NewRequest("POST", h.runnerURL+"/resume", bytes.NewReader(body))
 	if err != nil {
+		log.WithError(err).Error("Failed to create resume request")
 		c.JSON(500, gin.H{"error": "failed to create request"})
 		return
 	}
@@ -223,7 +233,7 @@ func (h *Handler) Resume(c *gin.Context) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("[Runner Proxy] Failed to call runner resume: %v", err)
+		log.WithError(err).Error("Failed to call runner resume")
 		c.JSON(502, gin.H{"error": "failed to call runner service"})
 		return
 	}
@@ -231,9 +241,15 @@ func (h *Handler) Resume(c *gin.Context) {
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
+		log.WithError(err).Error("Failed to read resume response")
 		c.JSON(500, gin.H{"error": "failed to read runner response"})
 		return
 	}
+
+	log.Info("====== RUNNER RESUME RESPONSE ======")
+	log.Infof("Status: %d", resp.StatusCode)
+	log.Infof("Response Body:\n%s", string(respBody))
+	log.Info("============================")
 
 	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), respBody)
 }

@@ -139,6 +139,7 @@ export interface Message {
   imageUrl?: string;
   videoUrl?: string;
   status?: 'pending_approval' | 'completed' | 'failed';
+  interruptId?: string;  // 用于审批时调用 resume
 }
 
 export interface TraceStep {
