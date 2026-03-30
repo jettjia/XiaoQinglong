@@ -1282,6 +1282,9 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 		eventsChan <- StreamEvent{Type: "meta", Data: map[string]any{"checkpoint_id": checkpointID}}
 
 		var out strings.Builder
+		var totalPromptTokens int
+		var totalCompletionTokens int
+		var toolCallsCount int
 		for {
 			event, ok := events.Next()
 			if !ok {
@@ -1297,8 +1300,15 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 			if event.Output != nil && event.Output.MessageOutput != nil {
 				mo := event.Output.MessageOutput
 
+				// 累计 token 使用量
+				if mo.Message != nil && mo.Message.ResponseMeta != nil && mo.Message.ResponseMeta.Usage != nil {
+					totalPromptTokens += mo.Message.ResponseMeta.Usage.PromptTokens
+					totalCompletionTokens += mo.Message.ResponseMeta.Usage.CompletionTokens
+				}
+
 				// 处理 tool calls
 				if mo.Message != nil && len(mo.Message.ToolCalls) > 0 {
+					toolCallsCount += len(mo.Message.ToolCalls)
 					for _, tc := range mo.Message.ToolCalls {
 						eventsChan <- StreamEvent{
 							Type: "tool_call",
@@ -1383,7 +1393,13 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 			}
 		}
 
-		eventsChan <- StreamEvent{Type: "done", Data: map[string]any{"content": out.String()}}
+		eventsChan <- StreamEvent{Type: "done", Data: map[string]any{
+			"content":          out.String(),
+			"prompt_tokens":    totalPromptTokens,
+			"completion_tokens": totalCompletionTokens,
+			"total_tokens":      totalPromptTokens + totalCompletionTokens,
+			"tool_calls_count":  toolCallsCount,
+		}}
 	}()
 
 	return eventsChan, nil

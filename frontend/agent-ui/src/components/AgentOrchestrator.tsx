@@ -583,6 +583,7 @@ export function AgentOrchestrator() {
 
         const assistantMsgId = (Date.now() + 1).toString();
         let accumulatedContent = '';
+        let streamTokenUsage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } = {};
 
         // 先创建一条空消息用于流式更新
         const assistantMessage: Message = {
@@ -629,6 +630,11 @@ export function AgentOrchestrator() {
                   }
 
                   if (currentEventType === 'done') {
+                    streamTokenUsage = {
+                      prompt_tokens: data.prompt_tokens,
+                      completion_tokens: data.completion_tokens,
+                      total_tokens: data.total_tokens
+                    };
                     setTestMessages(prev => prev.map(m =>
                       m.id === assistantMsgId
                         ? { ...m, content: data.content || accumulatedContent, status: 'completed' }
@@ -662,6 +668,11 @@ export function AgentOrchestrator() {
                   }
 
                   if (currentEventType === 'done') {
+                    streamTokenUsage = {
+                      prompt_tokens: data.prompt_tokens,
+                      completion_tokens: data.completion_tokens,
+                      total_tokens: data.total_tokens
+                    };
                     setTestMessages(prev => prev.map(m =>
                       m.id === assistantMsgId
                         ? { ...m, content: data.content || accumulatedContent, status: 'completed' }
@@ -685,6 +696,11 @@ export function AgentOrchestrator() {
           }
         } finally {
           reader.releaseLock();
+        }
+
+        // 记录 token 消耗（测试面板不需要持久化）
+        if (streamTokenUsage.total_tokens) {
+          console.log(`Token usage - prompt: ${streamTokenUsage.prompt_tokens}, completion: ${streamTokenUsage.completion_tokens}, total: ${streamTokenUsage.total_tokens}`);
         }
 
         setIsTesting(false);

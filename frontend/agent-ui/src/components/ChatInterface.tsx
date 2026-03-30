@@ -328,6 +328,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
 
         const assistantMsgId = (Date.now() + 1).toString();
         let accumulatedContent = '';
+        let streamTokenUsage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } = {};
 
         // 先创建一条空消息用于流式更新
         const assistantMessage: Message = {
@@ -374,6 +375,11 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                   }
 
                   if (currentEventType === 'done') {
+                    streamTokenUsage = {
+                      prompt_tokens: data.prompt_tokens,
+                      completion_tokens: data.completion_tokens,
+                      total_tokens: data.total_tokens
+                    };
                     setMessages(prev => prev.map(m =>
                       m.id === assistantMsgId
                         ? { ...m, content: data.content || accumulatedContent, status: 'completed' }
@@ -402,6 +408,11 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                   }
 
                   if (currentEventType === 'done') {
+                    streamTokenUsage = {
+                      prompt_tokens: data.prompt_tokens,
+                      completion_tokens: data.completion_tokens,
+                      total_tokens: data.total_tokens
+                    };
                     setMessages(prev => prev.map(m =>
                       m.id === assistantMsgId
                         ? { ...m, content: data.content || accumulatedContent, status: 'completed' }
@@ -429,6 +440,13 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
             role: 'assistant',
             content: accumulatedContent,
             model: activeAgent.model || '',
+            tokens: streamTokenUsage.total_tokens || 0,
+            metadata: streamTokenUsage.prompt_tokens || streamTokenUsage.completion_tokens
+              ? JSON.stringify({
+                  prompt_tokens: streamTokenUsage.prompt_tokens,
+                  completion_tokens: streamTokenUsage.completion_tokens
+                })
+              : undefined,
             status: 'completed'
           });
         } catch (err) {
