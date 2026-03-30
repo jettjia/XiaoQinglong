@@ -288,6 +288,7 @@ export interface Skill {
   enabled: boolean;
   config: string;
   is_system: boolean;
+  risk_level?: 'low' | 'medium' | 'high';
 }
 
 export interface CheckSkillNameResult {

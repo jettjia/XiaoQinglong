@@ -59,7 +59,12 @@ export function AgentOrchestrator() {
         ]);
         setBackendModels(models || []);
         setBackendKBs(kbs || []);
-        setBackendSkills(skills || []);
+        // 映射 risk_level 到 riskLevel
+        const mappedSkills = (skills || []).map((s: any) => ({
+          ...s,
+          riskLevel: s.risk_level || 'low',
+        }));
+        setBackendSkills(mappedSkills);
         setBackendChannels(channels || []);
       } catch (err) {
         console.error('Failed to load data:', err);

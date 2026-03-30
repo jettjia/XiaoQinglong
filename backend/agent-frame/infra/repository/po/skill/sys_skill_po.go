@@ -20,6 +20,7 @@ type SysSkill struct {
 	Enabled      bool   `gorm:"column:enabled;type:boolean;default:true;comment:是否启用;" json:"enabled"`
 	Config       string `gorm:"column:config;type:text;comment:扩展配置JSON;" json:"config"`
 	IsSystem     bool   `gorm:"column:is_system;type:boolean;default:false;comment:是否系统内置;" json:"is_system"`
+	RiskLevel    string `gorm:"column:risk_level;type:varchar(20);default:'low';comment:风险等级:low/medium/high;" json:"risk_level"`
 }
 
 func (po *SysSkill) BeforeCreate(tx *gorm.DB) (err error) {

@@ -57,6 +57,7 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
         icon: s.skill_type === 'mcp' ? 'Terminal' : s.skill_type === 'a2a' ? 'Link' : 'Wrench',
         mcpUrl: s.skill_type === 'mcp' ? s.path : undefined,
         endpoint: s.skill_type === 'a2a' ? s.path : undefined,
+        riskLevel: (s.risk_level as 'low' | 'medium' | 'high') || 'low',
       }));
       setSkills(mapped);
       console.log('Skills loaded:', mapped.length, 'types:', [...new Set(mapped.map(s => s.type))]);

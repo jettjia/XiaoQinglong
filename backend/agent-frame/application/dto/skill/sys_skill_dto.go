@@ -11,12 +11,13 @@ type (
 		CreatedBy   string `json:"created_by"`
 		Name        string `json:"name" validate:"required"`
 		Description string `json:"description"`
-		SkillType  string `json:"skillType" validate:"required"` // skill/mcp/tool/a2a
+		SkillType   string `json:"skillType" validate:"required"` // skill/mcp/tool/a2a
 		Version     string `json:"version"`
 		Path        string `json:"path"`
 		Enabled     bool   `json:"enabled"`
 		Config      string `json:"config"`
 		IsSystem    bool   `json:"is_system"`
+		RiskLevel   string `json:"risk_level"` // low/medium/high
 	}
 
 	// DelSysSkillReq 删除请求对象
@@ -35,6 +36,7 @@ type (
 		Path        string `json:"path"`
 		Enabled     *bool  `json:"enabled"`
 		Config      string `json:"config"`
+		RiskLevel   string `json:"risk_level"` // low/medium/high
 	}
 
 	// FindSysSkillByIdReq 查询请求对象
@@ -90,12 +92,13 @@ type (
 		Enabled     bool   `json:"enabled"`
 		Config      string `json:"config"`
 		IsSystem    bool   `json:"is_system"`
+		RiskLevel   string `json:"risk_level"` // low/medium/high
 	}
 
 	// FindSysSkillPageRsp 列表查询返回对象
 	FindSysSkillPageRsp struct {
-		Entries  []*FindSysSkillRsp    `json:"entries"`
-		PageData *builder.PageData `json:"page_data"`
+		Entries  []*FindSysSkillRsp `json:"entries"`
+		PageData *builder.PageData  `json:"page_data"`
 	}
 
 	// CheckSkillNameRsp 检查名称返回对象

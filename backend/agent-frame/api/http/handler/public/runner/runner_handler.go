@@ -16,6 +16,7 @@ import (
 	chatSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/chat"
 	memorySvc "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/memory"
 	memoryEntity "github.com/jettjia/xiaoqinglong/agent-frame/domain/entity/memory"
+	kbSvc "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/knowledge_base"
 )
 
 // ChatRunReq 前端聊天请求
@@ -33,6 +34,7 @@ type Handler struct {
 	agentSvc   *agentSvc.SysAgentService
 	chatSvc    *chatSvc.ChatMessageService
 	memorySvc  *memorySvc.AgentMemorySvc
+	kbSvc      *kbSvc.KnowledgeRetrievalSvc
 }
 
 // NewHandler NewHandler
@@ -42,6 +44,7 @@ func NewHandler() *Handler {
 		agentSvc:  agentSvc.NewSysAgentService(),
 		chatSvc:   chatSvc.NewChatMessageService(),
 		memorySvc: memorySvc.NewAgentMemorySvc(),
+		kbSvc:     kbSvc.NewKnowledgeRetrievalSvc(),
 	}
 }
 
@@ -125,8 +128,18 @@ func (h *Handler) Run(c *gin.Context) {
 		}
 	}
 
-	// 构建messages数组：记忆上下文 + 历史消息 + 当前输入
+	// 6. 加载知识库上下文
+	var knowledgeContext []map[string]any
+	if chatReq.AgentID != "" {
+		knowledgeContext, err = h.loadKnowledgeContext(c.Request.Context(), chatReq.AgentID, chatReq.Input, agentConfig)
+		if err != nil {
+			log.Printf("[Runner Proxy] Failed to load knowledge context: %v", err)
+		}
+	}
+
+	// 构建messages数组：知识上下文 + 记忆上下文 + 历史消息 + 当前输入
 	messages := make([]map[string]any, 0)
+	messages = append(messages, knowledgeContext...)
 	messages = append(messages, memoryContext...)
 	messages = append(messages, historicalMessages...)
 	messages = append(messages, map[string]any{
@@ -417,4 +430,70 @@ func extractKeywords(text string) []string {
 	}
 
 	return words
+}
+
+// loadKnowledgeContext 加载知识库上下文
+func (h *Handler) loadKnowledgeContext(ctx context.Context, agentId, query string, agentConfig map[string]any) ([]map[string]any, error) {
+	// 检查agent config中是否配置了knowledge
+	knowledgeConfig, ok := agentConfig["knowledge"]
+	if !ok {
+		return nil, nil
+	}
+
+	// 解析knowledge配置
+	var kbConfigs []kbSvc.RetrievalConfig
+	switch v := knowledgeConfig.(type) {
+	case []any:
+		for _, item := range v {
+			if kbMap, ok := item.(map[string]any); ok {
+				cfg := kbSvc.RetrievalConfig{}
+				if kbId, ok := kbMap["kb_id"].(string); ok {
+					cfg.KbId = kbId
+				}
+				if topK, ok := kbMap["top_k"].(float64); ok {
+					cfg.TopK = int(topK)
+				}
+				if cfg.KbId != "" {
+					kbConfigs = append(kbConfigs, cfg)
+				}
+			}
+		}
+	case map[string]any:
+		// 单个知识库配置
+		cfg := kbSvc.RetrievalConfig{}
+		if kbId, ok := v["kb_id"].(string); ok {
+			cfg.KbId = kbId
+		}
+		if topK, ok := v["top_k"].(float64); ok {
+			cfg.TopK = int(topK)
+		}
+		if cfg.KbId != "" {
+			kbConfigs = append(kbConfigs, cfg)
+		}
+	}
+
+	if len(kbConfigs) == 0 {
+		return nil, nil
+	}
+
+	// 从知识库召回
+	results, err := h.kbSvc.RecallFromKnowledgeBases(ctx, kbConfigs, query)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(results) == 0 {
+		return nil, nil
+	}
+
+	// 构建知识上下文消息
+	formattedContext := h.kbSvc.FormatKnowledgeContext(results)
+	result := []map[string]any{
+		{
+			"role":    "system",
+			"content": formattedContext,
+		},
+	}
+
+	return result, nil
 }

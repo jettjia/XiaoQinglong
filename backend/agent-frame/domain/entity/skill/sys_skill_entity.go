@@ -15,4 +15,5 @@ type SysSkill struct {
 	Enabled     bool   `json:"enabled"`
 	Config      string `json:"config"`
 	IsSystem    bool   `json:"is_system"`
+	RiskLevel   string `json:"risk_level"` // low/medium/high
 }
