@@ -48,6 +48,11 @@ func initDefaultAgents() error {
 					"approval_policy": {
 						"enabled": false
 					}
+				},
+				"context_window": {
+					"max_rounds": 10,
+					"max_tokens": 32000,
+					"strategy": "sliding_window"
 				}
 			}`,
 			isSystem: true,
@@ -81,6 +86,11 @@ func initDefaultAgents() error {
 						"rewrite_prompt": "请优化以下用户Query，使其更加清晰、准确，便于理解。只返回优化后的Query，不要其他内容。",
 						"summarize_prompt": "请总结以下内容，提取关键信息，保持简洁。只返回总结内容，不要其他内容。"
 					}
+				},
+				"context_window": {
+					"max_rounds": 20,
+					"max_tokens": 64000,
+					"strategy": "sliding_window"
 				}
 			}`,
 			isSystem: true,

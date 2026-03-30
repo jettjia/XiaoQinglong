@@ -2,6 +2,7 @@ package runner
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log"
@@ -11,6 +12,8 @@ import (
 
 	agentDto "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/agent"
 	agentSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/agent"
+	chatDto "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/chat"
+	chatSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/chat"
 )
 
 // ChatRunReq 前端聊天请求
@@ -26,6 +29,7 @@ type ChatRunReq struct {
 type Handler struct {
 	runnerURL string
 	agentSvc  *agentSvc.SysAgentService
+	chatSvc   *chatSvc.ChatMessageService
 }
 
 // NewHandler NewHandler
@@ -33,6 +37,7 @@ func NewHandler() *Handler {
 	return &Handler{
 		runnerURL: "http://localhost:18080", // runner服务地址
 		agentSvc:  agentSvc.NewSysAgentService(),
+		chatSvc:   chatSvc.NewChatMessageService(),
 	}
 }
 
@@ -98,17 +103,29 @@ func (h *Handler) Run(c *gin.Context) {
 		runnerReq["sandbox"] = sandbox
 	}
 
-	// 添加messages和context
-	runnerReq["messages"] = []map[string]any{
-		{"role": "user", "content": chatReq.Input},
+	// 4. 加载历史消息并应用context_window策略
+	var historicalMessages []map[string]any
+	if chatReq.SessionID != "" {
+		historicalMessages, err = h.loadHistoricalMessages(c.Request.Context(), chatReq.SessionID, agentConfig)
+		if err != nil {
+			log.Printf("[Runner Proxy] Failed to load historical messages: %v", err)
+		}
 	}
+
+	// 构建messages数组：历史消息 + 当前输入
+	messages := append(historicalMessages, map[string]any{
+		"role":    "user",
+		"content": chatReq.Input,
+	})
+	runnerReq["messages"] = messages
+
 	runnerReq["context"] = map[string]any{
 		"session_id": chatReq.SessionID,
 		"user_id":    chatReq.UserID,
 		"channel_id": "web",
 	}
 
-	// 4. 序列化runner请求
+	// 5. 序列化runner请求
 	runnerBody, err := json.Marshal(runnerReq)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to build runner request: " + err.Error()})
@@ -189,4 +206,106 @@ func (h *Handler) Resume(c *gin.Context) {
 	}
 
 	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), respBody)
+}
+
+// loadHistoricalMessages 加载历史消息并根据context_window策略限制
+func (h *Handler) loadHistoricalMessages(ctx context.Context, sessionID string, agentConfig map[string]any) ([]map[string]any, error) {
+	// 1. 获取历史消息
+	msgs, err := h.chatSvc.FindChatMessagesBySessionId(ctx, &chatDto.FindChatMessagesBySessionIdReq{
+		SessionId: sessionID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(msgs) == 0 {
+		return []map[string]any{}, nil
+	}
+
+	// 2. 解析context_window配置
+	contextWindow := map[string]any{
+		"max_rounds": 10, // 默认保留10轮
+		"strategy":   "sliding_window",
+	}
+	if cw, ok := agentConfig["context_window"].(map[string]any); ok {
+		if maxRounds, ok := cw["max_rounds"].(float64); ok {
+			contextWindow["max_rounds"] = int(maxRounds)
+		}
+		if strategy, ok := cw["strategy"].(string); ok {
+			contextWindow["strategy"] = strategy
+		}
+	}
+
+	// 3. 按策略截取消息
+	maxRounds := contextWindow["max_rounds"].(int)
+	strategy := contextWindow["strategy"].(string)
+
+	if strategy == "sliding_window" {
+		// sliding_window: 只保留最近N轮对话（每轮包含user+assistant）
+		return buildSlidingWindowMessages(msgs, maxRounds), nil
+	}
+
+	// 默认返回所有消息
+	result := make([]map[string]any, 0, len(msgs))
+	for _, m := range msgs {
+		result = append(result, map[string]any{
+			"role":    m.Role,
+			"content": m.Content,
+		})
+	}
+	return result, nil
+}
+
+// buildSlidingWindowMessages 构建滑动窗口消息
+func buildSlidingWindowMessages(msgs []*chatDto.ChatMessageRsp, maxRounds int) []map[string]any {
+	if len(msgs) == 0 {
+		return []map[string]any{}
+	}
+
+	// 提取所有对话轮次（user + assistant）
+	rounds := make([][]*chatDto.ChatMessageRsp, 0)
+	currentRound := make([]*chatDto.ChatMessageRsp, 0)
+
+	for _, msg := range msgs {
+		if msg.Role == "user" {
+			if len(currentRound) > 0 && currentRound[len(currentRound)-1].Role == "assistant" {
+				// 开始新轮
+				rounds = append(rounds, currentRound)
+				currentRound = make([]*chatDto.ChatMessageRsp, 0)
+			}
+			currentRound = append(currentRound, msg)
+		} else if msg.Role == "assistant" {
+			currentRound = append(currentRound, msg)
+		}
+	}
+
+	// 处理最后一轮
+	if len(currentRound) > 0 {
+		rounds = append(rounds, currentRound)
+	}
+
+	// 只保留最近maxRounds轮
+	if len(rounds) <= maxRounds {
+		result := make([]map[string]any, 0)
+		for _, round := range rounds {
+			for _, msg := range round {
+				result = append(result, map[string]any{
+					"role":    msg.Role,
+					"content": msg.Content,
+				})
+			}
+		}
+		return result
+	}
+
+	// 截取最后maxRounds轮
+	result := make([]map[string]any, 0)
+	for _, round := range rounds[len(rounds)-maxRounds:] {
+		for _, msg := range round {
+			result = append(result, map[string]any{
+				"role":    msg.Role,
+				"content": msg.Content,
+			})
+		}
+	}
+	return result
 }
