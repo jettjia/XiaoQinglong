@@ -227,7 +227,7 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
               {activeTab === 'mcp' ? 'mcp' : activeTab === 'a2a' ? 'A2A' : activeTab === 'tools' ? 'tool' : t('skills.title')}
             </h1>
             <p className="text-slate-500 text-sm">
-              {activeTab === 'mcp' ? 'Auto-load and available to models when enabled' : t('skills.subtitle')}
+              {activeTab === 'mcp' ? t('skills.mcpAutoLoad') : t('skills.subtitle')}
             </p>
           </div>
         </div>
@@ -238,7 +238,7 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
             <span className="text-[10px] font-bold text-slate-400 uppercase mt-1">Enabled</span>
           </div>
 
-          {(activeTab === 'skills' || activeTab === 'mcp') && (
+          {activeTab === 'skills' && (
             <>
               <input
                 type="file"
