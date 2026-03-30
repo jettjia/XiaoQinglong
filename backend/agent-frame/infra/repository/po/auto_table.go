@@ -11,6 +11,7 @@ import (
 	"github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/agent"
 	"github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/channel"
 	"github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/chat"
+	"github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/memory"
 )
 
 // AutoTable auto create table
@@ -30,6 +31,7 @@ func AutoTable() (err error) {
 		chat.ChatMessage{},
 		chat.ChatApproval{},
 		chat.ChatTokenStats{},
+		memory.AgentMemory{},
 	)
 
 	return

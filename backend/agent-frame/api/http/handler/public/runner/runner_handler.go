@@ -14,6 +14,8 @@ import (
 	agentSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/agent"
 	chatDto "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/chat"
 	chatSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/chat"
+	memorySvc "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/memory"
+	memoryEntity "github.com/jettjia/xiaoqinglong/agent-frame/domain/entity/memory"
 )
 
 // ChatRunReq 前端聊天请求
@@ -27,9 +29,10 @@ type ChatRunReq struct {
 
 // Handler runner代理处理器
 type Handler struct {
-	runnerURL string
-	agentSvc  *agentSvc.SysAgentService
-	chatSvc   *chatSvc.ChatMessageService
+	runnerURL  string
+	agentSvc   *agentSvc.SysAgentService
+	chatSvc    *chatSvc.ChatMessageService
+	memorySvc  *memorySvc.AgentMemorySvc
 }
 
 // NewHandler NewHandler
@@ -38,6 +41,7 @@ func NewHandler() *Handler {
 		runnerURL: "http://localhost:18080", // runner服务地址
 		agentSvc:  agentSvc.NewSysAgentService(),
 		chatSvc:   chatSvc.NewChatMessageService(),
+		memorySvc: memorySvc.NewAgentMemorySvc(),
 	}
 }
 
@@ -112,8 +116,20 @@ func (h *Handler) Run(c *gin.Context) {
 		}
 	}
 
-	// 构建messages数组：历史消息 + 当前输入
-	messages := append(historicalMessages, map[string]any{
+	// 5. 加载长期记忆
+	var memoryContext []map[string]any
+	if chatReq.SessionID != "" && chatReq.AgentID != "" {
+		memoryContext, err = h.loadMemoryContext(c.Request.Context(), chatReq.AgentID, chatReq.UserID, chatReq.Input, agentConfig)
+		if err != nil {
+			log.Printf("[Runner Proxy] Failed to load memory context: %v", err)
+		}
+	}
+
+	// 构建messages数组：记忆上下文 + 历史消息 + 当前输入
+	messages := make([]map[string]any, 0)
+	messages = append(messages, memoryContext...)
+	messages = append(messages, historicalMessages...)
+	messages = append(messages, map[string]any{
 		"role":    "user",
 		"content": chatReq.Input,
 	})
@@ -123,6 +139,7 @@ func (h *Handler) Run(c *gin.Context) {
 		"session_id": chatReq.SessionID,
 		"user_id":    chatReq.UserID,
 		"channel_id": "web",
+		"agent_id":   chatReq.AgentID,
 	}
 
 	// 5. 序列化runner请求
@@ -308,4 +325,96 @@ func buildSlidingWindowMessages(msgs []*chatDto.ChatMessageRsp, maxRounds int) [
 		}
 	}
 	return result
+}
+
+// loadMemoryContext 加载长期记忆上下文
+func (h *Handler) loadMemoryContext(ctx context.Context, agentId, userId, query string, agentConfig map[string]any) ([]map[string]any, error) {
+	// 检查是否启用长期记忆
+	enableMemory := false
+	maxMemoryCount := 5
+
+	if memConfig, ok := agentConfig["long_term_memory"].(map[string]any); ok {
+		if enabled, ok := memConfig["enabled"].(bool); ok {
+			enableMemory = enabled
+		}
+		if count, ok := memConfig["max_count"].(float64); ok {
+			maxMemoryCount = int(count)
+		}
+	}
+
+	if !enableMemory {
+		return nil, nil
+	}
+
+	// 获取相关记忆
+	memories, err := h.memorySvc.GetRelevantMemories(ctx, agentId, userId, query, maxMemoryCount)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(memories) == 0 {
+		return nil, nil
+	}
+
+	// 构建记忆上下文消息
+	result := make([]map[string]any, 0, len(memories))
+	for _, m := range memories {
+		result = append(result, map[string]any{
+			"role":    "system",
+			"content": "[记忆] " + m.Content,
+		})
+	}
+
+	return result, nil
+}
+
+// saveMemoryContext 保存对话产生的记忆
+func (h *Handler) saveMemoryContext(ctx context.Context, agentId, userId, sessionId, userInput, assistantOutput string) error {
+	// 检查是否启用长期记忆
+	// 这里简单处理，实际应该由runner在返回结果中携带要保存的记忆
+	// 目前通过简单分词提取关键词作为记忆
+
+	// 提取关键词作为记忆
+	words := extractKeywords(userInput + " " + assistantOutput)
+
+	for _, word := range words {
+		if len(word) < 2 {
+			continue
+		}
+		memory := &memoryEntity.AgentMemory{
+			AgentId:    agentId,
+			UserId:     userId,
+			SessionId:  sessionId,
+			MemoryType: "entity",
+			Content:    word,
+			Keywords:   word,
+			Importance: 1,
+		}
+		h.memorySvc.CreateMemory(ctx, memory)
+	}
+
+	return nil
+}
+
+// extractKeywords 简单提取关键词
+func extractKeywords(text string) []string {
+	var words []string
+	var current []rune
+
+	for _, r := range text {
+		if r == ' ' || r == ',' || r == '.' || r == '，' || r == '。' || r == '\n' || r == '\t' || r == '！' || r == '？' || r == '?' || r == '!' {
+			if len(current) > 0 {
+				words = append(words, string(current))
+				current = nil
+			}
+		} else {
+			current = append(current, r)
+		}
+	}
+
+	if len(current) > 0 {
+		words = append(words, string(current))
+	}
+
+	return words
 }

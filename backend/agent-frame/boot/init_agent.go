@@ -53,6 +53,10 @@ func initDefaultAgents() error {
 					"max_rounds": 10,
 					"max_tokens": 32000,
 					"strategy": "sliding_window"
+				},
+				"long_term_memory": {
+					"enabled": true,
+					"max_count": 5
 				}
 			}`,
 			isSystem: true,
@@ -91,6 +95,10 @@ func initDefaultAgents() error {
 					"max_rounds": 20,
 					"max_tokens": 64000,
 					"strategy": "sliding_window"
+				},
+				"long_term_memory": {
+					"enabled": true,
+					"max_count": 10
 				}
 			}`,
 			isSystem: true,
