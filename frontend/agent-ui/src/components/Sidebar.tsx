@@ -1,12 +1,12 @@
 import React from 'react';
-import { 
-  LayoutDashboard, 
-  Workflow, 
-  Users, 
-  Zap, 
-  Box, 
-  Database, 
-  Cpu, 
+import {
+  LayoutDashboard,
+  Workflow,
+  Users,
+  Zap,
+  Box,
+  Database,
+  Cpu,
   MessageSquare,
   Settings,
   ChevronLeft,
@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { View } from '../types';
+import { chatApi } from '../lib/api';
 import { useTranslation } from 'react-i18next';
 
 interface SidebarProps {
@@ -25,11 +26,28 @@ interface SidebarProps {
 
 export function Sidebar({ activeView, onViewChange }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = React.useState(false);
+  const [pendingCount, setPendingCount] = React.useState(0);
   const { t, i18n } = useTranslation();
+
+  // Poll for pending approvals
+  React.useEffect(() => {
+    const pollPending = async () => {
+      try {
+        const approvals = await chatApi.getPendingApprovals();
+        setPendingCount(approvals.length);
+      } catch (err) {
+        console.error('Failed to fetch pending approvals:', err);
+      }
+    };
+
+    pollPending();
+    const interval = setInterval(pollPending, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   const navItems = [
     { id: 'dashboard', label: t('sidebar.dashboard'), icon: LayoutDashboard },
-    { id: 'inbox', label: t('sidebar.inbox'), icon: Inbox },
+    { id: 'inbox', label: t('sidebar.inbox'), icon: Inbox, badge: pendingCount },
     { id: 'orchestrator', label: t('sidebar.orchestrator'), icon: Workflow },
     { id: 'agents', label: t('sidebar.agents'), icon: Users },
     { id: 'chat', label: t('sidebar.chat'), icon: MessageSquare },
@@ -78,8 +96,8 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
               onClick={() => onViewChange(item.id as View)}
               className={cn(
                 "w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all group",
-                isActive 
-                  ? "bg-brand-500/10 text-brand-500" 
+                isActive
+                  ? "bg-brand-500/10 text-brand-500"
                   : "hover:bg-slate-800 hover:text-white"
               )}
             >
@@ -90,7 +108,12 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
               {!isCollapsed && (
                 <span className="text-sm font-medium">{item.label}</span>
               )}
-              {isActive && !isCollapsed && (
+              {!isCollapsed && item.badge && item.badge > 0 && (
+                <div className="ml-auto px-2 py-0.5 rounded-full bg-red-500 text-white text-xs font-bold">
+                  {item.badge}
+                </div>
+              )}
+              {isActive && !isCollapsed && !item.badge && (
                 <div className="ml-auto w-1.5 h-1.5 rounded-full bg-brand-500" />
               )}
             </button>

@@ -1,9 +1,9 @@
 import React from 'react';
-import { 
-  Send, 
-  Paperclip, 
-  Image as ImageIcon, 
-  Mic, 
+import {
+  Send,
+  Paperclip,
+  Image as ImageIcon,
+  Mic,
   MoreHorizontal,
   Plus,
   History,
@@ -41,38 +41,190 @@ import {
   ExternalLink,
   ChevronUp,
   PanelLeftClose,
-  PanelLeftOpen
+  PanelLeftOpen,
+  ShieldAlert,
+  UserCheck,
+  XCircle,
+  Clock
 } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import { cn } from '../lib/utils';
-import { Message, FileInfo, Agent, Conversation } from '../types';
+import { Message, FileInfo, Agent, Conversation, PendingApproval, ChatSession } from '../types';
 import { INITIAL_AGENTS } from '../constants';
-import { GoogleGenAI } from "@google/genai";
+import { agentApi, chatApi } from '../lib/api';
 import { useTranslation } from 'react-i18next';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+const API_BASE = '/api/xiaoqinglong/agent-frame/v1';
+const CURRENT_USER_ID = 'user-1'; // TODO: Get from auth context
 
 export function ChatInterface() {
   const { t } = useTranslation();
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [input, setInput] = React.useState('');
   const [files, setFiles] = React.useState<FileInfo[]>([]);
-  const [activeAgent, setActiveAgent] = React.useState<Agent>(INITIAL_AGENTS[0]);
+  const [agents, setAgents] = React.useState<Agent[]>([]);
+  const [activeAgent, setActiveAgent] = React.useState<Agent | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
-  const [conversations, setConversations] = React.useState<Conversation[]>([
-    { id: '1', title: 'Research on AI Agents', lastMessage: 'How can I help?', timestamp: new Date() },
-    { id: '2', title: 'Data Analysis Project', lastMessage: 'The results are ready.', timestamp: new Date() }
-  ]);
+  const [conversations, setConversations] = React.useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = React.useState<string | null>(null);
+  const [currentSession, setCurrentSession] = React.useState<ChatSession | null>(null);
   const [isMoreAgentsOpen, setIsMoreAgentsOpen] = React.useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(true);
   const [isTraceOpen, setIsTraceOpen] = React.useState(false);
   const [selectedMessageId, setSelectedMessageId] = React.useState<string | null>(null);
   const [showThinking, setShowThinking] = React.useState<Record<string, boolean>>({});
+  const [pendingApprovals, setPendingApprovals] = React.useState<PendingApproval[]>([]);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const abortControllerRef = React.useRef<AbortController | null>(null);
+  const pollingRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  // Load agents from backend
+  React.useEffect(() => {
+    const loadAgents = async () => {
+      try {
+        const backendAgents = await agentApi.findAll();
+        setAgents(backendAgents);
+        if (backendAgents.length > 0 && !activeAgent) {
+          setActiveAgent(backendAgents[0]);
+        }
+      } catch (err) {
+        console.error('Failed to load agents:', err);
+      }
+    };
+    loadAgents();
+  }, []);
+
+  // Load user sessions
+  React.useEffect(() => {
+    const loadSessions = async () => {
+      try {
+        const sessions = await chatApi.getSessionsByUserId(CURRENT_USER_ID);
+        const convs: Conversation[] = sessions.map(s => ({
+          id: s.ulid,
+          title: s.title || '新会话',
+          lastMessage: '',
+          timestamp: new Date(s.updated_at || s.created_at),
+          agentId: s.agent_id
+        }));
+        setConversations(convs);
+      } catch (err) {
+        console.error('Failed to load sessions:', err);
+      }
+    };
+    loadSessions();
+  }, []);
+
+  // Poll for pending approvals
+  React.useEffect(() => {
+    const pollApprovals = async () => {
+      try {
+        const approvals = await chatApi.getPendingApprovals();
+        const mapped: PendingApproval[] = approvals.map(a => ({
+          id: a.ulid,
+          sessionId: a.session_id,
+          messageId: a.message_id,
+          toolName: a.tool_name,
+          toolType: a.tool_type,
+          riskLevel: a.risk_level,
+          parameters: a.parameters ? JSON.parse(a.parameters) : {},
+          status: a.status as 'pending' | 'approved' | 'rejected',
+          timestamp: new Date(a.created_at)
+        }));
+        setPendingApprovals(mapped);
+      } catch (err) {
+        console.error('Failed to poll approvals:', err);
+      }
+    };
+
+    pollApprovals();
+    pollingRef.current = setInterval(pollApprovals, 5000);
+
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
+    };
+  }, []);
+
+  // Create new session when switching agents
+  const createNewSession = async (agent: Agent) => {
+    try {
+      const result = await chatApi.createSession({
+        user_id: CURRENT_USER_ID,
+        agent_id: agent.ulid || agent.id,
+        title: '新会话',
+        channel: 'web',
+        model: agent.model,
+        status: 'active'
+      });
+      const session: ChatSession = {
+        ulid: result.ulid,
+        user_id: CURRENT_USER_ID,
+        agent_id: agent.ulid || agent.id,
+        title: '新会话',
+        channel: 'web',
+        model: agent.model,
+        status: 'active',
+        created_at: Date.now(),
+        updated_at: Date.now(),
+        created_by: CURRENT_USER_ID,
+        updated_by: CURRENT_USER_ID
+      };
+      setCurrentSession(session);
+      setMessages([]);
+      setActiveConversationId(result.ulid);
+
+      // Add to conversations list
+      const newConv: Conversation = {
+        id: result.ulid,
+        title: '新会话',
+        timestamp: new Date(),
+        agentId: agent.ulid || agent.id
+      };
+      setConversations(prev => [newConv, ...prev]);
+
+      return result.ulid;
+    } catch (err) {
+      console.error('Failed to create session:', err);
+      return null;
+    }
+  };
+
+  // Load session messages
+  const loadSessionMessages = async (sessionId: string) => {
+    try {
+      const msgs = await chatApi.getMessagesBySessionId(sessionId);
+      const mapped: Message[] = msgs.map(m => ({
+        id: m.ulid,
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+        timestamp: new Date(m.created_at),
+        status: m.status as 'pending_approval' | 'completed' | 'failed' | undefined,
+        thinking: m.trace ? JSON.parse(m.trace)?.thinking : undefined,
+        trace: m.trace ? JSON.parse(m.trace)?.trace : undefined
+      }));
+      setMessages(mapped);
+    } catch (err) {
+      console.error('Failed to load messages:', err);
+    }
+  };
+
+  // Handle approval
+  const handleApproval = async (approvalId: string, action: 'approved' | 'rejected', reason?: string) => {
+    try {
+      if (action === 'approved') {
+        await chatApi.approveApproval(approvalId, CURRENT_USER_ID, reason);
+      } else {
+        await chatApi.rejectApproval(approvalId, CURRENT_USER_ID, reason);
+      }
+      // Remove from pending list
+      setPendingApprovals(prev => prev.filter(a => a.id !== approvalId));
+    } catch (err) {
+      console.error('Failed to handle approval:', err);
+    }
+  };
 
   const getAgentIcon = (iconName: string, size: number = 16) => {
     switch (iconName) {
@@ -91,8 +243,8 @@ export function ChatInterface() {
     }
   };
 
-  const visibleAgents = INITIAL_AGENTS.slice(0, 6);
-  const moreAgents = INITIAL_AGENTS.slice(6);
+  const visibleAgents = agents.length > 0 ? agents.slice(0, 6) : INITIAL_AGENTS.slice(0, 6);
+  const moreAgents = agents.length > 0 ? agents.slice(6) : INITIAL_AGENTS.slice(6);
 
   const onDrop = React.useCallback((acceptedFiles: File[]) => {
     const newFiles = acceptedFiles.map(file => ({
@@ -104,13 +256,13 @@ export function ChatInterface() {
     setFiles(prev => [...prev, ...newFiles]);
   }, []);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({ 
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     noClick: true
   } as any);
 
   const handleSend = async () => {
-    if ((!input.trim() && files.length === 0) || isLoading) return;
+    if ((!input.trim() && files.length === 0) || isLoading || !activeAgent) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -127,58 +279,60 @@ export function ChatInterface() {
     abortControllerRef.current = new AbortController();
 
     try {
-      const parts: any[] = [{ text: input }];
-      
-      // Add image data if present
-      for (const file of userMessage.files || []) {
-        if (file.type.startsWith('image/')) {
-          const base64 = await fetch(file.url).then(r => r.blob()).then(blob => {
-            return new Promise((resolve) => {
-              const reader = new FileReader();
-              reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
-              reader.readAsDataURL(blob);
-            });
-          });
-          parts.push({
-            inlineData: {
-              data: base64,
-              mimeType: file.type
-            }
-          });
-        }
-      }
-
-      // We wrap the API call to allow cancellation (even if SDK doesn't support it directly)
-      const generatePromise = ai.models.generateContent({
-        model: activeAgent.model || "gemini-3-flash-preview",
-        contents: { parts },
-        config: {
-          systemInstruction: `You are ${activeAgent.name}, ${activeAgent.description}. Provide helpful, accurate, and concise responses.`
-        }
+      // Call backend runner API
+      const response = await fetch(`${API_BASE}/runner/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agent_id: activeAgent.ulid || activeAgent.id,
+          user_id: CURRENT_USER_ID,
+          session_id: currentSession?.ulid || activeConversationId,
+          input: input,
+          files: userMessage.files || []
+        })
       });
 
-      const response = await Promise.race([
-        generatePromise,
-        new Promise<null>((_, reject) => {
-          abortControllerRef.current?.signal.addEventListener('abort', () => reject(new Error('Aborted')));
-        })
-      ]);
+      if (!response.ok) {
+        throw new Error('Failed to get response from runner');
+      }
 
-      if (!response) return;
+      const data = await response.json();
+
+      // Check if response indicates pending approval
+      if (data.pending_approvals && data.pending_approvals.length > 0) {
+        // Handle pending approvals from the response
+        for (const approval of data.pending_approvals) {
+          const pendingApproval: PendingApproval = {
+            id: approval.interrupt_id,
+            sessionId: data.checkpoint_id || '',
+            messageId: '',
+            toolName: approval.tool_name,
+            toolType: approval.tool_type || '',
+            riskLevel: approval.risk_level || 'high',
+            parameters: approval.arguments ? JSON.parse(approval.arguments) : {},
+            status: 'pending',
+            timestamp: new Date()
+          };
+          setPendingApprovals(prev => [...prev, pendingApproval]);
+        }
+      }
 
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: response.text || "I'm sorry, I couldn't generate a response.",
-        timestamp: new Date()
+        content: data.output || "I'm sorry, I couldn't generate a response.",
+        timestamp: new Date(),
+        thinking: data.thinking,
+        trace: data.trace,
+        status: data.status
       };
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error: any) {
-      if (error.message === 'Aborted') {
+      if (error.name === 'AbortError') {
         console.log("Generation stopped by user");
         return;
       }
-      console.error("Gemini Error:", error);
+      console.error("Runner Error:", error);
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
@@ -263,13 +417,25 @@ export function ChatInterface() {
   const startNewConversation = () => {
     setMessages([]);
     setActiveConversationId(null);
+    setCurrentSession(null);
   };
 
-  const deleteConversation = (id: string) => {
+  const deleteConversation = async (id: string) => {
+    try {
+      await chatApi.deleteSession(id);
+    } catch (err) {
+      console.error('Failed to delete session:', err);
+    }
     setConversations(prev => prev.filter(c => c.id !== id));
     if (activeConversationId === id) {
       startNewConversation();
     }
+  };
+
+  // Handle conversation selection
+  const handleSelectConversation = async (conv: Conversation) => {
+    setActiveConversationId(conv.id);
+    await loadSessionMessages(conv.id);
   };
 
   React.useEffect(() => {
@@ -330,8 +496,8 @@ export function ChatInterface() {
           ) : (
             conversations.map(conv => (
               <div key={conv.id} className="group relative">
-                <button 
-                  onClick={() => setActiveConversationId(conv.id)}
+                <button
+                  onClick={() => handleSelectConversation(conv)}
                   className={cn(
                     "w-full text-left p-3 rounded-lg transition-all flex flex-col gap-1",
                     activeConversationId === conv.id ? "bg-white shadow-sm border border-slate-200" : "hover:bg-white/50"
@@ -340,7 +506,7 @@ export function ChatInterface() {
                   <p className="text-sm font-medium text-slate-700 truncate pr-6">{conv.title}</p>
                   <p className="text-[10px] text-slate-400 truncate">{conv.lastMessage}</p>
                 </button>
-                <button 
+                <button
                   onClick={(e) => {
                     e.stopPropagation();
                     deleteConversation(conv.id);
@@ -361,7 +527,7 @@ export function ChatInterface() {
         <header className="h-14 border-b border-slate-100 flex items-center justify-between px-4 lg:px-6 bg-white/80 backdrop-blur-sm z-10">
           <div className="flex items-center gap-3">
             {!isSidebarOpen && (
-              <button 
+              <button
                 onClick={() => setIsSidebarOpen(true)}
                 className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors"
                 title="展开侧边栏"
@@ -371,11 +537,11 @@ export function ChatInterface() {
             )}
             <div className="w-8 h-8 rounded-full bg-brand-500/10 flex items-center justify-center text-brand-500">
               <div className="w-6 h-6 rounded-full bg-brand-500 flex items-center justify-center text-white font-bold text-[10px]">
-                {activeAgent.name[0]}
+                {activeAgent?.name?.[0] || 'A'}
               </div>
             </div>
             <div>
-              <h3 className="font-bold text-slate-900 text-xs lg:text-sm">{activeAgent.name}</h3>
+              <h3 className="font-bold text-slate-900 text-xs lg:text-sm">{activeAgent?.name || '选择智能体'}</h3>
               <div className="flex items-center gap-1.5">
                 <div className="w-1 h-1 rounded-full bg-green-500" />
                 <span className="text-[8px] lg:text-[10px] font-medium text-slate-400 uppercase tracking-wider">{t('chat.active')}</span>
@@ -383,6 +549,12 @@ export function ChatInterface() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {pendingApprovals.length > 0 && (
+              <div className="flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-600 rounded-full text-xs font-bold">
+                <ShieldAlert size={14} />
+                <span>{pendingApprovals.length}</span>
+              </div>
+            )}
             <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 transition-colors">
               <MoreHorizontal size={20} />
             </button>
@@ -401,7 +573,7 @@ export function ChatInterface() {
               </div>
               <h2 className="text-xl font-bold text-slate-900 mb-2">{t('chat.startNew')}</h2>
               <p className="text-sm text-slate-500">
-                Ask {activeAgent.name} anything. You can upload documents, images, or just start typing.
+                Ask {activeAgent?.name || 'an agent'} anything. You can upload documents, images, or just start typing.
               </p>
             </div>
           )}
@@ -604,6 +776,70 @@ export function ChatInterface() {
               </div>
             </motion.div>
           ))}
+
+          {/* Pending Approvals Cards */}
+          {pendingApprovals.length > 0 && (
+            <div className="space-y-4 mt-4">
+              {pendingApprovals.map(approval => (
+                <div
+                  key={approval.id}
+                  className="bg-white rounded-2xl border border-amber-200 p-6 shadow-lg shadow-amber-100/50"
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-amber-500 flex items-center justify-center text-white font-bold">
+                        <ShieldAlert size={20} />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-slate-900">待审批请求</h4>
+                        <div className="flex items-center gap-2 text-[10px] text-slate-400 font-medium">
+                          <Clock size={10} />
+                          {approval.timestamp.toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-600 border border-amber-100">
+                      待审批
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-50 rounded-xl p-4 mb-4 border border-slate-100">
+                    <div className="flex items-center gap-2 text-slate-900 mb-2">
+                      <ShieldAlert size={16} className="text-amber-500" />
+                      <span className="text-sm font-bold">工具: {approval.toolName}</span>
+                    </div>
+                    <p className="text-sm text-slate-600 mb-4">
+                      风险等级: <span className={approval.riskLevel === 'high' ? 'text-red-500 font-bold' : 'text-amber-500 font-bold'}>{approval.riskLevel.toUpperCase()}</span>
+                    </p>
+
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">参数</p>
+                      <div className="bg-white rounded-lg border border-slate-200 p-3 font-mono text-xs text-slate-700">
+                        <pre>{JSON.stringify(approval.parameters, null, 2)}</pre>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-3">
+                    <button
+                      onClick={() => handleApproval(approval.id, 'rejected')}
+                      className="flex items-center gap-2 px-6 py-2 bg-white border border-slate-200 rounded-lg text-sm font-bold text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-all"
+                    >
+                      <XCircle size={16} />
+                      拒绝
+                    </button>
+                    <button
+                      onClick={() => handleApproval(approval.id, 'approved')}
+                      className="flex items-center gap-2 px-6 py-2 bg-brand-500 text-white rounded-lg text-sm font-bold hover:bg-brand-600 transition-all shadow-lg shadow-brand-500/20"
+                    >
+                      <UserCheck size={16} />
+                      批准
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Input Area */}
@@ -671,11 +907,16 @@ export function ChatInterface() {
                   <div className="flex items-center gap-1">
                     {visibleAgents.map(agent => (
                       <button
-                        key={agent.id}
-                        onClick={() => setActiveAgent(agent)}
+                        key={agent.ulid || agent.id}
+                        onClick={() => {
+                          setActiveAgent(agent);
+                          if (agent.ulid && agent.ulid !== currentSession?.agent_id) {
+                            createNewSession(agent);
+                          }
+                        }}
                         className={cn(
                           "flex items-center gap-1 px-2 py-1.5 rounded-lg transition-all text-xs font-medium whitespace-nowrap shrink-0",
-                          activeAgent.id === agent.id
+                          activeAgent?.ulid === agent.ulid || activeAgent?.id === agent.id
                             ? "bg-slate-100 text-slate-900"
                             : "text-slate-600 hover:bg-slate-50"
                         )}
@@ -715,14 +956,17 @@ export function ChatInterface() {
                               >
                                 {moreAgents.map(agent => (
                                   <button
-                                    key={agent.id}
+                                    key={agent.ulid || agent.id}
                                     onClick={() => {
                                       setActiveAgent(agent);
+                                      if (agent.ulid && agent.ulid !== currentSession?.agent_id) {
+                                        createNewSession(agent);
+                                      }
                                       setIsMoreAgentsOpen(false);
                                     }}
                                     className={cn(
                                       "w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors",
-                                      activeAgent.id === agent.id ? "bg-slate-50 text-slate-900 font-semibold" : "text-slate-700 hover:bg-slate-50"
+                                      activeAgent?.ulid === agent.ulid || activeAgent?.id === agent.id ? "bg-slate-50 text-slate-900 font-semibold" : "text-slate-700 hover:bg-slate-50"
                                     )}
                                   >
                                     {getAgentIcon(agent.icon || '', 14)}

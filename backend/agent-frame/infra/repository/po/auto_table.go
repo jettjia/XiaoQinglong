@@ -10,6 +10,7 @@ import (
 	"github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/skill"
 	"github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/agent"
 	"github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/channel"
+	"github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/chat"
 )
 
 // AutoTable auto create table
@@ -25,6 +26,10 @@ func AutoTable() (err error) {
 		skill.SysSkill{},
 		agent.SysAgent{},
 		channel.SysChannel{},
+		chat.ChatSession{},
+		chat.ChatMessage{},
+		chat.ChatApproval{},
+		chat.ChatTokenStats{},
 	)
 
 	return

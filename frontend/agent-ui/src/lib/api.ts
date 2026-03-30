@@ -538,3 +538,283 @@ export const channelApi = {
     return Array.isArray(json) ? json : (json.data || []);
   },
 };
+
+// ====== Chat APIs ======
+
+export interface ChatSession {
+  ulid: string;
+  user_id: string;
+  agent_id: string;
+  title: string;
+  channel: string;
+  model: string;
+  status: string;
+  created_at: number;
+  updated_at: number;
+  created_by: string;
+  updated_by: string;
+}
+
+export interface ChatMessage {
+  ulid: string;
+  session_id: string;
+  role: string;
+  content: string;
+  model: string;
+  tokens: number;
+  latency_ms: number;
+  trace: string;
+  status: string;
+  error_msg: string;
+  metadata: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ChatApproval {
+  ulid: string;
+  message_id: string;
+  session_id: string;
+  tool_name: string;
+  tool_type: string;
+  risk_level: string;
+  parameters: string;
+  status: string;
+  interrupt_id: string;
+  approved_by: string;
+  approved_at: number;
+  reason: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export const chatApi = {
+  // Chat Session APIs
+  async createSession(data: {
+    user_id: string;
+    agent_id: string;
+    title?: string;
+    channel?: string;
+    model?: string;
+    status?: string;
+  }): Promise<{ ulid: string }> {
+    const res = await fetch(`${API_BASE}/chat/session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to create session');
+    }
+    return json.data || json;
+  },
+
+  async getSession(ulid: string): Promise<ChatSession> {
+    const res = await fetch(`${API_BASE}/chat/session/${ulid}`);
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to get session');
+    }
+    return json.data || json;
+  },
+
+  async updateSession(data: {
+    ulid: string;
+    title?: string;
+    status?: string;
+  }): Promise<void> {
+    const res = await fetch(`${API_BASE}/chat/session`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const json = await res.json();
+      throw new Error(json.message || 'Failed to update session');
+    }
+  },
+
+  async deleteSession(ulid: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/chat/session/${ulid}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      const json = await res.json();
+      throw new Error(json.message || 'Failed to delete session');
+    }
+  },
+
+  async getSessionsByUserId(userId: string, status?: string): Promise<ChatSession[]> {
+    const res = await fetch(`${API_BASE}/chat/session/byUserId`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, status }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to get sessions');
+    }
+    return Array.isArray(json) ? json : (json.data || []);
+  },
+
+  // Chat Message APIs
+  async createMessage(data: {
+    session_id: string;
+    role: string;
+    content: string;
+    model?: string;
+    tokens?: number;
+    latency_ms?: number;
+    trace?: string;
+    status?: string;
+    error_msg?: string;
+    metadata?: string;
+  }): Promise<{ ulid: string }> {
+    const res = await fetch(`${API_BASE}/chat/message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to create message');
+    }
+    return json.data || json;
+  },
+
+  async updateMessage(data: {
+    ulid: string;
+    content?: string;
+    tokens?: number;
+    status?: string;
+    error_msg?: string;
+  }): Promise<void> {
+    const res = await fetch(`${API_BASE}/chat/message`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const json = await res.json();
+      throw new Error(json.message || 'Failed to update message');
+    }
+  },
+
+  async getMessage(ulid: string): Promise<ChatMessage> {
+    const res = await fetch(`${API_BASE}/chat/message/${ulid}`);
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to get message');
+    }
+    return json.data || json;
+  },
+
+  async getMessagesBySessionId(sessionId: string): Promise<ChatMessage[]> {
+    const res = await fetch(`${API_BASE}/chat/message/bySessionId`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to get messages');
+    }
+    return Array.isArray(json) ? json : (json.data || []);
+  },
+
+  // Chat Approval APIs
+  async createApproval(data: {
+    message_id: string;
+    session_id: string;
+    tool_name: string;
+    tool_type?: string;
+    risk_level?: string;
+    parameters?: string;
+    status?: string;
+    interrupt_id?: string;
+  }): Promise<{ ulid: string }> {
+    const res = await fetch(`${API_BASE}/chat/approval`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to create approval');
+    }
+    return json.data || json;
+  },
+
+  async approveApproval(ulid: string, approvedBy: string, reason?: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/chat/approval/approve`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ulid, approved_by: approvedBy, reason }),
+    });
+    if (!res.ok) {
+      const json = await res.json();
+      throw new Error(json.message || 'Failed to approve');
+    }
+  },
+
+  async rejectApproval(ulid: string, approvedBy: string, reason?: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/chat/approval/reject`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ulid, approved_by: approvedBy, reason }),
+    });
+    if (!res.ok) {
+      const json = await res.json();
+      throw new Error(json.message || 'Failed to reject');
+    }
+  },
+
+  async getApproval(ulid: string): Promise<ChatApproval> {
+    const res = await fetch(`${API_BASE}/chat/approval/${ulid}`);
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to get approval');
+    }
+    return json.data || json;
+  },
+
+  async getApprovalByMessageId(messageId: string): Promise<ChatApproval> {
+    const res = await fetch(`${API_BASE}/chat/approval/byMessageId`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message_id: messageId }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to get approval');
+    }
+    return json.data || json;
+  },
+
+  async getPendingApprovals(): Promise<ChatApproval[]> {
+    const res = await fetch(`${API_BASE}/chat/approval/pending`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to get pending approvals');
+    }
+    return Array.isArray(json) ? json : (json.data || []);
+  },
+
+  async getApprovalsByUserId(userId: string): Promise<ChatApproval[]> {
+    const res = await fetch(`${API_BASE}/chat/approval/byUserId`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to get approvals');
+    }
+    return Array.isArray(json) ? json : (json.data || []);
+  },
+};

@@ -192,3 +192,63 @@ export interface Conversation {
   messages?: Message[];
   lastUpdated?: Date;
 }
+
+// Chat-related types
+export interface ChatSession {
+  ulid: string;
+  user_id: string;
+  agent_id: string;
+  title: string;
+  channel: string;
+  model: string;
+  status: string;
+  created_at: number;
+  updated_at: number;
+  created_by: string;
+  updated_by: string;
+}
+
+export interface ChatMessage {
+  ulid: string;
+  session_id: string;
+  role: string;
+  content: string;
+  model: string;
+  tokens: number;
+  latency_ms: number;
+  trace: string;
+  status: string;
+  error_msg: string;
+  metadata: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ChatApproval {
+  ulid: string;
+  message_id: string;
+  session_id: string;
+  tool_name: string;
+  tool_type: string;
+  risk_level: string;
+  parameters: string;
+  status: string;
+  interrupt_id: string;
+  approved_by: string;
+  approved_at: number;
+  reason: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface PendingApproval {
+  id: string;
+  sessionId: string;
+  messageId: string;
+  toolName: string;
+  toolType: string;
+  riskLevel: string;
+  parameters: any;
+  status: 'pending' | 'approved' | 'rejected';
+  timestamp: Date;
+}

@@ -10,6 +10,8 @@ import (
 	handSkill "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/skill"
 	handAgent "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/agent"
 	handChannel "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/channel"
+	handChat "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/chat"
+	handRunner "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/runner"
 )
 
 func SetPublicRouter(Router *gin.RouterGroup) {
@@ -20,6 +22,8 @@ func SetPublicRouter(Router *gin.RouterGroup) {
 	handSkill := handSkill.NewHandler()
 	handAgent := handAgent.NewHandler()
 	handChannel := handChannel.NewHandler()
+	handChat := handChat.NewHandler()
+	handRunner := handRunner.NewHandler()
 
 	GRouter := Router.Group("/user")
 	{
@@ -101,5 +105,41 @@ func SetPublicRouter(Router *gin.RouterGroup) {
 		ChannelRouter.GET("/:ulid", handChannel.FindSysChannelById)      // 查询ByID
 		ChannelRouter.POST("/all", handChannel.FindSysChannelAll)         // 查询所有
 		ChannelRouter.POST("/page", handChannel.FindSysChannelPage)      // 分页查询
+	}
+
+	// chat
+	ChatRouter := Router.Group("/chat")
+	{
+		// session
+		ChatRouter.POST("/session", handChat.CreateChatSession)                              // 创建会话
+		ChatRouter.DELETE("/session/:ulid", handChat.DeleteChatSession)                     // 删除会话
+		ChatRouter.PUT("/session", handChat.UpdateChatSession)                              // 更新会话
+		ChatRouter.PUT("/session/status", handChat.UpdateChatSessionStatus)                 // 更新会话状态
+		ChatRouter.GET("/session/:ulid", handChat.FindChatSessionById)                     // 查询会话byId
+		ChatRouter.POST("/session/byUserId", handChat.FindChatSessionsByUserId)             // 查询用户会话列表
+		ChatRouter.POST("/session/page", handChat.FindChatSessionPage)                      // 分页查询会话
+
+		// message
+		ChatRouter.POST("/message", handChat.CreateChatMessage)                              // 创建消息
+		ChatRouter.PUT("/message", handChat.UpdateChatMessage)                              // 更新消息
+		ChatRouter.PUT("/message/status", handChat.UpdateChatMessageStatus)                 // 更新消息状态
+		ChatRouter.GET("/message/:ulid", handChat.FindChatMessageById)                     // 查询消息byId
+		ChatRouter.POST("/message/bySessionId", handChat.FindChatMessagesBySessionId)       // 查询会话消息列表
+
+		// approval
+		ChatRouter.POST("/approval", handChat.CreateChatApproval)                          // 创建审批
+		ChatRouter.PUT("/approval/approve", handChat.ApproveChatApproval)                 // 批准审批
+		ChatRouter.PUT("/approval/reject", handChat.RejectChatApproval)                   // 拒绝审批
+		ChatRouter.GET("/approval/:ulid", handChat.FindChatApprovalById)                  // 查询审批byId
+		ChatRouter.POST("/approval/byMessageId", handChat.FindChatApprovalByMessageId)   // 查询消息审批
+		ChatRouter.POST("/approval/pending", handChat.FindPendingChatApprovals)          // 查询待审批列表
+		ChatRouter.POST("/approval/byUserId", handChat.FindChatApprovalsByUserId)          // 查询用户审批列表
+	}
+
+	// runner proxy
+	RunnerRouter := Router.Group("/runner")
+	{
+		RunnerRouter.POST("/run", handRunner.Run)       // 代理runner run请求
+		RunnerRouter.POST("/resume", handRunner.Resume)  // 代理runner resume请求
 	}
 }
