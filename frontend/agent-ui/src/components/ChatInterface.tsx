@@ -86,9 +86,6 @@ export function ChatInterface() {
       try {
         const backendAgents = await agentApi.findAll();
         setAgents(backendAgents);
-        if (backendAgents.length > 0 && !activeAgent) {
-          setActiveAgent(backendAgents[0]);
-        }
       } catch (err) {
         console.error('Failed to load agents:', err);
       }
@@ -147,50 +144,6 @@ export function ChatInterface() {
       }
     };
   }, []);
-
-  // Create new session when switching agents
-  const createNewSession = async (agent: Agent) => {
-    try {
-      const result = await chatApi.createSession({
-        user_id: CURRENT_USER_ID,
-        agent_id: agent.ulid || agent.id,
-        title: '新会话',
-        channel: 'web',
-        model: agent.model,
-        status: 'active'
-      });
-      const session: ChatSession = {
-        ulid: result.ulid,
-        user_id: CURRENT_USER_ID,
-        agent_id: agent.ulid || agent.id,
-        title: '新会话',
-        channel: 'web',
-        model: agent.model,
-        status: 'active',
-        created_at: Date.now(),
-        updated_at: Date.now(),
-        created_by: CURRENT_USER_ID,
-        updated_by: CURRENT_USER_ID
-      };
-      setCurrentSession(session);
-      setMessages([]);
-      setActiveConversationId(result.ulid);
-
-      // Add to conversations list
-      const newConv: Conversation = {
-        id: result.ulid,
-        title: '新会话',
-        timestamp: new Date(),
-        agentId: agent.ulid || agent.id
-      };
-      setConversations(prev => [newConv, ...prev]);
-
-      return result.ulid;
-    } catch (err) {
-      console.error('Failed to create session:', err);
-      return null;
-    }
-  };
 
   // Load session messages
   const loadSessionMessages = async (sessionId: string) => {
@@ -279,6 +232,61 @@ export function ChatInterface() {
     abortControllerRef.current = new AbortController();
 
     try {
+      // Get session ID - create session if needed
+      let sessionId = currentSession?.ulid || activeConversationId;
+      let isNewSession = false;
+      if (!sessionId) {
+        const result = await chatApi.createSession({
+          user_id: CURRENT_USER_ID,
+          agent_id: activeAgent.ulid || activeAgent.id,
+          title: '新会话',
+          channel: 'web',
+          model: activeAgent.model,
+          status: 'active'
+        });
+        sessionId = result.ulid;
+        isNewSession = true;
+        setCurrentSession({
+          ulid: result.ulid,
+          user_id: CURRENT_USER_ID,
+          agent_id: activeAgent.ulid || activeAgent.id,
+          title: '新会话',
+          channel: 'web',
+          model: activeAgent.model || '',
+          status: 'active',
+          created_at: Date.now(),
+          updated_at: Date.now(),
+          created_by: CURRENT_USER_ID,
+          updated_by: CURRENT_USER_ID
+        });
+        setActiveConversationId(result.ulid);
+      }
+
+      // Save user message to database
+      let userMessageUlid: string | null = null;
+      try {
+        const userMsgResult = await chatApi.createMessage({
+          session_id: sessionId,
+          role: 'user',
+          content: input,
+          status: 'completed'
+        });
+        userMessageUlid = userMsgResult.ulid;
+
+        // Update session title if it's the first message (still "新会话")
+        if (isNewSession || currentSession?.title === '新会话') {
+          const titleToSet = input.length > 50 ? input.substring(0, 50) + '...' : input;
+          await chatApi.updateSession({ ulid: sessionId, title: titleToSet });
+          // Update local state
+          setConversations(prev => prev.map(c =>
+            c.id === sessionId ? { ...c, title: titleToSet } : c
+          ));
+          setCurrentSession(prev => prev ? { ...prev, title: titleToSet } : null);
+        }
+      } catch (err) {
+        console.error('Failed to save user message:', err);
+      }
+
       // Call backend runner API
       const response = await fetch(`${API_BASE}/runner/run`, {
         method: 'POST',
@@ -286,7 +294,7 @@ export function ChatInterface() {
         body: JSON.stringify({
           agent_id: activeAgent.ulid || activeAgent.id,
           user_id: CURRENT_USER_ID,
-          session_id: currentSession?.ulid || activeConversationId,
+          session_id: sessionId,
           input: input,
           files: userMessage.files || []
         })
@@ -304,8 +312,8 @@ export function ChatInterface() {
         for (const approval of data.pending_approvals) {
           const pendingApproval: PendingApproval = {
             id: approval.interrupt_id,
-            sessionId: data.checkpoint_id || '',
-            messageId: '',
+            sessionId: data.checkpoint_id || sessionId,
+            messageId: userMessageUlid || '',
             toolName: approval.tool_name,
             toolType: approval.tool_type || '',
             riskLevel: approval.risk_level || 'high',
@@ -327,6 +335,22 @@ export function ChatInterface() {
         status: data.status
       };
       setMessages(prev => [...prev, assistantMessage]);
+
+      // Save assistant message to database
+      try {
+        await chatApi.createMessage({
+          session_id: sessionId,
+          role: 'assistant',
+          content: data.content || data.output || '',
+          model: data.metadata?.model || activeAgent.model || '',
+          tokens: data.metadata?.tokens_used || 0,
+          latency_ms: data.metadata?.latency_ms || 0,
+          status: data.pending_approvals?.length > 0 ? 'pending_approval' : 'completed',
+          trace: data.trace ? JSON.stringify({ thinking: data.thinking, trace: data.trace }) : undefined
+        });
+      } catch (err) {
+        console.error('Failed to save assistant message:', err);
+      }
     } catch (error: any) {
       if (error.name === 'AbortError') {
         console.log("Generation stopped by user");
@@ -910,15 +934,12 @@ export function ChatInterface() {
                         key={agent.ulid || agent.id}
                         onClick={() => {
                           setActiveAgent(agent);
-                          if (agent.ulid && agent.ulid !== currentSession?.agent_id) {
-                            createNewSession(agent);
-                          }
                         }}
                         className={cn(
-                          "flex items-center gap-1 px-2 py-1.5 rounded-lg transition-all text-xs font-medium whitespace-nowrap shrink-0",
-                          activeAgent?.ulid === agent.ulid || activeAgent?.id === agent.id
-                            ? "bg-slate-100 text-slate-900"
-                            : "text-slate-600 hover:bg-slate-50"
+                          "flex items-center gap-1 px-2 py-1.5 rounded-lg transition-all text-xs font-medium whitespace-nowrap shrink-0 ring-2",
+                          activeAgent && (activeAgent.ulid ? activeAgent.ulid === agent.ulid : activeAgent.id === agent.id)
+                            ? "ring-brand-500 bg-brand-50 text-brand-700"
+                            : "text-slate-600 hover:bg-slate-50 ring-transparent"
                         )}
                       >
                         {getAgentIcon(agent.icon || '', 12)}
@@ -959,14 +980,11 @@ export function ChatInterface() {
                                     key={agent.ulid || agent.id}
                                     onClick={() => {
                                       setActiveAgent(agent);
-                                      if (agent.ulid && agent.ulid !== currentSession?.agent_id) {
-                                        createNewSession(agent);
-                                      }
                                       setIsMoreAgentsOpen(false);
                                     }}
                                     className={cn(
                                       "w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors",
-                                      activeAgent?.ulid === agent.ulid || activeAgent?.id === agent.id ? "bg-slate-50 text-slate-900 font-semibold" : "text-slate-700 hover:bg-slate-50"
+                                      activeAgent && (activeAgent.ulid ? activeAgent.ulid === agent.ulid : activeAgent.id === agent.id) ? "bg-brand-50 text-brand-700 font-semibold ring-2 ring-brand-500" : "text-slate-700 hover:bg-slate-50"
                                     )}
                                   >
                                     {getAgentIcon(agent.icon || '', 14)}
