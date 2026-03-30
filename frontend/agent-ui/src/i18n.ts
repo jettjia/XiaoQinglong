@@ -410,7 +410,7 @@ const resources = {
         title: '智能体管理',
         subtitle: '配置和管理您的自主智能体。',
         createNew: '创建新智能体',
-        search: '搜索智能体...',
+        search: '搜索会话...',
         filter: '筛选',
         builtIn: '内置',
         viewDetails: '查看详情',
