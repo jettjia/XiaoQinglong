@@ -10,7 +10,6 @@ import (
 	"github.com/jettjia/xiaoqinglong/agent-frame/api/grpc"
 	"github.com/jettjia/xiaoqinglong/agent-frame/api/http"
 	"github.com/jettjia/xiaoqinglong/agent-frame/api/job"
-	"github.com/jettjia/xiaoqinglong/agent-frame/api/mcp"
 	"github.com/jettjia/xiaoqinglong/agent-frame/boot"
 	"github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po"
 )
@@ -45,7 +44,7 @@ func main() {
 	grpc.InitGrpc()
 
 	// start mcp
-	mcp.InitMCP()
+	// mcp.InitMCP()
 
 	// start event mq
 	event.InitEvent()

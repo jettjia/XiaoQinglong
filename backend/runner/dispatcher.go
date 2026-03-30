@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
@@ -854,17 +855,23 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 	// 创建 Runner
 	// 使用全局的 checkpoint store 管理器
 	checkpointID := ""
-	if d.request.Options != nil {
+	if d.request.Options != nil && d.request.Options.CheckPointID != "" {
 		checkpointID = d.request.Options.CheckPointID
+	}
+	// 如果没有指定 checkpointID，自动生成一个
+	if checkpointID == "" {
+		checkpointID = uuid.New().String()
+		log.Printf("[Dispatcher] Auto-generated checkpointID=%s", checkpointID)
 	}
 	var checkpointStore compose.CheckPointStore
 	if checkpointID != "" {
 		// 尝试获取已有的 checkpoint store
 		checkpointStore = GetCheckPointStore(checkpointID)
 		if checkpointStore == nil {
-			// 创建新的 checkpoint store 并存储
-			checkpointStore = NewInMemoryCheckPointStore()
+			// 创建基于文件的 checkpoint store 并存储（持久化）
+			checkpointStore = NewFileCheckPointStore("/tmp/runner_checkpoints")
 			SetCheckPointStore(checkpointID, checkpointStore)
+			log.Printf("[Dispatcher] Created FileCheckPointStore for checkpointID=%s", checkpointID)
 		}
 	} else {
 		// 如果没有指定 checkpoint ID，使用临时的 store
@@ -897,7 +904,7 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 		maxToolCalls = d.request.Options.MaxToolCalls
 	}
 
-	events := runner.Run(ctx, messages)
+	events := runner.Run(ctx, messages, adk.WithCheckPointID(checkpointID))
 	for {
 		event, ok := events.Next()
 		if !ok {

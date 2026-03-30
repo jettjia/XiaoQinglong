@@ -1,12 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-  Sparkles, 
-  X, 
-  Send, 
-  Bot, 
-  Zap, 
-  Database, 
-  Cpu, 
+import {
+  Sparkles,
+  X,
+  Send,
+  Bot,
+  Zap,
+  Database,
+  Cpu,
   Inbox as InboxIcon,
   Check,
   AlertCircle,
@@ -14,7 +14,7 @@ import {
   Plus,
   ArrowRight
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useDragControls } from 'motion/react';
 import { cn } from '../lib/utils';
 import { GoogleGenAI, Type } from "@google/genai";
 import { toast } from 'sonner';
@@ -42,6 +42,7 @@ export function CommandCenter({ onViewChange }: CommandCenterProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [actions, setActions] = useState<CommandAction[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const dragControls = useDragControls();
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -62,14 +63,14 @@ export function CommandCenter({ onViewChange }: CommandCenterProps) {
         model: "gemini-3-flash-preview",
         contents: `Analyze the user's request and identify the administrative intent for an AI Agent Platform.
         User Request: "${userQuery}"
-        
+
         Possible Intents:
         1. add_model: Adding a new LLM configuration (provider, model name, api key, etc.)
         2. create_agent: Creating a new AI agent (name, description, role, skills)
         3. install_skill: Installing or adding a new skill/tool/MCP (name, type, endpoint)
         4. show_inbox: Viewing or managing the inbox/tasks. Use this when the user asks "what's in my inbox" or "show tasks".
         5. manage_kb: Adding or modifying knowledge base information. Use this when the user provides KB info or wants to change it.
-        
+
         Return a JSON object with:
         {
           "intent": "one of the above",
@@ -93,7 +94,7 @@ export function CommandCenter({ onViewChange }: CommandCenterProps) {
       });
 
       const result = JSON.parse(response.text);
-      
+
       const newAction: CommandAction = {
         id: Math.random().toString(36).substr(2, 9),
         intent: result.intent as Intent,
@@ -114,14 +115,14 @@ export function CommandCenter({ onViewChange }: CommandCenterProps) {
 
   const executeAction = async (action: CommandAction) => {
     setActions(prev => prev.map(a => a.id === action.id ? { ...a, status: 'executing' } : a));
-    
+
     // Simulate execution delay
     await new Promise(resolve => setTimeout(resolve, 1500));
 
     try {
       // In a real app, we would call the actual services here
       // For this demo, we'll show a success toast and navigate if needed
-      
+
       switch (action.intent) {
         case 'add_model':
           toast.success(`Model "${action.data.modelName || 'New Model'}" added successfully!`);
@@ -165,22 +166,28 @@ export function CommandCenter({ onViewChange }: CommandCenterProps) {
   return (
     <>
       {/* Floating Trigger Button */}
-      <button
+      <motion.button
+        drag
+        dragConstraints={{ left: -window.innerWidth + 80, right: 0, top: -window.innerHeight + 80, bottom: 0 }}
+        dragElastic={0.1}
+        dragMomentum={false}
+        whileHover={{ scale: 1.1 }}
+        whileTap={{ scale: 0.9 }}
         onClick={() => setIsOpen(true)}
         className={cn(
-          "fixed bottom-8 right-8 w-14 h-14 rounded-2xl bg-slate-900 text-white shadow-2xl flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-40 group",
-          isOpen && "scale-0 opacity-0 pointer-events-none"
+          "fixed bottom-8 right-8 w-14 h-14 rounded-2xl bg-slate-900 text-white shadow-2xl flex items-center justify-center transition-opacity z-40 group cursor-move",
+          isOpen && "opacity-0 pointer-events-none"
         )}
       >
         <Sparkles size={24} className="group-hover:rotate-12 transition-transform" />
         <div className="absolute -top-1 -right-1 w-4 h-4 bg-brand-500 rounded-full border-2 border-white animate-pulse" />
-      </button>
+      </motion.button>
 
       <AnimatePresence>
         {isOpen && (
           <div className="fixed inset-0 z-50 flex items-end justify-end p-8 pointer-events-none">
             {/* Backdrop for closing */}
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -190,14 +197,22 @@ export function CommandCenter({ onViewChange }: CommandCenterProps) {
 
             {/* Command Dialog */}
             <motion.div
+              drag
+              dragControls={dragControls}
+              dragListener={false}
+              dragConstraints={{ left: -window.innerWidth + 400, right: 0, top: -window.innerHeight + 600, bottom: 0 }}
+              dragMomentum={false}
               initial={{ opacity: 0, y: 20, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 20, scale: 0.95 }}
               className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden pointer-events-auto relative z-10 max-h-[80vh] h-auto"
             >
               {/* Header */}
-              <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
-                <div className="flex items-center gap-3">
+              <div
+                onPointerDown={(e) => dragControls.start(e)}
+                className="p-6 border-b border-slate-100 flex items-center justify-between bg-white shrink-0 cursor-move active:bg-slate-50 transition-colors"
+              >
+                <div className="flex items-center gap-3 pointer-events-none">
                   <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center">
                     <Sparkles size={20} />
                   </div>
@@ -206,16 +221,19 @@ export function CommandCenter({ onViewChange }: CommandCenterProps) {
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t('commandCenter.subtitle')}</p>
                   </div>
                 </div>
-                <button 
-                  onClick={() => setIsOpen(false)}
-                  className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 transition-colors"
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsOpen(false);
+                  }}
+                  className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 transition-colors pointer-events-auto"
                 >
                   <X size={20} />
                 </button>
               </div>
 
               {/* Actions List */}
-              <div 
+              <div
                 ref={scrollRef}
                 className="flex-1 overflow-y-auto p-6 space-y-4 scrollbar-hide min-h-[200px]"
               >
@@ -237,9 +255,9 @@ export function CommandCenter({ onViewChange }: CommandCenterProps) {
                       animate={{ opacity: 1, x: 0 }}
                       className={cn(
                         "p-4 rounded-2xl border transition-all",
-                        action.status === 'completed' ? "bg-emerald-50 border-emerald-100" : 
-                        action.status === 'failed' ? "bg-red-50 border-red-100" :
-                        "bg-slate-50 border-slate-100"
+                        action.status === 'completed' ? "bg-emerald-50 border-emerald-100" :
+                          action.status === 'failed' ? "bg-red-50 border-red-100" :
+                            "bg-slate-50 border-slate-100"
                       )}
                     >
                       <div className="flex items-start gap-3">
@@ -249,17 +267,17 @@ export function CommandCenter({ onViewChange }: CommandCenterProps) {
                         <div className="flex-1 min-w-0">
                           <h4 className="text-sm font-bold text-slate-900 truncate">{action.title}</h4>
                           <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">{action.description}</p>
-                          
+
                           {action.status === 'pending' && (
                             <div className="mt-4 flex gap-2">
-                              <button 
+                              <button
                                 onClick={() => executeAction(action)}
                                 className="flex-1 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-bold hover:bg-slate-800 transition-all flex items-center justify-center gap-2"
                               >
                                 {t('commandCenter.confirm')}
                                 <ArrowRight size={12} />
                               </button>
-                              <button 
+                              <button
                                 onClick={() => setActions(prev => prev.filter(a => a.id !== action.id))}
                                 className="px-4 py-2 bg-white border border-slate-200 text-slate-500 rounded-xl text-[10px] font-bold hover:bg-slate-50 transition-all"
                               >

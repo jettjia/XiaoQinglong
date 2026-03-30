@@ -1,4 +1,5 @@
 import React from 'react';
+import ReactMarkdown from 'react-markdown';
 import {
   Plus,
   Workflow,
@@ -1626,7 +1627,13 @@ export function AgentOrchestrator() {
                             ))}
                           </div>
                         )}
-                        {msg.content}
+                        {agentConfig.responseSchema.type === 'markdown' || agentConfig.responseSchema.type === 'mixed' ? (
+                          <div className="markdown-body prose prose-slate prose-xs max-w-none">
+                            <ReactMarkdown>{msg.content}</ReactMarkdown>
+                          </div>
+                        ) : (
+                          msg.content
+                        )}
 
                         {msg.status === 'pending_approval' && (
                           <div className="mt-4 p-3 bg-white/50 rounded-xl border border-amber-200 space-y-3">
