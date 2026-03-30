@@ -142,7 +142,7 @@ func main() {
 		return mcp.NewToolResultText(string(raw)), nil
 	})
 
-	err := server.NewSSEServer(mcpServer).Start("localhost:28083")
+	err := server.NewSSEServer(mcpServer).Start("localhost:28082")
 	if err != nil {
 		panic(err)
 	}
