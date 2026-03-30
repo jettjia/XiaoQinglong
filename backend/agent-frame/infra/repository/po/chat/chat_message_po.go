@@ -1,6 +1,8 @@
 package chat
 
 import (
+	"database/sql/driver"
+
 	"github.com/jettjia/igo-pkg/pkg/util"
 	"gorm.io/gorm"
 )
@@ -16,10 +18,51 @@ type ChatMessage struct {
 	OutputTokens int    `gorm:"column:output_tokens;default:0;type:int;comment:输出Token数;" json:"output_tokens"`
 	TotalTokens  int    `gorm:"column:total_tokens;default:0;type:int;comment:总Token数;" json:"total_tokens"`
 	LatencyMs    int    `gorm:"column:latency_ms;type:int;comment:响应延迟;" json:"latency_ms"`
-	Trace        string `gorm:"column:trace;type:json;comment:执行轨迹;" json:"trace"`
+	Trace        StringJSON `gorm:"column:trace;type:json;comment:执行轨迹;" json:"trace"`
 	Status       string `gorm:"column:status;type:varchar(32);default:sending;comment:状态:sending/success/failed/pending_approval;" json:"status"`
 	ErrorMsg     string `gorm:"column:error_msg;type:text;comment:错误信息;" json:"error_msg"`
-	Metadata     string `gorm:"column:metadata;type:json;comment:附加元数据;" json:"metadata"`
+	Metadata     StringJSON `gorm:"column:metadata;type:json;comment:附加元数据;" json:"metadata"`
+}
+
+// StringJSON is a custom type for handling JSON string columns that can be null
+type StringJSON struct {
+Val string
+}
+
+// Scan implements the Scanner interface
+func (j *StringJSON) Scan(value interface{}) error {
+	if value == nil {
+		j.Val = ""
+		return nil
+	}
+	bytes, ok := value.([]byte)
+	if !ok {
+		return nil
+	}
+	j.Val = string(bytes)
+	return nil
+}
+
+// Value implements the driver.Valuer interface
+func (j StringJSON) Value() (driver.Value, error) {
+	if j.Val == "" {
+		return nil, nil
+	}
+	return j.Val, nil
+}
+
+// UnmarshalJSON implements json.Unmarshaler
+func (j *StringJSON) UnmarshalJSON(data []byte) error {
+	j.Val = string(data)
+	return nil
+}
+
+// MarshalJSON implements json.Marshaler
+func (j StringJSON) MarshalJSON() ([]byte, error) {
+	if j.Val == "" {
+		return []byte("null"), nil
+	}
+	return []byte(j.Val), nil
 }
 
 func (po *ChatMessage) BeforeCreate(tx *gorm.DB) error {

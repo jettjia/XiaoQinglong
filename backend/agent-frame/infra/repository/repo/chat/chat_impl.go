@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/jettjia/igo-pkg/pkg/data"
+	"github.com/jettjia/igo-pkg/pkg/util"
 	"github.com/jettjia/igo-pkg/pkg/xsql/builder"
 	"gorm.io/gorm"
 
@@ -132,11 +133,40 @@ func NewChatMessageImpl() *ChatMessage {
 }
 
 func (r *ChatMessage) Create(ctx context.Context, message *entity.ChatMessage) (ulid string, err error) {
-	msgPo := converter.E2PChatMessageAdd(message)
-	if err = r.data.DB(ctx).Create(&msgPo).Error; err != nil {
+	ulid = util.Ulid()
+
+	// Build map for insert to handle JSON fields properly
+	values := map[string]interface{}{
+		"ulid":          ulid,
+		"session_id":    message.SessionId,
+		"role":          message.Role,
+		"content":       message.Content,
+		"model":         message.Model,
+		"input_tokens":  message.InputTokens,
+		"output_tokens": message.OutputTokens,
+		"total_tokens":  message.TotalTokens,
+		"latency_ms":    message.LatencyMs,
+		"status":        message.Status,
+		"error_msg":     message.ErrorMsg,
+		"created_at":    time.Now().UnixMilli(),
+	}
+
+	// Handle JSON fields - empty strings become NULL for PostgreSQL JSON type
+	if message.Trace != "" {
+		values["trace"] = message.Trace
+	} else {
+		values["trace"] = nil
+	}
+	if message.Metadata != "" {
+		values["metadata"] = message.Metadata
+	} else {
+		values["metadata"] = nil
+	}
+
+	if err = r.data.DB(ctx).Table("chat_message").Create(values).Error; err != nil {
 		return
 	}
-	return msgPo.Ulid, nil
+	return ulid, nil
 }
 
 func (r *ChatMessage) Update(ctx context.Context, message *entity.ChatMessage) error {

@@ -234,23 +234,23 @@ export function ChatInterface() {
     try {
       // Get session ID - create session if needed
       let sessionId = currentSession?.ulid || activeConversationId;
-      let isNewSession = false;
+      // Use first 50 chars of input as session title
+      const sessionTitle = input.length > 50 ? input.substring(0, 50) + '...' : input;
       if (!sessionId) {
         const result = await chatApi.createSession({
           user_id: CURRENT_USER_ID,
           agent_id: activeAgent.ulid || activeAgent.id,
-          title: '新会话',
+          title: sessionTitle,
           channel: 'web',
           model: activeAgent.model,
           status: 'active'
         });
         sessionId = result.ulid;
-        isNewSession = true;
         setCurrentSession({
           ulid: result.ulid,
           user_id: CURRENT_USER_ID,
           agent_id: activeAgent.ulid || activeAgent.id,
-          title: '新会话',
+          title: sessionTitle,
           channel: 'web',
           model: activeAgent.model || '',
           status: 'active',
@@ -272,17 +272,6 @@ export function ChatInterface() {
           status: 'completed'
         });
         userMessageUlid = userMsgResult.ulid;
-
-        // Update session title if it's the first message (still "新会话")
-        if (isNewSession || currentSession?.title === '新会话') {
-          const titleToSet = input.length > 50 ? input.substring(0, 50) + '...' : input;
-          await chatApi.updateSession({ ulid: sessionId, title: titleToSet });
-          // Update local state
-          setConversations(prev => prev.map(c =>
-            c.id === sessionId ? { ...c, title: titleToSet } : c
-          ));
-          setCurrentSession(prev => prev ? { ...prev, title: titleToSet } : null);
-        }
       } catch (err) {
         console.error('Failed to save user message:', err);
       }
