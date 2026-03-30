@@ -113,7 +113,7 @@ export function AgentOrchestrator() {
       env: {} as Record<string, string>,
     },
     responseSchema: {
-      type: 'a2ui',
+      type: 'text',
       version: '1.0',
       strict: true,
       schema: '{}',
