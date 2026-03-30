@@ -368,6 +368,11 @@ func (r *Runner) Run(ctx context.Context) (*RunResponse, error) {
 	return resp, nil
 }
 
+// RunStream 流式运行 Agent
+func (r *Runner) RunStream(ctx context.Context) (<-chan StreamEvent, error) {
+	return r.dispatcher.RunStream(ctx)
+}
+
 func (r *Runner) getDefaultModelName() string {
 	if r.request.Models == nil {
 		return ""

@@ -561,8 +561,8 @@ export function AgentOrchestrator() {
     testAbortControllerRef.current = new AbortController();
 
     try {
-      // 调用真实的 runner API
-      const response = await chatApi.runAgent({
+      // 调用真实的 runner API (流式版本)
+      const response = await chatApi.runAgentStream({
         agent_id: deployedAgentId,
         user_id: 'test-user',
         session_id: '',  // 测试模式不需要 session
@@ -570,25 +570,150 @@ export function AgentOrchestrator() {
         is_test: true
       });
 
+      // 检查是否流式响应
+      const contentType = response.headers.get('content-type') || '';
+      const isStreaming = contentType.includes('text/event-stream');
+
+      if (isStreaming) {
+        // 流式响应处理
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error('No reader available');
+        }
+
+        const assistantMsgId = (Date.now() + 1).toString();
+        let accumulatedContent = '';
+
+        // 先创建一条空消息用于流式更新
+        const assistantMessage: Message = {
+          id: assistantMsgId,
+          role: 'assistant',
+          content: '',
+          timestamp: new Date(),
+          status: 'streaming'
+        };
+        setTestMessages(prev => [...prev, assistantMessage]);
+
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let currentEventType = '';
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              const trimmedLine = line.trim();
+              if (!trimmedLine) continue;
+
+              if (trimmedLine.startsWith('event: ')) {
+                currentEventType = trimmedLine.slice(7).trim();
+              } else if (trimmedLine.startsWith('data: ')) {
+                // Standard SSE format with "data: " prefix
+                const dataStr = trimmedLine.slice(6).trim();
+                try {
+                  const data = JSON.parse(dataStr);
+
+                  if (data.text) {
+                    accumulatedContent += data.text;
+                    setTestMessages(prev => prev.map(m =>
+                      m.id === assistantMsgId
+                        ? { ...m, content: accumulatedContent }
+                        : m
+                    ));
+                  }
+
+                  if (currentEventType === 'done') {
+                    setTestMessages(prev => prev.map(m =>
+                      m.id === assistantMsgId
+                        ? { ...m, content: data.content || accumulatedContent, status: 'completed' }
+                        : m
+                    ));
+
+                    // Store checkpoint_id for resume
+                    if (data.checkpoint_id) {
+                      setTestCheckpointId(data.checkpoint_id);
+                    }
+                  }
+
+                  if (currentEventType === 'error') {
+                    console.error('Stream error:', data.error);
+                  }
+                } catch (e) {
+                  // 忽略解析错误
+                }
+              } else if (trimmedLine.startsWith('{')) {
+                // Runner sends JSON directly after event line without "data: " prefix
+                try {
+                  const data = JSON.parse(trimmedLine);
+
+                  if (data.text) {
+                    accumulatedContent += data.text;
+                    setTestMessages(prev => prev.map(m =>
+                      m.id === assistantMsgId
+                        ? { ...m, content: accumulatedContent }
+                        : m
+                    ));
+                  }
+
+                  if (currentEventType === 'done') {
+                    setTestMessages(prev => prev.map(m =>
+                      m.id === assistantMsgId
+                        ? { ...m, content: data.content || accumulatedContent, status: 'completed' }
+                        : m
+                    ));
+
+                    // Store checkpoint_id for resume
+                    if (data.checkpoint_id) {
+                      setTestCheckpointId(data.checkpoint_id);
+                    }
+                  }
+
+                  if (currentEventType === 'error') {
+                    console.error('Stream error:', data.error);
+                  }
+                } catch (e) {
+                  // 忽略解析错误
+                }
+              }
+            }
+          }
+        } finally {
+          reader.releaseLock();
+        }
+
+        setIsTesting(false);
+        testAbortControllerRef.current = null;
+        return;
+      }
+
+      // 非流式响应处理
+      const data = await response.json();
+
       const aiMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: response.content || response.output || "I'm sorry, I couldn't generate a response.",
+        content: data.content || data.output || "I'm sorry, I couldn't generate a response.",
         timestamp: new Date(),
-        thinking: response.thinking,
-        trace: response.trace,
-        status: response.status
+        thinking: data.thinking,
+        trace: data.trace,
+        status: data.status
       };
       setTestMessages(prev => [...prev, aiMsg]);
 
       // Store checkpoint_id for resume
-      if (response.checkpoint_id) {
-        setTestCheckpointId(response.checkpoint_id);
+      if (data.checkpoint_id) {
+        setTestCheckpointId(data.checkpoint_id);
       }
 
       // 处理 pending approvals
-      if (response.pending_approvals && response.pending_approvals.length > 0) {
-        for (const approval of response.pending_approvals) {
+      if (data.pending_approvals && data.pending_approvals.length > 0) {
+        for (const approval of data.pending_approvals) {
           const pendingApproval: Message = {
             id: (Date.now() + 2).toString(),
             role: 'assistant',

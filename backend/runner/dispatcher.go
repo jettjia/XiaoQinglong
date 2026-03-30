@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"strings"
@@ -1187,6 +1188,211 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 			ToolCallsDetail:   toolCallsDetail,
 		},
 	}, nil
+}
+
+// RunStream 流式运行 Agent，返回事件通道
+func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) {
+	eventsChan := make(chan StreamEvent, 100)
+
+	go func() {
+		defer close(eventsChan)
+
+		// 1. 初始化模型
+		if err := d.initModels(ctx); err != nil {
+			eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": fmt.Sprintf("init models failed: %v", err)}}
+			return
+		}
+
+		// 2. 初始化工具
+		if err := d.initTools(ctx); err != nil {
+			eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": fmt.Sprintf("init tools failed: %v", err)}}
+			return
+		}
+
+		// 3. 初始化 A2A
+		if err := d.initA2A(ctx); err != nil {
+			eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": fmt.Sprintf("init a2a failed: %v", err)}}
+			return
+		}
+
+		// 4. 初始化内部 agents
+		if err := d.initInternalAgents(ctx); err != nil {
+			eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": fmt.Sprintf("init internal agents failed: %v", err)}}
+			return
+		}
+
+		// 5. 初始化 MCP
+		if err := d.initMCPs(ctx); err != nil {
+			eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": fmt.Sprintf("init mcps failed: %v", err)}}
+			return
+		}
+
+		// 6. 初始化 skills
+		if err := d.initSkills(ctx); err != nil {
+			eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": fmt.Sprintf("init skills failed: %v", err)}}
+			return
+		}
+
+		// 7. 构建消息
+		systemPrompt := d.buildSystemPrompt()
+		messages, err := d.buildMessagesWithRewrite(ctx, systemPrompt)
+		if err != nil {
+			eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": fmt.Sprintf("build messages failed: %v", err)}}
+			return
+		}
+
+		// 8. 构建 Agent 配置
+		maxIterations := 10
+		if d.request.Options != nil && d.request.Options.MaxIterations > 0 {
+			maxIterations = d.request.Options.MaxIterations
+		}
+
+		agentConfig := &adk.ChatModelAgentConfig{
+			Name:           "main_agent",
+			Description:    "Main agent with skill, A2A, MCP and tool support",
+			Instruction:    d.buildSystemPrompt(),
+			Model:          d.defaultModel,
+			MaxIterations:  maxIterations,
+			ModelRetryConfig: d.buildModelRetryConfig(),
+			ToolsConfig: adk.ToolsConfig{
+				ToolsNodeConfig: compose.ToolsNodeConfig{
+					Tools: d.tools,
+				},
+			},
+		}
+
+		mainAgent, err := adk.NewChatModelAgent(ctx, agentConfig)
+		if err != nil {
+			eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": fmt.Sprintf("create agent failed: %v", err)}}
+			return
+		}
+
+		// 9. 创建 Runner
+		checkpointID := uuid.New().String()
+		runnerConfig := adk.RunnerConfig{
+			Agent:           mainAgent,
+			CheckPointStore: NewInMemoryCheckPointStore(),
+			EnableStreaming: true,
+		}
+		runner := adk.NewRunner(ctx, runnerConfig)
+
+		// 10. 运行 Agent 并发送流式事件
+		events := runner.Run(ctx, messages, adk.WithCheckPointID(checkpointID))
+
+		eventsChan <- StreamEvent{Type: "meta", Data: map[string]any{"checkpoint_id": checkpointID}}
+
+		var out strings.Builder
+		for {
+			event, ok := events.Next()
+			if !ok {
+				break
+			}
+
+			if event.Err != nil {
+				eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": event.Err.Error()}}
+				break
+			}
+
+			// 处理输出消息
+			if event.Output != nil && event.Output.MessageOutput != nil {
+				mo := event.Output.MessageOutput
+
+				// 处理 tool calls
+				if mo.Message != nil && len(mo.Message.ToolCalls) > 0 {
+					for _, tc := range mo.Message.ToolCalls {
+						eventsChan <- StreamEvent{
+							Type: "tool_call",
+							Data: map[string]any{
+								"agent":    event.AgentName,
+								"tool":     tc.Function.Name,
+								"arguments": tc.Function.Arguments,
+							},
+						}
+					}
+				}
+
+				// 处理 assistant 消息内容
+				if mo.Message != nil && mo.Message.Role == schema.Assistant && len(mo.Message.ToolCalls) == 0 {
+					content := mo.Message.Content
+					out.WriteString(content)
+					eventsChan <- StreamEvent{Type: "delta", Data: map[string]any{"text": content}}
+				}
+
+				// 处理 tool 返回
+				if mo.Message != nil && mo.Message.Role == schema.Tool {
+					content := mo.Message.Content
+					if strings.TrimSpace(content) == "" {
+						content = "(无输出)"
+					}
+					eventsChan <- StreamEvent{
+						Type: "tool",
+						Data: map[string]any{
+							"agent":      event.AgentName,
+							"tool":       mo.Message.ToolName,
+							"tool_call_id": mo.Message.ToolCallID,
+							"output":    content,
+						},
+					}
+				}
+
+				// 处理流式 chunk
+				if mo.MessageStream != nil {
+					for {
+						chunk, err := mo.MessageStream.Recv()
+						if errors.Is(err, io.EOF) {
+							break
+						}
+						if err != nil {
+							eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": err.Error()}}
+							break
+						}
+						if chunk != nil {
+							if chunk.Role == schema.Assistant && len(chunk.ToolCalls) == 0 && strings.TrimSpace(chunk.Content) != "" {
+								out.WriteString(chunk.Content)
+								eventsChan <- StreamEvent{Type: "delta", Data: map[string]any{"text": chunk.Content}}
+							}
+							if chunk.Role == schema.Tool {
+								content := chunk.Content
+								if strings.TrimSpace(content) == "" {
+									content = "(无输出)"
+								}
+								eventsChan <- StreamEvent{
+									Type: "tool",
+									Data: map[string]any{
+										"agent":      event.AgentName,
+										"tool":       chunk.ToolName,
+										"tool_call_id": chunk.ToolCallID,
+										"output":    content,
+									},
+								}
+							}
+						}
+					}
+				}
+			}
+
+			// 处理中断事件
+			if event.Action != nil && event.Action.Interrupted != nil {
+				eventsChan <- StreamEvent{
+					Type: "interrupted",
+					Data: map[string]any{
+						"checkpoint_id": checkpointID,
+						"data":          event.Action.Interrupted.Data,
+					},
+				}
+			}
+		}
+
+		eventsChan <- StreamEvent{Type: "done", Data: map[string]any{"content": out.String()}}
+	}()
+
+	return eventsChan, nil
+}
+
+// StreamEvent 流式事件
+type StreamEvent struct {
+	Type string
+	Data map[string]any
 }
 
 // formatResponse 根据 response_schema 配置格式化响应

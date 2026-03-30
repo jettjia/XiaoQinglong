@@ -8,9 +8,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
-
-	"github.com/cloudwego/eino/adk"
-	"github.com/cloudwego/eino/schema"
+	"time"
 )
 
 func main() {
@@ -52,9 +50,33 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// sseWriter SSE写入器
+type sseWriter struct {
+	w       http.ResponseWriter
+	flusher http.Flusher
+}
+
+func newSSEWriter(w http.ResponseWriter) *sseWriter {
+	flusher, _ := w.(http.Flusher)
+	return &sseWriter{w: w, flusher: flusher}
+}
+
+func (s *sseWriter) Write(event string, data any) error {
+	if s.flusher == nil {
+		return fmt.Errorf("flusher not available")
+	}
+	s.w.Write([]byte(fmt.Sprintf("event: %s\n", event)))
+	enc := json.NewEncoder(s.w)
+	enc.Encode(data)
+	s.w.Write([]byte("\n"))
+	s.flusher.Flush()
+	return nil
+}
+
 // handleRunStream 处理流式输出
 func handleRunStream(w http.ResponseWriter, r *http.Request, req *RunRequest) {
-	runner := NewRunner(req)
+	sw := newSSEWriter(w)
+	write := sw.Write
 
 	// 设置 SSE 头
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -62,90 +84,69 @@ func handleRunStream(w http.ResponseWriter, r *http.Request, req *RunRequest) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	sw.flusher.Flush()
 
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "SSE not supported", http.StatusInternalServerError)
-		return
-	}
+	startedAt := time.Now()
+	_ = write("meta", map[string]any{
+		"started_at":      startedAt.Format(time.RFC3339Nano),
+		"stream_protocol": "sse",
+	})
 
-	// 创建 context 用于取消
 	ctx := r.Context()
 
-	// 将 []Message 转换为 adk.Message
-	messages := make([]adk.Message, len(req.Messages))
-	for i, m := range req.Messages {
-		messages[i] = schema.UserMessage(m.Content)
-	}
-
-	checkpointID := ""
-	if req.Options != nil {
-		checkpointID = req.Options.CheckPointID
-	}
-
-	events, err := runner.Run(ctx, messages, adk.WithCheckPointID(checkpointID))
+	runner := NewRunner(req)
+	eventsChan, err := runner.RunStream(ctx)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Run failed: %v", err), http.StatusInternalServerError)
+		_ = write("error", map[string]any{"error": fmt.Sprintf("run stream failed: %v", err)})
 		return
 	}
 
-	for {
-		event, ok := events.Next()
-		if !ok {
-			// 发送结束事件
-			fmt.Fprintf(w, "event: done\ndata: {\"done\":true}\n\n")
-			flusher.Flush()
-			break
-		}
+	var out strings.Builder
 
-		if event.Err != nil {
-			// 发送错误事件
-			errMsg := fmt.Sprintf("{\"error\":\"%v\"}", event.Err)
-			fmt.Fprintf(w, "event: error\ndata: %s\n\n", errMsg)
-			flusher.Flush()
-			break
-		}
-
-		// 处理不同类型的事件
-		if event.Action != nil {
-			if event.Action.Interrupted != nil {
-				// 中断事件 - 包含待审批信息
-				data, _ := json.Marshal(map[string]interface{}{
-					"type":       "interrupted",
-					"data":       event.Action.Interrupted.Data,
-					"checkpoint": checkpointID,
-				})
-				fmt.Fprintf(w, "event: interrupted\ndata: %s\n\n", data)
-				flusher.Flush()
-			}
-
-			if event.Action.ToolsCall != nil {
-				// 工具调用事件
-				for _, tc := range event.Action.ToolsCall {
-					data, _ := json.Marshal(map[string]interface{}{
-						"type":      "tool_call",
-						"tool":      tc.Function.Name,
-						"arguments": tc.Function.Arguments,
-					})
-					fmt.Fprintf(w, "event: tool_call\ndata: %s\n\n", data)
-					flusher.Flush()
-				}
+	// heartbeat
+	stopHeartbeat := make(chan struct{})
+	go func() {
+		t := time.NewTicker(5 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-stopHeartbeat:
+				return
+			case <-t.C:
+				_ = write("meta", map[string]any{"heartbeat_at": time.Now().Format(time.RFC3339Nano)})
 			}
 		}
+	}()
 
-		// 处理消息输出
-		if event.Output != nil && event.Output.MessageOutput != nil {
-			msg := event.Output.MessageOutput
-			if msg.Content != "" {
-				data, _ := json.Marshal(map[string]interface{}{
-					"type":    "content",
-					"content": msg.Content,
-				})
-				fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
-				flusher.Flush()
+	for event := range eventsChan {
+		switch event.Type {
+		case "delta":
+			if text, ok := event.Data["text"].(string); ok {
+				out.WriteString(text)
 			}
+			_ = write("delta", event.Data)
+		case "tool_call":
+			_ = write("tool_call", event.Data)
+		case "tool":
+			_ = write("tool", event.Data)
+		case "interrupted":
+			_ = write("interrupted", event.Data)
+		case "error":
+			_ = write("error", event.Data)
+		case "done":
+			_ = write("done", map[string]any{
+				"content":     out.String(),
+				"finished_at": time.Now().Format(time.RFC3339Nano),
+			})
+		case "meta":
+			// meta 事件已在上方处理，这里忽略
 		}
 	}
+
+	close(stopHeartbeat)
 }
 
 func handleResume(w http.ResponseWriter, r *http.Request) {

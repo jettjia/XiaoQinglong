@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -191,7 +192,41 @@ func (h *Handler) Run(c *gin.Context) {
 	}
 	defer resp.Body.Close()
 
-	// 读取响应body
+	// 检查是否是流式响应 (SSE)
+	contentType := resp.Header.Get("Content-Type")
+	if strings.Contains(contentType, "text/event-stream") {
+		// 流式响应：直接转发 SSE 数据
+		log.Info("====== RUNNER STREAM RESPONSE ======")
+		log.Infof("Status: %d, Content-Type: %s", resp.StatusCode, contentType)
+
+		// 设置流式响应头
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		c.Header("Access-Control-Allow-Origin", "*")
+
+		// 直接将 SSE 数据流式转发给客户端
+		c.Status(resp.StatusCode)
+		buf := make([]byte, 4096)
+		for {
+			n, err := resp.Body.Read(buf)
+			if n > 0 {
+				if _, writeErr := c.Writer.Write(buf[:n]); writeErr != nil {
+					break
+				}
+				c.Writer.Flush()
+			}
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				break
+			}
+		}
+		return
+	}
+
+	// 非流式响应：读取完整 body
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to read runner response"})

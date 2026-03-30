@@ -305,24 +305,142 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
         console.error('Failed to save user message:', err);
       }
 
-      // Call backend runner API
-      const response = await fetch(`${API_BASE}/runner/run`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          agent_id: activeAgent.ulid || activeAgent.id,
-          user_id: CURRENT_USER_ID,
-          session_id: sessionId,
-          input: input,
-          files: userMessage.files || []
-        })
+      // 调用 runner API
+      const runResponse = await chatApi.runAgentStream({
+        agent_id: activeAgent.ulid || activeAgent.id,
+        user_id: CURRENT_USER_ID,
+        session_id: sessionId || undefined,
+        input: input,
+        files: files.length > 0 ? files : undefined,
+        is_test: false
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to get response from runner');
+      // 检查是否流式响应
+      const contentType = runResponse.headers.get('content-type') || '';
+      const isStreaming = contentType.includes('text/event-stream');
+
+      if (isStreaming) {
+        // 流式响应处理
+        const reader = runResponse.body?.getReader();
+        if (!reader) {
+          throw new Error('No reader available');
+        }
+
+        const assistantMsgId = (Date.now() + 1).toString();
+        let accumulatedContent = '';
+
+        // 先创建一条空消息用于流式更新
+        const assistantMessage: Message = {
+          id: assistantMsgId,
+          role: 'assistant',
+          content: '',
+          timestamp: new Date(),
+          status: 'streaming'
+        };
+        setMessages(prev => [...prev, assistantMessage]);
+
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let currentEventType = '';
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              const trimmedLine = line.trim();
+              if (!trimmedLine) continue;
+
+              if (trimmedLine.startsWith('event: ')) {
+                currentEventType = trimmedLine.slice(7).trim();
+              } else if (trimmedLine.startsWith('data: ')) {
+                // Standard SSE format with "data: " prefix
+                const dataStr = trimmedLine.slice(6).trim();
+                try {
+                  const data = JSON.parse(dataStr);
+
+                  if (data.text) {
+                    accumulatedContent += data.text;
+                    setMessages(prev => prev.map(m =>
+                      m.id === assistantMsgId
+                        ? { ...m, content: accumulatedContent }
+                        : m
+                    ));
+                  }
+
+                  if (currentEventType === 'done') {
+                    setMessages(prev => prev.map(m =>
+                      m.id === assistantMsgId
+                        ? { ...m, content: data.content || accumulatedContent, status: 'completed' }
+                        : m
+                    ));
+                  }
+
+                  if (currentEventType === 'error') {
+                    console.error('Stream error:', data.error);
+                  }
+                } catch (e) {
+                  // 忽略解析错误
+                }
+              } else if (trimmedLine.startsWith('{')) {
+                // Runner sends JSON directly after event line without "data: " prefix
+                try {
+                  const data = JSON.parse(trimmedLine);
+
+                  if (data.text) {
+                    accumulatedContent += data.text;
+                    setMessages(prev => prev.map(m =>
+                      m.id === assistantMsgId
+                        ? { ...m, content: accumulatedContent }
+                        : m
+                    ));
+                  }
+
+                  if (currentEventType === 'done') {
+                    setMessages(prev => prev.map(m =>
+                      m.id === assistantMsgId
+                        ? { ...m, content: data.content || accumulatedContent, status: 'completed' }
+                        : m
+                    ));
+                  }
+
+                  if (currentEventType === 'error') {
+                    console.error('Stream error:', data.error);
+                  }
+                } catch (e) {
+                  // 忽略解析错误
+                }
+              }
+            }
+          }
+        } finally {
+          reader.releaseLock();
+        }
+
+        // 保存消息到数据库
+        try {
+          await chatApi.createMessage({
+            session_id: sessionId,
+            role: 'assistant',
+            content: accumulatedContent,
+            model: activeAgent.model || '',
+            status: 'completed'
+          });
+        } catch (err) {
+          console.error('Failed to save assistant message:', err);
+        }
+
+        setIsLoading(false);
+        return
       }
 
-      const data = await response.json();
+      // 非流式响应处理
+      const data = await runResponse.json();
 
       // Check if response indicates pending approval
       if (data.pending_approvals && data.pending_approvals.length > 0) {

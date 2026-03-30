@@ -840,6 +840,26 @@ export const chatApi = {
     return res.json();
   },
 
+  // Runner API - streaming version that returns raw Response for SSE
+  async runAgentStream(data: {
+    agent_id: string;
+    user_id: string;
+    session_id?: string;
+    input: string;
+    files?: any[];
+    is_test?: boolean;
+  }): Promise<Response> {
+    const res = await fetch(`${API_BASE}/runner/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to run agent: ${res.status}`);
+    }
+    return res;
+  },
+
   // Resume agent execution after approval
   async resumeAgent(data: {
     interrupt_id: string;
