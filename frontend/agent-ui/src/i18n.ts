@@ -8,7 +8,10 @@ const resources = {
       common: {
         all: 'All',
         enabled: 'Enabled',
-        disabled: 'Disabled'
+        disabled: 'Disabled',
+        cancel: 'Cancel',
+        confirmDelete: 'Confirm Delete',
+        deleteFailed: 'Delete failed'
       },
       sidebar: {
         brand: 'Gragon Agent OS',
@@ -91,7 +94,12 @@ const resources = {
         knowledge: 'Knowledge',
         rawJson: 'Raw JSON (ID Version)',
         runnableJson: 'Runnable JSON (config_json)',
-        copyJson: 'Copy JSON'
+        copyJson: 'Copy JSON',
+        delete: 'Delete',
+        confirmDeleteTitle: 'Confirm Delete',
+        confirmDeleteMessage: 'Are you sure you want to delete Agent "{{name}}"?',
+        deleteSuccess: 'Deleted successfully',
+        cannotDeleteBuiltIn: 'System built-in Agent cannot be deleted'
       },
       chat: {
         history: 'History',
@@ -201,7 +209,10 @@ const resources = {
         start: 'Start',
         view: 'View',
         cancel: 'Cancel',
-        close: 'Close'
+        close: 'Close',
+        confirmDeleteTitle: 'Confirm Delete',
+        confirmDeleteMessage: 'Are you sure you want to delete "{{name}}"?',
+        deleteSuccess: 'Deleted successfully'
       },
       orchestrator: {
         title: 'Agent Orchestrator',
@@ -403,7 +414,10 @@ const resources = {
       common: {
         all: '全部',
         enabled: '启用',
-        disabled: '停用'
+        disabled: '停用',
+        cancel: '取消',
+        confirmDelete: '确认删除',
+        deleteFailed: '删除失败'
       },
       sidebar: {
         brand: '小青龙OS',
@@ -486,7 +500,12 @@ const resources = {
         knowledge: '知识库',
         rawJson: '原始 JSON (ID版本)',
         runnableJson: '可运行 JSON (config_json)',
-        copyJson: '复制 JSON'
+        copyJson: '复制 JSON',
+        delete: '删除',
+        confirmDeleteTitle: '确认删除',
+        confirmDeleteMessage: '确定要删除智能体 "{{name}}" 吗？',
+        deleteSuccess: '删除成功',
+        cannotDeleteBuiltIn: '系统内置智能体不能删除'
       },
       chat: {
         history: '历史记录',
@@ -596,7 +615,10 @@ const resources = {
         start: '启用',
         view: '查看',
         cancel: '取消',
-        close: '关闭'
+        close: '关闭',
+        confirmDeleteTitle: '确认删除',
+        confirmDeleteMessage: '确定要删除 "{{name}}" 吗？',
+        deleteSuccess: '删除成功'
       },
       orchestrator: {
         title: '智能体编排器',

@@ -205,22 +205,22 @@ export function AgentManager({ onViewChange, onPlayAgent }: AgentManagerProps) {
   // 删除 Agent
   const handleDelete = async (agent: Agent) => {
     if (agent.is_system || agent.isBuiltIn) {
-      toast.error('系统内置 Agent 不能删除');
+      toast.error(t('agents.cannotDeleteBuiltIn'));
       return;
     }
     setConfirmDialog({
       open: true,
-      title: '确认删除',
-      message: `确定要删除 Agent "${agent.name}" 吗？`,
+      title: t('agents.confirmDeleteTitle'),
+      message: t('agents.confirmDeleteMessage', { name: agent.name }),
       onConfirm: async () => {
         try {
           await agentApi.delete(agent.ulid || agent.id);
           setConfirmDialog(prev => ({ ...prev, open: false }));
           await loadAgents();
-          toast.success('删除成功');
+          toast.success(t('agents.deleteSuccess'));
         } catch (err: any) {
           setConfirmDialog(prev => ({ ...prev, open: false }));
-          toast.error(err.message || '删除失败');
+          toast.error(err.message || t('common.deleteFailed', 'Delete failed'));
         }
       }
     });
@@ -873,13 +873,13 @@ export function AgentManager({ onViewChange, onPlayAgent }: AgentManagerProps) {
                   onClick={() => setConfirmDialog(prev => ({ ...prev, open: false }))}
                   className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
                 >
-                  取消
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={confirmDialog.onConfirm}
                   className="px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors"
                 >
-                  确认删除
+                  {t('common.confirmDelete')}
                 </button>
               </div>
             </motion.div>

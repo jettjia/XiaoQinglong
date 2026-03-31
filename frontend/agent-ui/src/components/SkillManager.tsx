@@ -18,8 +18,10 @@ import {
   ChevronDown,
   Info,
   ShieldAlert,
-  Loader2
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -40,6 +42,14 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [skills, setSkills] = useState<Skill[]>([]);
+
+  // Confirmation dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
   // 从后端加载 skills
   const loadSkills = useCallback(async () => {
@@ -176,17 +186,27 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
     setSkills(skills.map(s => s.id === id ? { ...s, enabled: !s.enabled } : s));
   };
 
-  const deleteSkill = async (id: string) => {
-    try {
-      setLoading(true);
-      await skillApi.delete(id);
-      await loadSkills();
-    } catch (err: any) {
-      console.error('Failed to delete skill:', err);
-      showError(err, 'Delete failed');
-    } finally {
-      setLoading(false);
-    }
+  const deleteSkill = (id: string, name: string) => {
+    setConfirmDialog({
+      open: true,
+      title: t('skills.confirmDeleteTitle') || '确认删除',
+      message: t('skills.confirmDeleteMessage', { name }) || `确定要删除技能 "${name}" 吗？`,
+      onConfirm: async () => {
+        try {
+          setLoading(true);
+          await skillApi.delete(id);
+          setConfirmDialog(prev => ({ ...prev, open: false }));
+          await loadSkills();
+          toast.success(t('skills.deleteSuccess') || '删除成功');
+        } catch (err: any) {
+          setConfirmDialog(prev => ({ ...prev, open: false }));
+          console.error('Failed to delete skill:', err);
+          showError(err, 'Delete failed');
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
   };
 
   const viewSkill = (skill: Skill) => {
@@ -348,7 +368,7 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
                   </button>
                   {!skill.is_system && (
                     <button
-                      onClick={() => deleteSkill(skill.id)}
+                      onClick={() => deleteSkill(skill.id, skill.name)}
                       className="p-2 hover:bg-slate-50 rounded-lg text-slate-400 hover:text-red-500 transition-colors"
                       title={t('skills.delete')}
                     >
@@ -939,6 +959,49 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
           </div>
         </div>
       )}
+
+      {/* Confirmation Dialog */}
+      <AnimatePresence>
+        {confirmDialog.open && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+            onClick={() => setConfirmDialog(prev => ({ ...prev, open: false }))}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                  <AlertCircle className="w-6 h-6 text-red-500" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-900">{confirmDialog.title}</h3>
+              </div>
+              <p className="text-slate-600 mb-6">{confirmDialog.message}</p>
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setConfirmDialog(prev => ({ ...prev, open: false }))}
+                  className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+                >
+                  {t('common.cancel') || '取消'}
+                </button>
+                <button
+                  onClick={confirmDialog.onConfirm}
+                  className="px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors"
+                >
+                  {t('common.confirmDelete') || '确认删除'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
