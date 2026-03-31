@@ -17,5 +17,5 @@ report/
 **/*.tgz
 ./go-main
 agent-frame
-**run.log
+**run**.log
 data/

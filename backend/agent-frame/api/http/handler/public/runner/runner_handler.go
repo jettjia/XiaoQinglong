@@ -149,7 +149,7 @@ func (h *Handler) Run(c *gin.Context) {
 	// 6. 加载知识库上下文
 	var knowledgeContext []map[string]any
 	if chatReq.AgentID != "" {
-		knowledgeContext, err = h.loadKnowledgeContext(c.Request.Context(), chatReq.AgentID, chatReq.Input, agentConfig)
+		knowledgeContext, err = h.loadKnowledgeContext(c.Request.Context(), chatReq.AgentID, chatReq.Input, agentConfig, agentRsp)
 		if err != nil {
 			logger.GetRunnerLogger().WithError(err).Error("[Runner Proxy] Failed to load knowledge context")
 		}
@@ -510,42 +510,69 @@ func extractKeywords(text string) []string {
 }
 
 // loadKnowledgeContext 加载知识库上下文
-func (h *Handler) loadKnowledgeContext(ctx context.Context, agentId, query string, agentConfig map[string]any) ([]map[string]any, error) {
-	// 检查agent config中是否配置了knowledge
-	knowledgeConfig, ok := agentConfig["knowledge"]
-	if !ok {
-		return nil, nil
-	}
-
-	// 解析knowledge配置
+func (h *Handler) loadKnowledgeContext(ctx context.Context, agentId, query string, agentConfig map[string]any, agentResp *agentDto.FindSysAgentRsp) ([]map[string]any, error) {
 	var kbConfigs []kbSvc.RetrievalConfig
-	switch v := knowledgeConfig.(type) {
-	case []any:
-		for _, item := range v {
-			if kbMap, ok := item.(map[string]any); ok {
-				cfg := kbSvc.RetrievalConfig{}
-				if kbId, ok := kbMap["kb_id"].(string); ok {
-					cfg.KbId = kbId
-				}
-				if topK, ok := kbMap["top_k"].(float64); ok {
-					cfg.TopK = int(topK)
-				}
-				if cfg.KbId != "" {
-					kbConfigs = append(kbConfigs, cfg)
+	topK := 3 // 默认 topK
+
+	// 1. 先从 config_json.knowledge 解析（兼容 kb_id 和 id 两种字段名）
+	knowledgeConfig, ok := agentConfig["knowledge"]
+	if ok {
+		switch v := knowledgeConfig.(type) {
+		case []any:
+			for _, item := range v {
+				if kbMap, ok := item.(map[string]any); ok {
+					cfg := kbSvc.RetrievalConfig{}
+					// 优先使用 kb_id，如果不存在则使用 id
+					if kbId, ok := kbMap["kb_id"].(string); ok {
+						cfg.KbId = kbId
+					} else if kbId, ok := kbMap["id"].(string); ok {
+						cfg.KbId = kbId
+					}
+					if tk, ok := kbMap["top_k"].(float64); ok {
+						cfg.TopK = int(tk)
+						topK = cfg.TopK
+					}
+					if cfg.KbId != "" && cfg.KbId != "kc" { // 跳过占位符 "kc"
+						kbConfigs = append(kbConfigs, cfg)
+					}
 				}
 			}
+		case map[string]any:
+			cfg := kbSvc.RetrievalConfig{}
+			if kbId, ok := v["kb_id"].(string); ok {
+				cfg.KbId = kbId
+			} else if kbId, ok := v["id"].(string); ok {
+				cfg.KbId = kbId
+			}
+			if tk, ok := v["top_k"].(float64); ok {
+				cfg.TopK = int(tk)
+				topK = cfg.TopK
+			}
+			if cfg.KbId != "" && cfg.KbId != "kc" {
+				kbConfigs = append(kbConfigs, cfg)
+			}
 		}
-	case map[string]any:
-		// 单个知识库配置
-		cfg := kbSvc.RetrievalConfig{}
-		if kbId, ok := v["kb_id"].(string); ok {
-			cfg.KbId = kbId
-		}
-		if topK, ok := v["top_k"].(float64); ok {
-			cfg.TopK = int(topK)
-		}
-		if cfg.KbId != "" {
-			kbConfigs = append(kbConfigs, cfg)
+	}
+
+	// 2. 如果 kbConfigs 为空，尝试从 agentResp.Config 的 selectedKBs 加载
+	if len(kbConfigs) == 0 && agentResp != nil && agentResp.Config != "" {
+		var agentFullConfig map[string]any
+		if err := json.Unmarshal([]byte(agentResp.Config), &agentFullConfig); err == nil {
+			// 获取 topK
+			if tk, ok := agentFullConfig["topK"].(float64); ok {
+				topK = int(tk)
+			}
+			// 获取 selectedKBs
+			if selectedKBs, ok := agentFullConfig["selectedKBs"].([]any); ok {
+				for _, kb := range selectedKBs {
+					if kbId, ok := kb.(string); ok && kbId != "" {
+						kbConfigs = append(kbConfigs, kbSvc.RetrievalConfig{
+							KbId: kbId,
+							TopK: topK,
+						})
+					}
+				}
+			}
 		}
 	}
 
@@ -556,6 +583,7 @@ func (h *Handler) loadKnowledgeContext(ctx context.Context, agentId, query strin
 	// 从知识库召回
 	results, err := h.kbSvc.RecallFromKnowledgeBases(ctx, kbConfigs, query)
 	if err != nil {
+		logger.GetRunnerLogger().WithError(err).Errorf("[loadKnowledgeContext] recall failed, kbIds: %v", getKbIds(kbConfigs))
 		return nil, err
 	}
 
@@ -573,6 +601,15 @@ func (h *Handler) loadKnowledgeContext(ctx context.Context, agentId, query strin
 	}
 
 	return result, nil
+}
+
+// getKbIds 辅助函数，获取 kbIds 列表用于日志
+func getKbIds(configs []kbSvc.RetrievalConfig) []string {
+	ids := make([]string, len(configs))
+	for i, c := range configs {
+		ids[i] = c.KbId
+	}
+	return ids
 }
 
 // Upload 文件上传
