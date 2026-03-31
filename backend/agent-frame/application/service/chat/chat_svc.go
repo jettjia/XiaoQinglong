@@ -2,18 +2,21 @@ package chat
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 
 	"github.com/jettjia/igo-pkg/pkg/xerror"
 
 	ass "github.com/jettjia/xiaoqinglong/agent-frame/application/assembler/chat"
 	dto "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/chat"
 	srv "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/chat"
+	"github.com/jettjia/xiaoqinglong/agent-frame/pkg/logger"
 	"github.com/jettjia/xiaoqinglong/agent-frame/types/apierror"
 )
 
 // ChatSessionService chat session application service
 type ChatSessionService struct {
-	chatDto *ass.ChatAssembler
+	chatDto    *ass.ChatAssembler
 	sessionSrv *srv.ChatSessionSvc
 	messageSrv *srv.ChatSessionSvc
 }
@@ -21,7 +24,7 @@ type ChatSessionService struct {
 // NewChatSessionService NewChatSessionService
 func NewChatSessionService() *ChatSessionService {
 	return &ChatSessionService{
-		chatDto: ass.NewChatAssembler(),
+		chatDto:    ass.NewChatAssembler(),
 		sessionSrv: srv.NewChatSessionSvc(),
 		messageSrv: srv.NewChatSessionSvc(),
 	}
@@ -42,6 +45,17 @@ func (s *ChatSessionService) CreateChatSession(ctx context.Context, req *dto.Cre
 // DeleteChatSession 删除会话
 func (s *ChatSessionService) DeleteChatSession(ctx context.Context, req *dto.DelChatSessionReq) error {
 	en := s.chatDto.D2EDeleteChatSession(req)
+
+	// 删除会话关联的上传文件
+	sessionID := en.Ulid
+	uploadsDir := os.Getenv("APP_DATA")
+	if uploadsDir == "" {
+		uploadsDir = "/tmp/xiaoqinglong/data"
+	}
+	sessionUploadsDir := filepath.Join(uploadsDir, "uploads", sessionID)
+	logger.GetRunnerLogger().Infof("[ChatSessionService] Delete session files: sessionID=%s, path=%s", sessionID, sessionUploadsDir)
+	os.RemoveAll(sessionUploadsDir)
+
 	return s.sessionSrv.DeleteSession(ctx, en.Ulid)
 }
 
@@ -98,14 +112,14 @@ func (s *ChatSessionService) FindChatSessionPage(ctx context.Context, req *dto.F
 
 // ChatMessageService chat message application service
 type ChatMessageService struct {
-	chatDto *ass.ChatAssembler
+	chatDto    *ass.ChatAssembler
 	sessionSrv *srv.ChatSessionSvc
 }
 
 // NewChatMessageService NewChatMessageService
 func NewChatMessageService() *ChatMessageService {
 	return &ChatMessageService{
-		chatDto: ass.NewChatAssembler(),
+		chatDto:    ass.NewChatAssembler(),
 		sessionSrv: srv.NewChatSessionSvc(),
 	}
 }
@@ -161,14 +175,14 @@ func (s *ChatMessageService) FindChatMessagesBySessionId(ctx context.Context, re
 
 // ChatApprovalService chat approval application service
 type ChatApprovalService struct {
-	chatDto *ass.ChatAssembler
+	chatDto     *ass.ChatAssembler
 	approvalSrv *srv.ChatApprovalSvc
 }
 
 // NewChatApprovalService NewChatApprovalService
 func NewChatApprovalService() *ChatApprovalService {
 	return &ChatApprovalService{
-		chatDto: ass.NewChatAssembler(),
+		chatDto:     ass.NewChatAssembler(),
 		approvalSrv: srv.NewChatApprovalSvc(),
 	}
 }
@@ -247,14 +261,14 @@ func (s *ChatApprovalService) FindChatApprovalsByUserId(ctx context.Context, req
 
 // ChatTokenStatsService token统计 application service
 type ChatTokenStatsService struct {
-	chatDto *ass.ChatAssembler
+	chatDto  *ass.ChatAssembler
 	statsSrv *srv.ChatTokenStatsSvc
 }
 
 // NewChatTokenStatsService NewChatTokenStatsService
 func NewChatTokenStatsService() *ChatTokenStatsService {
 	return &ChatTokenStatsService{
-		chatDto: ass.NewChatAssembler(),
+		chatDto:  ass.NewChatAssembler(),
 		statsSrv: srv.NewChatTokenStatsSvc(),
 	}
 }

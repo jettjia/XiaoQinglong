@@ -69,6 +69,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [input, setInput] = React.useState('');
   const [files, setFiles] = React.useState<FileInfo[]>([]);
+  const [pendingFiles, setPendingFiles] = React.useState<File[]>([]); // 暂存的文件，等待 session 创建后上传
   const [agents, setAgents] = React.useState<Agent[]>([]);
   const [activeAgent, setActiveAgent] = React.useState<Agent | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
@@ -221,43 +222,25 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
   const moreAgents = agents.length > 0 ? agents.slice(6) : INITIAL_AGENTS.slice(6);
 
   const onDrop = React.useCallback(async (acceptedFiles: File[]) => {
-    // Check if there's a session, if not create one
+    // onDrop 只负责上传文件，不创建 session
+    // session 在 handleSend 时创建（此时才有用户的问题作为 title）
     let sessionId = currentSession?.ulid || activeConversationId;
 
+    // 如果没有 session，先不处理文件上传，等 handleSend 时一起处理
     if (!sessionId) {
-      // Create a new session if needed for file upload
-      if (!activeAgent) {
-        console.warn('Please select an agent first');
-        return;
-      }
-      try {
-        const result = await chatApi.createSession({
-          user_id: CURRENT_USER_ID,
-          agent_id: activeAgent.ulid || activeAgent.id,
-          title: 'File upload session',
-          channel: 'web',
-          model: activeAgent.model,
-          status: 'active'
-        });
-        sessionId = result.ulid;
-        setCurrentSession({
-          ulid: result.ulid,
-          user_id: CURRENT_USER_ID,
-          agent_id: activeAgent.ulid || activeAgent.id,
-          title: 'File upload session',
-          channel: 'web',
-          model: activeAgent.model || '',
-          status: 'active',
-          created_at: Date.now(),
-          updated_at: Date.now(),
-          created_by: CURRENT_USER_ID,
-          updated_by: CURRENT_USER_ID
-        });
-        setActiveConversationId(result.ulid);
-      } catch (err) {
-        console.error('Failed to create session:', err);
-        return;
-      }
+      console.log('[onDrop] No session yet, will upload files when handleSend');
+      // 暂存原始 File 对象
+      setPendingFiles(prev => [...prev, ...acceptedFiles]);
+      // 同时在 UI 上显示文件信息（用空 virtual_path 标记）
+      const tempFiles = acceptedFiles.map((file) => ({
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        url: URL.createObjectURL(file),
+        virtual_path: '',
+      }));
+      setFiles(prev => [...prev, ...tempFiles]);
+      return;
     }
 
     // Upload files to backend
@@ -340,6 +323,64 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
           agentId: activeAgent.ulid || activeAgent.id
         };
         setConversations(prev => [newConv, ...prev]);
+
+        // 如果有暂存的文件（pendingFiles），此时需要上传
+        if (pendingFiles.length > 0) {
+          try {
+            const uploadResult = await chatApi.uploadFiles(sessionId, pendingFiles);
+            console.log('[handleSend] Files uploaded:', uploadResult);
+            // 更新 files state 中的 virtual_path，同时构造要传给 runner 的文件列表
+            const filesForRunner = files.map((f, idx) => {
+              if (!f.virtual_path && uploadResult.files[idx]) {
+                return { ...f, virtual_path: uploadResult.files[idx]?.virtual_path || '' };
+              }
+              return f;
+            });
+            setFiles(filesForRunner);
+            setPendingFiles([]); // 清空暂存
+
+            // 直接使用 filesForRunner 调用 runner（因为此时 files state 还是旧值）
+            console.log('[handleSend] calling runAgentStream with files:', filesForRunner);
+            const runResponse = await chatApi.runAgentStream({
+              agent_id: activeAgent.ulid || activeAgent.id,
+              user_id: CURRENT_USER_ID,
+              session_id: sessionId || undefined,
+              input: input,
+              files: filesForRunner.length > 0 ? filesForRunner.map(f => ({
+                name: f.name,
+                virtual_path: f.virtual_path || '',
+                size: f.size,
+                type: f.type,
+              })) : undefined,
+              is_test: false
+            });
+            console.log('[handleSend] runAgentStream called');
+            // 后续流式处理...
+
+          } catch (err) {
+            console.error('Failed to upload files:', err);
+          }
+        } else {
+          // 没有暂存文件，直接调用 runner
+          console.log('[handleSend] calling runAgentStream with files:', files);
+          const runResponse = await chatApi.runAgentStream({
+            agent_id: activeAgent.ulid || activeAgent.id,
+            user_id: CURRENT_USER_ID,
+            session_id: sessionId || undefined,
+            input: input,
+            files: files.length > 0 ? files.map(f => ({
+              name: f.name,
+              virtual_path: f.virtual_path || '',
+              size: f.size,
+              type: f.type,
+            })) : undefined,
+            is_test: false
+          });
+          console.log('[handleSend] runAgentStream called');
+        }
+
+        // 跳过后面的 runAgentStream 调用，因为已经在上面处理了
+        return;
       }
 
       // Save user message to database
@@ -501,9 +542,9 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
             tokens: streamTokenUsage.total_tokens || 0,
             metadata: streamTokenUsage.prompt_tokens || streamTokenUsage.completion_tokens
               ? JSON.stringify({
-                  prompt_tokens: streamTokenUsage.prompt_tokens,
-                  completion_tokens: streamTokenUsage.completion_tokens
-                })
+                prompt_tokens: streamTokenUsage.prompt_tokens,
+                completion_tokens: streamTokenUsage.completion_tokens
+              })
               : undefined,
             status: 'completed'
           });
@@ -683,9 +724,9 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
   return (
     <div className="flex h-full bg-white overflow-hidden" {...getRootProps()}>
       <input {...getInputProps()} />
-      
+
       {/* History Sidebar */}
-      <motion.div 
+      <motion.div
         initial={false}
         animate={{ width: isSidebarOpen ? 280 : 0, opacity: isSidebarOpen ? 1 : 0 }}
         className={cn(
@@ -695,7 +736,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
       >
         <div className="p-4 border-b border-slate-100 flex items-center justify-between min-w-[280px]">
           <div className="flex items-center gap-2">
-            <button 
+            <button
               onClick={() => setIsSidebarOpen(false)}
               className="p-1.5 hover:bg-slate-200 rounded-md transition-colors text-slate-500"
               title="收起侧边栏"
@@ -707,7 +748,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
               {t('chat.history')}
             </h2>
           </div>
-          <button 
+          <button
             onClick={startNewConversation}
             className="p-1.5 hover:bg-slate-200 rounded-md transition-colors"
           >
@@ -806,7 +847,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
         </header>
 
         {/* Messages */}
-        <div 
+        <div
           ref={scrollRef}
           className="flex-1 overflow-y-auto p-3 lg:p-4 space-y-3 lg:space-y-4 scrollbar-hide bg-slate-50/30"
         >
@@ -821,12 +862,12 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
               </p>
             </div>
           )}
-          
+
           {messages.map((msg) => (
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              key={msg.id} 
+              key={msg.id}
               className={cn(
                 "flex gap-4 max-w-4xl",
                 msg.role === 'user' ? "ml-auto flex-row-reverse" : ""
@@ -845,7 +886,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                 {/* Thinking Process */}
                 {msg.thinking && (
                   <div className="w-full max-w-2xl">
-                    <button 
+                    <button
                       onClick={() => setShowThinking(prev => ({ ...prev, [msg.id]: !prev[msg.id] }))}
                       className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest hover:text-brand-500 transition-colors mb-2"
                     >
@@ -855,7 +896,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                     </button>
                     <AnimatePresence>
                       {showThinking[msg.id] && (
-                        <motion.div 
+                        <motion.div
                           initial={{ opacity: 0, height: 0 }}
                           animate={{ opacity: 1, height: 'auto' }}
                           exit={{ opacity: 0, height: 0 }}
@@ -916,7 +957,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                   ) : (
                     msg.content
                   )}
-                  
+
                   {/* Media Content */}
                   <div className="space-y-3 mt-3">
                     {msg.imageUrl && (
@@ -924,7 +965,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                         <img src={msg.imageUrl} alt="Generated content" className="w-full h-auto" referrerPolicy="no-referrer" />
                       </div>
                     )}
-                    
+
                     {msg.videoUrl && (
                       <div className="rounded-xl overflow-hidden border border-slate-100 bg-black aspect-video">
                         <video src={msg.videoUrl} controls className="w-full h-full" />
@@ -951,7 +992,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                         </h4>
                         <div className="flex items-center gap-2">
                           {msg.trace && (
-                            <button 
+                            <button
                               onClick={() => {
                                 setSelectedMessageId(msg.id);
                                 setIsTraceOpen(true);
@@ -979,7 +1020,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                       </div>
                     </div>
                   )}
-                  
+
                   {msg.files && msg.files.length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-2">
                       {msg.files.map((file, i) => (
@@ -994,7 +1035,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                   {/* Trace Trigger for non-a2ui messages */}
                   {msg.role === 'assistant' && msg.trace && !msg.a2ui && (
                     <div className="mt-3 pt-3 border-t border-slate-100 flex justify-end">
-                      <button 
+                      <button
                         onClick={() => {
                           setSelectedMessageId(msg.id);
                           setIsTraceOpen(true);
@@ -1090,7 +1131,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
         <div className="p-4 lg:p-6 bg-white border-t border-slate-100">
           <AnimatePresence>
             {files.length > 0 && (
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
@@ -1100,7 +1141,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                   <div key={i} className="group relative flex items-center gap-2 p-2 bg-slate-50 rounded-lg border border-slate-200">
                     <Paperclip size={14} className="text-slate-400" />
                     <span className="text-xs text-slate-600 truncate max-w-[150px]">{file.name}</span>
-                    <button 
+                    <button
                       onClick={() => setFiles(prev => prev.filter((_, idx) => idx !== i))}
                       className="p-1 hover:bg-slate-200 rounded-full text-slate-400 hover:text-red-500 transition-colors"
                     >
@@ -1114,7 +1155,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
 
           <div className="relative group w-full max-w-4xl mx-auto">
             <div className="relative bg-white border border-slate-200 rounded-[24px] shadow-[0_4px_20px_rgb(0,0,0,0.03)] transition-all">
-              <textarea 
+              <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -1126,7 +1167,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                 placeholder={t('chat.placeholder')}
                 className="w-full bg-transparent border-none focus:ring-0 outline-none focus:outline-none text-base p-4 pb-1 resize-none min-h-[50px] max-h-32 scrollbar-hide"
               />
-              
+
               <div className="flex items-center justify-between px-4 pb-4">
                 <div className="flex items-center gap-1 flex-1 mr-2">
                   <button
@@ -1220,15 +1261,15 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                   </div>
                 </div>
 
-                <button 
+                <button
                   onClick={isLoading ? stopGeneration : handleSend}
                   disabled={(!input.trim() && files.length === 0) && !isLoading}
                   className={cn(
                     "w-10 h-10 rounded-full flex items-center justify-center transition-all shrink-0",
-                    isLoading 
+                    isLoading
                       ? "bg-red-500 text-white shadow-lg shadow-red-500/20 hover:scale-105 active:scale-95"
                       : (input.trim() || files.length > 0)
-                        ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:scale-105 active:scale-95" 
+                        ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:scale-105 active:scale-95"
                         : "bg-slate-100 text-slate-300 cursor-not-allowed"
                   )}
                 >
@@ -1241,8 +1282,8 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
               </div>
             </div>
           </div>
-          
-          <input 
+
+          <input
             id="file-upload"
             type="file"
             multiple
@@ -1280,7 +1321,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                 <Search size={18} className="text-brand-500" />
                 <h3 className="font-bold text-slate-900">执行追踪 (Tracing)</h3>
               </div>
-              <button 
+              <button
                 onClick={() => setIsTraceOpen(false)}
                 className="p-1.5 hover:bg-slate-100 rounded-md text-slate-400"
               >
@@ -1294,7 +1335,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                   {idx !== (messages.find(m => m.id === selectedMessageId)?.trace?.length || 0) - 1 && (
                     <div className="absolute left-[11px] top-6 bottom-[-24px] w-0.5 bg-slate-100" />
                   )}
-                  
+
                   {/* Step Icon */}
                   <div className={cn(
                     "absolute left-0 top-0 w-6 h-6 rounded-full flex items-center justify-center z-10",
