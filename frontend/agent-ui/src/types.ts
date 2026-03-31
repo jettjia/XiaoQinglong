@@ -138,7 +138,7 @@ export interface Message {
   audioUrl?: string;
   imageUrl?: string;
   videoUrl?: string;
-  status?: 'pending_approval' | 'completed' | 'failed';
+  status?: 'pending_approval' | 'completed' | 'failed' | 'streaming';
   interruptId?: string;  // 用于审批时调用 resume
 }
 

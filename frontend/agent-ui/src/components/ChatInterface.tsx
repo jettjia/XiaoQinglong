@@ -69,7 +69,8 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [input, setInput] = React.useState('');
   const [files, setFiles] = React.useState<FileInfo[]>([]);
-  const [pendingFiles, setPendingFiles] = React.useState<File[]>([]); // 暂存的文件，等待 session 创建后上传
+  const filesRef = React.useRef<FileInfo[]>([]); // 用于跟踪当前文件，异步更新
+  const pendingFilesRef = React.useRef<File[]>([]); // 保存待上传的原始 File 对象
   const [agents, setAgents] = React.useState<Agent[]>([]);
   const [activeAgent, setActiveAgent] = React.useState<Agent | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
@@ -221,46 +222,20 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
   const visibleAgents = agents.length > 0 ? agents.slice(0, 6) : INITIAL_AGENTS.slice(0, 6);
   const moreAgents = agents.length > 0 ? agents.slice(6) : INITIAL_AGENTS.slice(6);
 
-  const onDrop = React.useCallback(async (acceptedFiles: File[]) => {
-    // onDrop 只负责上传文件，不创建 session
-    // session 在 handleSend 时创建（此时才有用户的问题作为 title）
-    let sessionId = currentSession?.ulid || activeConversationId;
-
-    // 如果没有 session，先不处理文件上传，等 handleSend 时一起处理
-    if (!sessionId) {
-      console.log('[onDrop] No session yet, will upload files when handleSend');
-      // 暂存原始 File 对象
-      setPendingFiles(prev => [...prev, ...acceptedFiles]);
-      // 同时在 UI 上显示文件信息（用空 virtual_path 标记）
-      const tempFiles = acceptedFiles.map((file) => ({
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        url: URL.createObjectURL(file),
-        virtual_path: '',
-      }));
-      setFiles(prev => [...prev, ...tempFiles]);
-      return;
-    }
-
-    // Upload files to backend
-    try {
-      const result = await chatApi.uploadFiles(sessionId, acceptedFiles);
-      console.log('[onDrop] Files uploaded:', result);
-
-      // Add uploaded files to state with virtual_path
-      const newFiles = acceptedFiles.map((file, idx) => ({
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        url: URL.createObjectURL(file),
-        virtual_path: result.files[idx]?.virtual_path || '',
-      }));
-      setFiles(prev => [...prev, ...newFiles]);
-    } catch (err) {
-      console.error('Failed to upload files:', err);
-    }
-  }, [currentSession, activeConversationId, activeAgent]);
+  const onDrop = React.useCallback((acceptedFiles: File[]) => {
+    console.log('[onDrop] called, acceptedFiles:', acceptedFiles.length);
+    // 只保存文件信息到 state，不上传
+    const newFiles = acceptedFiles.map(file => ({
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      url: URL.createObjectURL(file)
+    }));
+    filesRef.current = [...filesRef.current, ...newFiles];
+    pendingFilesRef.current = [...pendingFilesRef.current, ...acceptedFiles];
+    console.log('[onDrop] after - filesRef.current.length:', filesRef.current.length, 'pendingFilesRef.current.length:', pendingFilesRef.current.length);
+    setFiles(filesRef.current);
+  }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -268,27 +243,29 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
   } as any);
 
   const handleSend = async () => {
-    console.log('[handleSend] called, files:', files, 'input:', input);
-    if ((!input.trim() && files.length === 0) || isLoading || !activeAgent) return;
-
-    console.log('[handleSend] proceeding, files.length:', files.length);
+    const currentFiles = filesRef.current;
+    console.log('[handleSend] called, currentFiles:', currentFiles, 'input:', input);
+    if ((!input.trim() && currentFiles.length === 0) || isLoading || !activeAgent) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
       content: input,
       timestamp: new Date(),
-      files: [...files]
+      files: [...currentFiles]
     };
+
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setFiles([]);
+    filesRef.current = [];
     setIsLoading(true);
     abortControllerRef.current = new AbortController();
 
     try {
       // Get session ID - create session if needed
       let sessionId = currentSession?.ulid || activeConversationId;
+      console.log('[handleSend] sessionId:', sessionId, 'currentFiles:', currentFiles.length);
       // Use first 50 chars of input as session title
       const sessionTitle = input.length > 50 ? input.substring(0, 50) + '...' : input;
       if (!sessionId) {
@@ -323,64 +300,35 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
           agentId: activeAgent.ulid || activeAgent.id
         };
         setConversations(prev => [newConv, ...prev]);
+      }
 
-        // 如果有暂存的文件（pendingFiles），此时需要上传
-        if (pendingFiles.length > 0) {
-          try {
-            const uploadResult = await chatApi.uploadFiles(sessionId, pendingFiles);
-            console.log('[handleSend] Files uploaded:', uploadResult);
-            // 更新 files state 中的 virtual_path，同时构造要传给 runner 的文件列表
-            const filesForRunner = files.map((f, idx) => {
-              if (!f.virtual_path && uploadResult.files[idx]) {
-                return { ...f, virtual_path: uploadResult.files[idx]?.virtual_path || '' };
-              }
-              return f;
-            });
-            setFiles(filesForRunner);
-            setPendingFiles([]); // 清空暂存
-
-            // 直接使用 filesForRunner 调用 runner（因为此时 files state 还是旧值）
-            console.log('[handleSend] calling runAgentStream with files:', filesForRunner);
-            const runResponse = await chatApi.runAgentStream({
-              agent_id: activeAgent.ulid || activeAgent.id,
-              user_id: CURRENT_USER_ID,
-              session_id: sessionId || undefined,
-              input: input,
-              files: filesForRunner.length > 0 ? filesForRunner.map(f => ({
-                name: f.name,
-                virtual_path: f.virtual_path || '',
-                size: f.size,
-                type: f.type,
-              })) : undefined,
-              is_test: false
-            });
-            console.log('[handleSend] runAgentStream called');
-            // 后续流式处理...
-
-          } catch (err) {
-            console.error('Failed to upload files:', err);
-          }
-        } else {
-          // 没有暂存文件，直接调用 runner
-          console.log('[handleSend] calling runAgentStream with files:', files);
-          const runResponse = await chatApi.runAgentStream({
-            agent_id: activeAgent.ulid || activeAgent.id,
-            user_id: CURRENT_USER_ID,
-            session_id: sessionId || undefined,
-            input: input,
-            files: files.length > 0 ? files.map(f => ({
-              name: f.name,
-              virtual_path: f.virtual_path || '',
-              size: f.size,
-              type: f.type,
-            })) : undefined,
-            is_test: false
+      // 如果有待上传的文件，先上传
+      let filesToSend = currentFiles;
+      console.log('[handleSend] pendingFilesRef.current.length:', pendingFilesRef.current.length);
+      if (pendingFilesRef.current.length > 0) {
+        console.log('[handleSend] Uploading pending files first, count:', pendingFilesRef.current.length);
+        try {
+          const result = await chatApi.uploadFiles(sessionId, pendingFilesRef.current);
+          console.log('[handleSend] Pending files uploaded:', result);
+          // 更新 files 中的 virtual_path
+          const updatedFiles = currentFiles.map((f, idx) => {
+            if (!f.virtual_path && result.files[idx]) {
+              return { ...f, virtual_path: result.files[idx]?.virtual_path || '' };
+            }
+            return f;
           });
-          console.log('[handleSend] runAgentStream called');
+          console.log('[handleSend] updatedFiles:', updatedFiles);
+          filesToSend = updatedFiles;
+          filesRef.current = updatedFiles;
+          setFiles(updatedFiles);
+          pendingFilesRef.current = [];
+        } catch (err) {
+          console.error('Failed to upload pending files:', err);
+          // 上传失败，只发送有 virtual_path 的文件
+          filesToSend = currentFiles.filter(f => f.virtual_path);
         }
-
-        // 跳过后面的 runAgentStream 调用，因为已经在上面处理了
-        return;
+      } else {
+        console.log('[handleSend] No pending files to upload, using currentFiles:', currentFiles);
       }
 
       // Save user message to database
@@ -398,21 +346,15 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
       }
 
       // 调用 runner API
-      console.log('[handleSend] calling runAgentStream, files:', files);
+      console.log('[handleSend] Calling runner with filesToSend:', filesToSend);
       const runResponse = await chatApi.runAgentStream({
         agent_id: activeAgent.ulid || activeAgent.id,
         user_id: CURRENT_USER_ID,
         session_id: sessionId || undefined,
         input: input,
-        files: files.length > 0 ? files.map(f => ({
-          name: f.name,
-          virtual_path: f.virtual_path || '',
-          size: f.size,
-          type: f.type,
-        })) : undefined,
+        files: filesToSend.length > 0 ? filesToSend : undefined,
         is_test: false
       });
-      console.log('[handleSend] runAgentStream called, files sent:', files.length > 0 ? files : 'none');
 
       // 检查是否流式响应
       const contentType = runResponse.headers.get('content-type') || '';
