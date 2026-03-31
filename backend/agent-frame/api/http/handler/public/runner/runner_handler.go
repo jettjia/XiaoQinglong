@@ -556,6 +556,7 @@ func (h *Handler) loadKnowledgeContext(ctx context.Context, agentId, query strin
 
 	// 2. 如果 kbConfigs 为空，尝试从 agentResp.Config 的 selectedKBs 加载
 	if len(kbConfigs) == 0 && agentResp != nil && agentResp.Config != "" {
+		logger.GetRunnerLogger().Infof("[loadKnowledgeContext] kbConfigs empty, trying selectedKBs from Config, Config length: %d", len(agentResp.Config))
 		var agentFullConfig map[string]any
 		if err := json.Unmarshal([]byte(agentResp.Config), &agentFullConfig); err == nil {
 			// 获取 topK
@@ -564,6 +565,7 @@ func (h *Handler) loadKnowledgeContext(ctx context.Context, agentId, query strin
 			}
 			// 获取 selectedKBs
 			if selectedKBs, ok := agentFullConfig["selectedKBs"].([]any); ok {
+				logger.GetRunnerLogger().Infof("[loadKnowledgeContext] found selectedKBs, count: %d", len(selectedKBs))
 				for _, kb := range selectedKBs {
 					if kbId, ok := kb.(string); ok && kbId != "" {
 						kbConfigs = append(kbConfigs, kbSvc.RetrievalConfig{
@@ -572,15 +574,21 @@ func (h *Handler) loadKnowledgeContext(ctx context.Context, agentId, query strin
 						})
 					}
 				}
+			} else {
+				logger.GetRunnerLogger().Infof("[loadKnowledgeContext] selectedKBs not found in Config or not an array, keys: %v", getMapKeys(agentFullConfig))
 			}
+		} else {
+			logger.GetRunnerLogger().Infof("[loadKnowledgeContext] failed to parse Config JSON: %v", err)
 		}
 	}
 
 	if len(kbConfigs) == 0 {
+		logger.GetRunnerLogger().Infof("[loadKnowledgeContext] kbConfigs still empty after all attempts")
 		return nil, nil
 	}
 
 	// 从知识库召回
+	logger.GetRunnerLogger().Infof("[loadKnowledgeContext] Starting recall, kbIds: %v, query: %s", getKbIds(kbConfigs), query)
 	results, err := h.kbSvc.RecallFromKnowledgeBases(ctx, kbConfigs, query)
 	if err != nil {
 		logger.GetRunnerLogger().WithError(err).Errorf("[loadKnowledgeContext] recall failed, kbIds: %v", getKbIds(kbConfigs))
@@ -588,8 +596,11 @@ func (h *Handler) loadKnowledgeContext(ctx context.Context, agentId, query strin
 	}
 
 	if len(results) == 0 {
+		logger.GetRunnerLogger().Infof("[loadKnowledgeContext] recall returned 0 results for kbIds: %v, query: %s", getKbIds(kbConfigs), query)
 		return nil, nil
 	}
+
+	logger.GetRunnerLogger().Infof("[loadKnowledgeContext] recall SUCCESS, got %d results", len(results))
 
 	// 构建知识上下文消息
 	formattedContext := h.kbSvc.FormatKnowledgeContext(results)
@@ -610,6 +621,15 @@ func getKbIds(configs []kbSvc.RetrievalConfig) []string {
 		ids[i] = c.KbId
 	}
 	return ids
+}
+
+// getMapKeys 辅助函数，获取 map 的 key 列表用于日志
+func getMapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // Upload 文件上传

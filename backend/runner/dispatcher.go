@@ -782,9 +782,10 @@ func (d *Dispatcher) buildMessagesWithRewrite(ctx context.Context, systemPrompt 
 func (d *Dispatcher) buildMessages(systemPrompt string) []adk.Message {
 	var messages []adk.Message
 
-	// 添加 system message
-	if d.request.Prompt != "" {
+	// 添加 system message - systemPrompt 包含 knowledge、skills 等信息，所以只要有内容就添加
+	if systemPrompt != "" {
 		messages = append(messages, schema.SystemMessage(systemPrompt))
+		logger.Infof("[Dispatcher] buildMessages: added systemPrompt, length=%d", len(systemPrompt))
 	}
 
 	// 添加对话历史
@@ -798,6 +799,8 @@ func (d *Dispatcher) buildMessages(systemPrompt string) []adk.Message {
 			messages = append(messages, schema.SystemMessage(msg.Content))
 		}
 	}
+
+	logger.Infof("[Dispatcher] buildMessages: total messages=%d", len(messages))
 
 	return messages
 }

@@ -284,7 +284,7 @@ export function AgentOrchestrator() {
             },
             routing: {
               default_model: 'default',
-              rewrite_prompt: '请优化以下用户Query，使其更加清晰、准确，便于理解和执行。只返回优化后的Query，不要其他内容。',
+              rewrite_prompt: '你是一个查询优化助手。请将用户输入优化为更清晰、准确的搜索词或问题。只输出优化后的文字，不要前缀解释、不要标点符号（如问号、冒号）、不要后续问题。例如：输入"远程办公政策"，输出"远程办公政策申请条件和流程"；输入"今天天气"，输出"今天天气预报"；输入"苹果"，输出"苹果公司最新动态"。',
               summarize_prompt: '请总结以下内容，提取关键信息，保持简洁。只返回总结内容，不要其他内容。',
             },
             approval_policy: {
