@@ -879,6 +879,33 @@ export const chatApi = {
     return res.json();
   },
 
+  // Upload files for agent execution
+  async uploadFiles(sessionId: string, files: File[]): Promise<{
+    files: Array<{
+      name: string;
+      size: number;
+      type: string;
+      virtual_path: string;
+    }>;
+    count: number;
+  }> {
+    const formData = new FormData();
+    formData.append('session_id', sessionId);
+    files.forEach(file => {
+      formData.append('files', file);
+    });
+
+    const res = await fetch(`${API_BASE}/runner/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!res.ok) {
+      const json = await res.json();
+      throw new Error(json.message || 'Failed to upload files');
+    }
+    return res.json();
+  },
+
   // Job execution APIs
   async getJobExecutions(agentId: string, limit: number = 50): Promise<any> {
     const res = await fetch(`${API_BASE}/job/execution/byAgentId?agent_id=${agentId}&limit=${limit}`);

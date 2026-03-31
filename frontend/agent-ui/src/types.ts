@@ -168,6 +168,7 @@ export interface FileInfo {
   size: number;
   type: string;
   url?: string;
+  virtual_path?: string;
 }
 
 export interface Model {

@@ -598,7 +598,20 @@ func (t *skillExecCommandTool) execInDocker(ctx context.Context, command string)
 		args = append(args, "-e", "SKILL_INPUT="+t.skillInput)
 	}
 
+	// 添加工作目录挂载
 	args = append(args, "-v", fmt.Sprintf("%s:%s", t.workDir, workdir))
+
+	// 添加额外的卷挂载（如 uploads 目录）
+	if t.sandboxCfg != nil && len(t.sandboxCfg.Volumes) > 0 {
+		for _, vol := range t.sandboxCfg.Volumes {
+			mode := "rw"
+			if vol.ReadOnly {
+				mode = "ro"
+			}
+			args = append(args, "-v", fmt.Sprintf("%s:%s:%s", vol.HostPath, vol.ContainerPath, mode))
+		}
+	}
+
 	args = append(args, "--entrypoint", "", image, "sh", "-c", command)
 
 	// 执行命令

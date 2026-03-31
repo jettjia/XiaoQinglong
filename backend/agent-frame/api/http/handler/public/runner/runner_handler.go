@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -20,14 +23,22 @@ import (
 	"github.com/jettjia/xiaoqinglong/agent-frame/pkg/logger"
 )
 
+// FileInfo 文件信息
+type FileInfo struct {
+	Name        string `json:"name"`
+	VirtualPath string `json:"virtual_path"`
+	Size        int64  `json:"size"`
+	Type        string `json:"type"`
+}
+
 // ChatRunReq 前端聊天请求
 type ChatRunReq struct {
-	AgentID   string `json:"agent_id"`
-	UserID    string `json:"user_id"`
-	SessionID string `json:"session_id"`
-	Input     string `json:"input"`
-	Files     []any  `json:"files"`
-	IsTest    bool   `json:"is_test"` // 是否测试模式，测试模式不保存消息
+	AgentID   string     `json:"agent_id"`
+	UserID    string     `json:"user_id"`
+	SessionID string     `json:"session_id"`
+	Input     string     `json:"input"`
+	Files     []FileInfo `json:"files"`
+	IsTest    bool       `json:"is_test"` // 是否测试模式，测试模式不保存消息
 }
 
 // Handler runner代理处理器
@@ -112,6 +123,11 @@ func (h *Handler) Run(c *gin.Context) {
 		runnerReq["sandbox"] = sandbox
 	}
 
+	// 添加上传的文件信息
+	if len(chatReq.Files) > 0 {
+		runnerReq["files"] = chatReq.Files
+	}
+
 	// 4. 加载历史消息并应用context_window策略（非测试模式）
 	var historicalMessages []map[string]any
 	if chatReq.SessionID != "" && !chatReq.IsTest {
@@ -140,21 +156,31 @@ func (h *Handler) Run(c *gin.Context) {
 	}
 
 	// 构建messages数组：知识上下文 + 记忆上下文 + 历史消息 + 当前输入
+	// 注意：文件内容由 Runner 自动提取并注入，不需要在 agent-frame 注入
 	messages := make([]map[string]any, 0)
 	messages = append(messages, knowledgeContext...)
 	messages = append(messages, memoryContext...)
 	messages = append(messages, historicalMessages...)
+
 	messages = append(messages, map[string]any{
 		"role":    "user",
 		"content": chatReq.Input,
 	})
 	runnerReq["messages"] = messages
 
+	// 获取 uploads 目录的宿主机路径
+	uploadsDir := os.Getenv("APP_DATA")
+	if uploadsDir == "" {
+		uploadsDir = "/tmp/xiaoqinglong/data"
+	}
+	uploadsDir = filepath.Join(uploadsDir, "uploads")
+
 	runnerReq["context"] = map[string]any{
-		"session_id": chatReq.SessionID,
-		"user_id":    chatReq.UserID,
-		"channel_id": "web",
-		"agent_id":   chatReq.AgentID,
+		"session_id":  chatReq.SessionID,
+		"user_id":     chatReq.UserID,
+		"channel_id":  "web",
+		"agent_id":    chatReq.AgentID,
+		"uploads_dir": uploadsDir,
 	}
 
 	// 5. 序列化runner请求
@@ -547,4 +573,77 @@ func (h *Handler) loadKnowledgeContext(ctx context.Context, agentId, query strin
 	}
 
 	return result, nil
+}
+
+// Upload 文件上传
+func (h *Handler) Upload(c *gin.Context) {
+	// 1. 获取 session_id
+	sessionID := c.PostForm("session_id")
+	if sessionID == "" {
+		c.JSON(400, gin.H{"error": "session_id is required"})
+		return
+	}
+
+	// 2. 获取上传目录
+	uploadDir := os.Getenv("APP_DATA")
+	if uploadDir == "" {
+		uploadDir = "/tmp/xiaoqinglong/data"
+	}
+	uploadDir = filepath.Join(uploadDir, "uploads", sessionID)
+
+	// 3. 创建上传目录
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		c.JSON(500, gin.H{"error": "failed to create upload directory: " + err.Error()})
+		return
+	}
+
+	// 4. 获取文件
+	form, err := c.MultipartForm()
+	if err != nil {
+		c.JSON(400, gin.H{"error": "failed to parse multipart form: " + err.Error()})
+		return
+	}
+
+	fileHeaders := form.File["files"]
+	if len(fileHeaders) == 0 {
+		c.JSON(400, gin.H{"error": "no files provided"})
+		return
+	}
+
+	// 5. 保存文件
+	var uploadedFiles []map[string]any
+	for _, fh := range fileHeaders {
+		dst := filepath.Join(uploadDir, fh.Filename)
+		src, err := fh.Open()
+		if err != nil {
+			c.JSON(500, gin.H{"error": "failed to open uploaded file: " + err.Error()})
+			return
+		}
+		out, err := os.Create(dst)
+		if err != nil {
+			src.Close()
+			c.JSON(500, gin.H{"error": "failed to create destination file: " + err.Error()})
+			return
+		}
+		if _, err := io.Copy(out, src); err != nil {
+			src.Close()
+			out.Close()
+			c.JSON(500, gin.H{"error": "failed to save file: " + err.Error()})
+			return
+		}
+		src.Close()
+		out.Close()
+
+		uploadedFiles = append(uploadedFiles, map[string]any{
+			"name":         fh.Filename,
+			"size":         fh.Size,
+			"type":         fh.Header.Get("Content-Type"),
+			"virtual_path": fmt.Sprintf("/mnt/uploads/%s/%s", sessionID, fh.Filename),
+		})
+	}
+
+	c.JSON(200, gin.H{
+		"files": uploadedFiles,
+		"count": len(uploadedFiles),
+	})
 }

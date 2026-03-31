@@ -143,8 +143,9 @@ func SetPublicRouter(Router *gin.RouterGroup) {
 	// runner proxy
 	RunnerRouter := Router.Group("/runner")
 	{
-		RunnerRouter.POST("/run", handRunner.Run)       // 代理runner run请求
+		RunnerRouter.POST("/run", handRunner.Run)        // 代理runner run请求
 		RunnerRouter.POST("/resume", handRunner.Resume)  // 代理runner resume请求
+		RunnerRouter.POST("/upload", handRunner.Upload)  // 文件上传
 	}
 
 	// job execution

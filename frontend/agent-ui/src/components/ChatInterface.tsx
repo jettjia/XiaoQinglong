@@ -220,15 +220,64 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
   const visibleAgents = agents.length > 0 ? agents.slice(0, 6) : INITIAL_AGENTS.slice(0, 6);
   const moreAgents = agents.length > 0 ? agents.slice(6) : INITIAL_AGENTS.slice(6);
 
-  const onDrop = React.useCallback((acceptedFiles: File[]) => {
-    const newFiles = acceptedFiles.map(file => ({
-      name: file.name,
-      size: file.size,
-      type: file.type,
-      url: URL.createObjectURL(file)
-    }));
-    setFiles(prev => [...prev, ...newFiles]);
-  }, []);
+  const onDrop = React.useCallback(async (acceptedFiles: File[]) => {
+    // Check if there's a session, if not create one
+    let sessionId = currentSession?.ulid || activeConversationId;
+
+    if (!sessionId) {
+      // Create a new session if needed for file upload
+      if (!activeAgent) {
+        console.warn('Please select an agent first');
+        return;
+      }
+      try {
+        const result = await chatApi.createSession({
+          user_id: CURRENT_USER_ID,
+          agent_id: activeAgent.ulid || activeAgent.id,
+          title: 'File upload session',
+          channel: 'web',
+          model: activeAgent.model,
+          status: 'active'
+        });
+        sessionId = result.ulid;
+        setCurrentSession({
+          ulid: result.ulid,
+          user_id: CURRENT_USER_ID,
+          agent_id: activeAgent.ulid || activeAgent.id,
+          title: 'File upload session',
+          channel: 'web',
+          model: activeAgent.model || '',
+          status: 'active',
+          created_at: Date.now(),
+          updated_at: Date.now(),
+          created_by: CURRENT_USER_ID,
+          updated_by: CURRENT_USER_ID
+        });
+        setActiveConversationId(result.ulid);
+      } catch (err) {
+        console.error('Failed to create session:', err);
+        return;
+      }
+    }
+
+    // Upload files to backend
+    try {
+      const result = await chatApi.uploadFiles(sessionId, acceptedFiles);
+      console.log('[onDrop] Files uploaded:', result);
+
+      // Add uploaded files to state with virtual_path
+      const newFiles = acceptedFiles.map((file, idx) => ({
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        url: URL.createObjectURL(file),
+        virtual_path: result.files[idx]?.virtual_path || '',
+      }));
+      setFiles(prev => [...prev, ...newFiles]);
+    } catch (err) {
+      console.error('Failed to upload files:', err);
+    }
+  }, [currentSession, activeConversationId, activeAgent]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -236,7 +285,10 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
   } as any);
 
   const handleSend = async () => {
+    console.log('[handleSend] called, files:', files, 'input:', input);
     if ((!input.trim() && files.length === 0) || isLoading || !activeAgent) return;
+
+    console.log('[handleSend] proceeding, files.length:', files.length);
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -245,7 +297,6 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
       timestamp: new Date(),
       files: [...files]
     };
-
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setFiles([]);
@@ -306,14 +357,21 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
       }
 
       // 调用 runner API
+      console.log('[handleSend] calling runAgentStream, files:', files);
       const runResponse = await chatApi.runAgentStream({
         agent_id: activeAgent.ulid || activeAgent.id,
         user_id: CURRENT_USER_ID,
         session_id: sessionId || undefined,
         input: input,
-        files: files.length > 0 ? files : undefined,
+        files: files.length > 0 ? files.map(f => ({
+          name: f.name,
+          virtual_path: f.virtual_path || '',
+          size: f.size,
+          type: f.type,
+        })) : undefined,
         is_test: false
       });
+      console.log('[handleSend] runAgentStream called, files sent:', files.length > 0 ? files : 'none');
 
       // 检查是否流式响应
       const contentType = runResponse.headers.get('content-type') || '';

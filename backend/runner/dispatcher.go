@@ -76,6 +76,9 @@ type Dispatcher struct {
 	skillPlanner     *SkillPlanner             // LLM 驱动的技能规划器
 	subAgentManager  *subagent.SubAgentManager // Sub-Agent 管理器
 	a2aCallCount     int
+
+	// 文件上传相关
+	uploadsBaseDir string // uploads 目录的宿主机路径
 }
 
 func NewDispatcher(req *RunRequest) *Dispatcher {
@@ -86,6 +89,9 @@ func NewDispatcher(req *RunRequest) *Dispatcher {
 }
 
 func (d *Dispatcher) Run(ctx context.Context) (*DispatchResult, error) {
+	// 0. 设置 uploadsBaseDir
+	d.setUploadsBaseDir()
+
 	// 1. 初始化模型
 	if err := d.initModels(ctx); err != nil {
 		return nil, fmt.Errorf("init models failed: %w", err)
@@ -133,6 +139,31 @@ func (d *Dispatcher) Run(ctx context.Context) (*DispatchResult, error) {
 
 	// 8. 创建 Agent 并运行
 	return d.runAgent(ctx, messages)
+}
+
+// setUploadsBaseDir 设置 uploads 目录的宿主机路径
+// 从 context 或 sandbox.volumes 中获取
+func (d *Dispatcher) setUploadsBaseDir() {
+	log.Printf("[Dispatcher] setUploadsBaseDir: context=%v", d.request.Context)
+	// 优先从 context 中获取
+	if dir, ok := d.request.Context["uploads_dir"].(string); ok && dir != "" {
+		log.Printf("[Dispatcher] setUploadsBaseDir: set from context to %s", dir)
+		d.uploadsBaseDir = dir
+		return
+	}
+
+	// 从 sandbox.volumes 中查找 /mnt/uploads 的挂载路径
+	if d.request.Sandbox != nil && len(d.request.Sandbox.Volumes) > 0 {
+		for _, vol := range d.request.Sandbox.Volumes {
+			if vol.ContainerPath == "/mnt/uploads" || vol.ContainerPath == "/mnt/uploads/" {
+				d.uploadsBaseDir = vol.HostPath
+				return
+			}
+		}
+	}
+
+	// 默认路径
+	d.uploadsBaseDir = "./data/uploads"
 }
 
 func (d *Dispatcher) initModels(ctx context.Context) error {
@@ -752,6 +783,27 @@ func (d *Dispatcher) buildMessages(systemPrompt string) []adk.Message {
 		}
 	}
 
+	// 如果有上传文件，提取并注入文件内容
+	if len(d.request.Files) > 0 && d.uploadsBaseDir != "" {
+		log.Printf("[Dispatcher] buildMessages: files count=%d, uploadsBaseDir=%s", len(d.request.Files), d.uploadsBaseDir)
+		for _, f := range d.request.Files {
+			log.Printf("[Dispatcher] buildMessages: file=%s, virtual_path=%s, size=%d", f.Name, f.VirtualPath, f.Size)
+		}
+		extractor := NewFileExtractor(d.uploadsBaseDir)
+		filesContent, err := extractor.ExtractFilesContent(d.request.Files)
+		if err != nil {
+			log.Printf("[Dispatcher] extract files content failed: %v", err)
+		} else if filesContent != "" {
+			log.Printf("[Dispatcher] extract files content success, length=%d", len(filesContent))
+			// 在最后一条 user message 之前插入文件内容
+			messages = append(messages, schema.SystemMessage(filesContent))
+		} else {
+			log.Printf("[Dispatcher] extract files content returned empty")
+		}
+	} else {
+		log.Printf("[Dispatcher] buildMessages: skipping file extraction, files=%d, uploadsBaseDir=%s", len(d.request.Files), d.uploadsBaseDir)
+	}
+
 	return messages
 }
 
@@ -1241,6 +1293,9 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 
 	go func() {
 		defer close(eventsChan)
+
+		// 0. 设置 uploadsBaseDir
+		d.setUploadsBaseDir()
 
 		// 1. 初始化模型
 		if err := d.initModels(ctx); err != nil {

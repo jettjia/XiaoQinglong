@@ -72,6 +72,15 @@ type RunRequest struct {
 	SubAgents      []subagent.SubAgentConfig `json:"sub_agents"` // Sub-Agent 配置列表
 	Options        *RunOptions               `json:"options"`
 	Sandbox        *SandboxConfig            `json:"sandbox"`
+	Files          []FileConfig             `json:"files"` // 上传的文件列表
+}
+
+// FileConfig 文件配置
+type FileConfig struct {
+	Name        string `json:"name"`
+	VirtualPath string `json:"virtual_path"` // 虚拟路径，如 /mnt/uploads/session_id/file.md
+	Size        int64  `json:"size"`
+	Type        string `json:"type"` // mime type
 }
 
 type Message struct {
@@ -227,6 +236,14 @@ type SandboxConfig struct {
 	TimeoutMs int               `json:"timeout_ms"`
 	Env       map[string]string `json:"env"`
 	Limits    *SandboxLimits    `json:"limits"`
+	Volumes   []VolumeMount     `json:"volumes"` // 额外挂载的卷
+}
+
+// VolumeMount 卷挂载配置
+type VolumeMount struct {
+	HostPath      string `json:"host_path"`      // 宿主机路径
+	ContainerPath string `json:"container_path"` // 容器内路径
+	ReadOnly      bool   `json:"read_only"`      // 是否只读
 }
 
 // SandboxLimits 沙箱资源限制
