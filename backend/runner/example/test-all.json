@@ -59,6 +59,44 @@
                 "Content-Type": "application/json"
             },
             "risk_level": "medium"
+        },
+        {
+            "type": "delegate",
+            "name": "delegate_to_agent",
+            "description": "委托任务给子Agent执行，子Agent会独立运行并返回结构化结果（同步执行，阻塞等待）",
+            "risk_level": "low"
+        },
+        {
+            "type": "http",
+            "name": "spawn",
+            "description": "异步启动子Agent任务，立即返回task_id（推荐用于并行执行多个任务）",
+            "endpoint": "内置工具",
+            "method": "内置",
+            "risk_level": "low"
+        },
+        {
+            "type": "http",
+            "name": "collect_task",
+            "description": "收集异步子Agent任务的结果，等待任务完成并返回输出",
+            "endpoint": "内置工具",
+            "method": "内置",
+            "risk_level": "low"
+        },
+        {
+            "type": "http",
+            "name": "list_tasks",
+            "description": "列出所有子Agent任务及其状态",
+            "endpoint": "内置工具",
+            "method": "内置",
+            "risk_level": "low"
+        },
+        {
+            "type": "http",
+            "name": "cancel_task",
+            "description": "取消一个正在运行的子Agent任务",
+            "endpoint": "内置工具",
+            "method": "内置",
+            "risk_level": "medium"
         }
     ],
     "a2a": [
@@ -222,6 +260,32 @@
             "entry_script": "python3 scripts/data_export.py",
             "file_path": "data-export",
             "risk_level": "high"
+        }
+    ],
+    "sub_agents": [
+        {
+            "id": "researcher",
+            "name": "研究Agent",
+            "description": "负责信息检索、文献研究和数据分析",
+            "prompt": "你是一个研究助手，擅长搜索和分析信息。根据用户的问题，进行深入研究并返回结构化的研究结果。",
+            "max_iterations": 5,
+            "timeout_ms": 120000
+        },
+        {
+            "id": "coder",
+            "name": "编码Agent",
+            "description": "负责代码编写、调试和代码审查",
+            "prompt": "你是一个编程专家，擅长代码开发。当需要编写代码时使用此Agent。",
+            "max_iterations": 10,
+            "timeout_ms": 300000
+        },
+        {
+            "id": "reviewer",
+            "name": "审核Agent",
+            "description": "负责代码和文档的质量审核",
+            "prompt": "你是一个审核专家，负责检查代码质量和一致性。",
+            "max_iterations": 3,
+            "timeout_ms": 60000
         }
     ],
     "context": {

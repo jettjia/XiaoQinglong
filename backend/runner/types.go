@@ -9,6 +9,7 @@ import (
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/compose"
+	"github.com/jettjia/XiaoQinglong/runner/subagent"
 )
 
 // ========== Global Checkpoint Store Manager ==========
@@ -58,18 +59,19 @@ func SetRunner(id string, r *adkRunner) {
 // ========== Request Types ==========
 
 type RunRequest struct {
-	Prompt         string                 `json:"prompt"`
-	Models         map[string]ModelConfig `json:"models"`
-	Messages       []Message              `json:"messages"`
-	Context        map[string]any          `json:"context"`
-	Knowledge      []KnowledgeItem        `json:"knowledge"`
-	Skills         []Skill                `json:"skills"`
-	MCPs           []MCPConfig            `json:"mcps"`
-	A2A            []A2AAgentConfig       `json:"a2a"`
-	Tools          []ToolConfig           `json:"tools"`
-	InternalAgents []InternalAgentConfig  `json:"internal_agents"`
-	Options        *RunOptions            `json:"options"`
-	Sandbox        *SandboxConfig         `json:"sandbox"`
+	Prompt         string                    `json:"prompt"`
+	Models         map[string]ModelConfig    `json:"models"`
+	Messages       []Message                 `json:"messages"`
+	Context        map[string]any            `json:"context"`
+	Knowledge      []KnowledgeItem           `json:"knowledge"`
+	Skills         []Skill                   `json:"skills"`
+	MCPs           []MCPConfig               `json:"mcps"`
+	A2A            []A2AAgentConfig          `json:"a2a"`
+	Tools          []ToolConfig              `json:"tools"`
+	InternalAgents []InternalAgentConfig     `json:"internal_agents"`
+	SubAgents      []subagent.SubAgentConfig `json:"sub_agents"` // Sub-Agent 配置列表
+	Options        *RunOptions               `json:"options"`
+	Sandbox        *SandboxConfig            `json:"sandbox"`
 }
 
 type Message struct {
@@ -146,28 +148,28 @@ type InternalAgentConfig struct {
 }
 
 type RunOptions struct {
-	Temperature     float64               `json:"temperature"`
-	MaxTokens       int                   `json:"max_tokens"`
-	Stream          bool                  `json:"stream"`
-	TopP            float64               `json:"top_p"`
-	Stop            []string              `json:"stop"`
-	TimeoutMs       int                   `json:"timeout_ms"`
-	MaxIterations   int                   `json:"max_iterations"`
-	MaxToolCalls    int                   `json:"max_tool_calls"`
-	MaxA2ACalls     int                   `json:"max_a2a_calls"`
-	MaxTotalTokens  int                   `json:"max_total_tokens"`
-	Retry           *RetryConfig          `json:"retry"`
-	ResponseSchema  *ResponseSchemaConfig `json:"response_schema"`
-	Routing         *RoutingConfig        `json:"routing"`
-	ApprovalPolicy  *ApprovalPolicy      `json:"approval_policy"`
-	CheckPointID   string               `json:"checkpoint_id"`
+	Temperature    float64               `json:"temperature"`
+	MaxTokens      int                   `json:"max_tokens"`
+	Stream         bool                  `json:"stream"`
+	TopP           float64               `json:"top_p"`
+	Stop           []string              `json:"stop"`
+	TimeoutMs      int                   `json:"timeout_ms"`
+	MaxIterations  int                   `json:"max_iterations"`
+	MaxToolCalls   int                   `json:"max_tool_calls"`
+	MaxA2ACalls    int                   `json:"max_a2a_calls"`
+	MaxTotalTokens int                   `json:"max_total_tokens"`
+	Retry          *RetryConfig          `json:"retry"`
+	ResponseSchema *ResponseSchemaConfig `json:"response_schema"`
+	Routing        *RoutingConfig        `json:"routing"`
+	ApprovalPolicy *ApprovalPolicy       `json:"approval_policy"`
+	CheckPointID   string                `json:"checkpoint_id"`
 }
 
 // ApprovalPolicy 审批策略
 type ApprovalPolicy struct {
-	Enabled        bool     `json:"enabled"`
+	Enabled       bool     `json:"enabled"`
 	RiskThreshold string   `json:"risk_threshold"` // low, medium, high
-	AutoApprove   []string `json:"auto_approve"`  // 白名单，tool names
+	AutoApprove   []string `json:"auto_approve"`   // 白名单，tool names
 }
 
 type RetryConfig struct {
@@ -182,10 +184,10 @@ type RetryConfig struct {
 type ModelRole string
 
 const (
-	ModelRoleDefault    ModelRole = "default"    // 默认模型，用于主对话
-	ModelRoleRewrite    ModelRole = "rewrite"    // 改写模型，用于query改写
-	ModelRoleSkill      ModelRole = "skill"      // 技能模型，用于skill执行
-	ModelRoleSummarize  ModelRole = "summarize"  // 总结模型，用于内容总结
+	ModelRoleDefault   ModelRole = "default"   // 默认模型，用于主对话
+	ModelRoleRewrite   ModelRole = "rewrite"   // 改写模型，用于query改写
+	ModelRoleSkill     ModelRole = "skill"     // 技能模型，用于skill执行
+	ModelRoleSummarize ModelRole = "summarize" // 总结模型，用于内容总结
 )
 
 // RoutingConfig 多模型路由配置
@@ -236,20 +238,20 @@ type SandboxLimits struct {
 // ========== Response Types ==========
 
 type RunResponse struct {
-	Content          string             `json:"content,omitempty"`
-	ToolCalls        []ToolCall         `json:"tool_calls,omitempty"`
-	A2AResults      []A2AResult        `json:"a2a_results,omitempty"`
-	TokensUsed       int                `json:"tokens_used,omitempty"`
-	FinishReason     string             `json:"finish_reason"`
-	Metadata         ResponseMetadata   `json:"metadata"`
-	A2UIMessages     []json.RawMessage  `json:"a2ui_messages,omitempty"`
-	PendingApprovals []PendingApproval  `json:"pending_approvals,omitempty"`
-	CheckPointID     string             `json:"checkpoint_id,omitempty"`
+	Content          string            `json:"content,omitempty"`
+	ToolCalls        []ToolCall        `json:"tool_calls,omitempty"`
+	A2AResults       []A2AResult       `json:"a2a_results,omitempty"`
+	TokensUsed       int               `json:"tokens_used,omitempty"`
+	FinishReason     string            `json:"finish_reason"`
+	Metadata         ResponseMetadata  `json:"metadata"`
+	A2UIMessages     []json.RawMessage `json:"a2ui_messages,omitempty"`
+	PendingApprovals []PendingApproval `json:"pending_approvals,omitempty"`
+	CheckPointID     string            `json:"checkpoint_id,omitempty"`
 }
 
 // PendingApproval 待审批信息
 type PendingApproval struct {
-	InterruptID     string `json:"interrupt_id"`
+	InterruptID   string `json:"interrupt_id"`
 	ToolName      string `json:"tool_name"`
 	ToolType      string `json:"tool_type"`
 	ArgumentsJSON string `json:"arguments_json"`
@@ -265,8 +267,8 @@ type ToolCall struct {
 
 // ResumeRequest resume 请求
 type ResumeRequest struct {
-	CheckPointID string                `json:"checkpoint_id"`
-	Approvals    []ResumeApproval       `json:"approvals"`
+	CheckPointID string           `json:"checkpoint_id"`
+	Approvals    []ResumeApproval `json:"approvals"`
 }
 
 // ResumeApproval 单个审批结果
@@ -278,11 +280,11 @@ type ResumeApproval struct {
 
 // ResumeResponse resume 响应
 type ResumeResponse struct {
-	Success      bool     `json:"success"`
-	Error        string   `json:"error,omitempty"`
-	FinishReason string   `json:"finish_reason"`
-	Content      string   `json:"content,omitempty"`
-	ToolCalls    []ToolCall `json:"tool_calls,omitempty"`
+	Success      bool             `json:"success"`
+	Error        string           `json:"error,omitempty"`
+	FinishReason string           `json:"finish_reason"`
+	Content      string           `json:"content,omitempty"`
+	ToolCalls    []ToolCall       `json:"tool_calls,omitempty"`
 	Metadata     ResponseMetadata `json:"metadata"`
 }
 

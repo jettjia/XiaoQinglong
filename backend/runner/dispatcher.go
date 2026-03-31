@@ -11,13 +11,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
-	"github.com/cloudwego/eino-ext/components/model/openai"
+	"github.com/google/uuid"
+	"github.com/jettjia/XiaoQinglong/runner/subagent"
 )
 
 // ========== Dispatch Result ==========
@@ -35,17 +36,17 @@ type DispatchResult struct {
 }
 
 type ResultMetadata struct {
-	Model           string
-	LatencyMs       int64
-	TotalLatencyMs  int64
-	PromptTokens    int
+	Model            string
+	LatencyMs        int64
+	TotalLatencyMs   int64
+	PromptTokens     int
 	CompletionTokens int
-	ToolCallsCount  int
-	A2ACallsCount   int
-	SkillCallsCount int
-	Iterations      int
-	ToolCallsDetail []ToolCallMetadata
-	Error           string
+	ToolCallsCount   int
+	A2ACallsCount    int
+	SkillCallsCount  int
+	Iterations       int
+	ToolCallsDetail  []ToolCallMetadata
+	Error            string
 }
 
 type ToolCallMetadata struct {
@@ -65,15 +66,16 @@ type Dispatcher struct {
 	// 组件
 	defaultModel     model.ToolCallingChatModel
 	defaultModelName string
-	models          map[string]model.ToolCallingChatModel
-	modelsByRole    map[ModelRole]model.ToolCallingChatModel
-	tools          []tool.BaseTool
-	toolConfigs    map[string]ToolConfig // tool name -> config for interrupt handling
-	a2aRunners     map[string]*adk.Runner
-	internalAgents map[string]adk.Agent
-	skillRunner    *SkillRunner
-	skillPlanner   *SkillPlanner // LLM 驱动的技能规划器
-	a2aCallCount   int
+	models           map[string]model.ToolCallingChatModel
+	modelsByRole     map[ModelRole]model.ToolCallingChatModel
+	tools            []tool.BaseTool
+	toolConfigs      map[string]ToolConfig // tool name -> config for interrupt handling
+	a2aRunners       map[string]*adk.Runner
+	internalAgents   map[string]adk.Agent
+	skillRunner      *SkillRunner
+	skillPlanner     *SkillPlanner             // LLM 驱动的技能规划器
+	subAgentManager  *subagent.SubAgentManager // Sub-Agent 管理器
+	a2aCallCount     int
 }
 
 func NewDispatcher(req *RunRequest) *Dispatcher {
@@ -104,7 +106,13 @@ func (d *Dispatcher) Run(ctx context.Context) (*DispatchResult, error) {
 		return nil, fmt.Errorf("init internal agents failed: %w", err)
 	}
 
-	// 5. 初始化 MCP
+	// 5. 初始化 Sub-Agents
+	if err := d.initSubAgents(ctx); err != nil {
+		log.Printf("[Dispatcher] Warning: init sub-agents failed: %v", err)
+		// Sub-Agent 初始化失败不影响主流程，继续执行
+	}
+
+	// 6. 初始化 MCP
 	if err := d.initMCPs(ctx); err != nil {
 		log.Printf("[Dispatcher] Warning: init mcps failed: %v", err)
 	}
@@ -365,6 +373,43 @@ func (d *Dispatcher) initInternalAgents(ctx context.Context) error {
 	return nil
 }
 
+// initSubAgents 初始化 Sub-Agent 管理器
+func (d *Dispatcher) initSubAgents(ctx context.Context) error {
+	if len(d.request.SubAgents) == 0 {
+		log.Printf("[Dispatcher] initSubAgents: no sub-agents configured")
+		return nil
+	}
+
+	// 创建 Sub-Agent 管理器
+	d.subAgentManager = subagent.NewSubAgentManager(d.defaultModel)
+
+	// 注册 Sub-Agent 配置
+	d.subAgentManager.RegisterConfigs(d.request.SubAgents)
+
+	// 创建 spawn 工具（异步并行执行）
+	spawnTool := subagent.NewSpawnTool(d.subAgentManager)
+	d.tools = append(d.tools, spawnTool)
+
+	// 创建 collect_task 工具（获取异步任务结果）
+	collectTool := subagent.NewCollectTaskTool(d.subAgentManager)
+	d.tools = append(d.tools, collectTool)
+
+	// 创建 list_tasks 工具（列出所有任务）
+	listTasksTool := subagent.NewListTasksTool(d.subAgentManager)
+	d.tools = append(d.tools, listTasksTool)
+
+	// 创建 cancel_task 工具（取消任务）
+	cancelTool := subagent.NewCancelTaskTool(d.subAgentManager)
+	d.tools = append(d.tools, cancelTool)
+
+	// 创建 Delegate 工具（同步执行，保持向后兼容）
+	delegateTool := subagent.NewDelegateTool(d.subAgentManager)
+	d.tools = append(d.tools, delegateTool)
+
+	log.Printf("[Dispatcher] initSubAgents: %d sub-agents registered, spawn/collect/list/cancel/delegate tools added", len(d.request.SubAgents))
+	return nil
+}
+
 // initMCPs 初始化 MCP 工具
 func (d *Dispatcher) initMCPs(ctx context.Context) error {
 	if len(d.request.MCPs) == 0 {
@@ -411,8 +456,8 @@ func (d *Dispatcher) initMCPs(ctx context.Context) error {
 			}
 			// 创建 stdio MCP tool 并添加
 			mcpTool := &mcpStdioTool{
-				name:    mcpCfg.Name,
-				client:  client,
+				name:   mcpCfg.Name,
+				client: client,
 			}
 			// 根据 risk_level 判断是否需要包装审批
 			wrapped := d.wrapToolWithApproval(mcpTool, mcpCfg.Name, "mcp", mcpCfg.RiskLevel)
@@ -435,8 +480,8 @@ type mcpStdioTool struct {
 
 func (t *mcpStdioTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
-		Name:        t.name,
-		Desc:        fmt.Sprintf("MCP tool via stdio: %s", t.name),
+		Name: t.name,
+		Desc: fmt.Sprintf("MCP tool via stdio: %s", t.name),
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"args": {Type: schema.Object, Desc: "Tool arguments", Required: false},
 		}),
@@ -833,11 +878,11 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 
 	// 构建 Agent 配置
 	agentConfig := &adk.ChatModelAgentConfig{
-		Name:           "main_agent",
-		Description:    "Main agent with skill, A2A, MCP and tool support",
-		Instruction:    d.buildSystemPrompt(),
-		Model:          d.defaultModel,
-		MaxIterations:  maxIterations,
+		Name:             "main_agent",
+		Description:      "Main agent with skill, A2A, MCP and tool support",
+		Instruction:      d.buildSystemPrompt(),
+		Model:            d.defaultModel,
+		MaxIterations:    maxIterations,
 		ModelRetryConfig: d.buildModelRetryConfig(),
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
@@ -944,13 +989,13 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 					PendingApprovals: pendingApprovals,
 					CheckPointID:     checkpointID,
 					Metadata: &ResultMetadata{
-						Model:             d.defaultModelName,
-						TotalLatencyMs:    time.Since(startTime).Milliseconds(),
-						ToolCallsCount:    toolCallCount,
-						Iterations:        toolCallCount,
-						PromptTokens:      totalPromptTokens,
-						CompletionTokens:  totalCompletionTokens,
-						ToolCallsDetail:   toolCallsDetail,
+						Model:            d.defaultModelName,
+						TotalLatencyMs:   time.Since(startTime).Milliseconds(),
+						ToolCallsCount:   toolCallCount,
+						Iterations:       toolCallCount,
+						PromptTokens:     totalPromptTokens,
+						CompletionTokens: totalCompletionTokens,
+						ToolCallsDetail:  toolCallsDetail,
 					},
 				}, nil
 			}
@@ -975,13 +1020,13 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 					PendingApprovals: pendingApprovals,
 					CheckPointID:     checkpointID,
 					Metadata: &ResultMetadata{
-						Model:             d.defaultModelName,
-						TotalLatencyMs:    time.Since(startTime).Milliseconds(),
-						ToolCallsCount:    toolCallCount,
-						Iterations:        toolCallCount,
-						PromptTokens:      totalPromptTokens,
-						CompletionTokens:  totalCompletionTokens,
-						ToolCallsDetail:   toolCallsDetail,
+						Model:            d.defaultModelName,
+						TotalLatencyMs:   time.Since(startTime).Milliseconds(),
+						ToolCallsCount:   toolCallCount,
+						Iterations:       toolCallCount,
+						PromptTokens:     totalPromptTokens,
+						CompletionTokens: totalCompletionTokens,
+						ToolCallsDetail:  toolCallsDetail,
 					},
 				}, nil
 			}
@@ -1063,13 +1108,13 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 					ToolCalls:    toolCalls,
 					FinishReason: "max_total_tokens_exceeded",
 					Metadata: &ResultMetadata{
-						Model:             d.defaultModelName,
-						TotalLatencyMs:    time.Since(startTime).Milliseconds(),
-						ToolCallsCount:    toolCallCount,
-						Iterations:        toolCallCount,
-						PromptTokens:      totalPromptTokens,
-						CompletionTokens:  totalCompletionTokens,
-						ToolCallsDetail:   toolCallsDetail,
+						Model:            d.defaultModelName,
+						TotalLatencyMs:   time.Since(startTime).Milliseconds(),
+						ToolCallsCount:   toolCallCount,
+						Iterations:       toolCallCount,
+						PromptTokens:     totalPromptTokens,
+						CompletionTokens: totalCompletionTokens,
+						ToolCallsDetail:  toolCallsDetail,
 					},
 				}, nil
 			}
@@ -1082,10 +1127,10 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 						ToolCalls:    toolCalls,
 						FinishReason: "max_tool_calls_exceeded",
 						Metadata: &ResultMetadata{
-							Model:          d.defaultModelName,
-							TotalLatencyMs: time.Since(startTime).Milliseconds(),
-							ToolCallsCount: toolCallCount,
-							Iterations:     toolCallCount,
+							Model:           d.defaultModelName,
+							TotalLatencyMs:  time.Since(startTime).Milliseconds(),
+							ToolCallsCount:  toolCallCount,
+							Iterations:      toolCallCount,
 							ToolCallsDetail: toolCallsDetail,
 						},
 					}, nil
@@ -1115,48 +1160,48 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 		// 处理流式输出
 		if event.Output.MessageOutput != nil {
 			if stream := event.Output.MessageOutput.MessageStream; stream != nil {
-			for {
-				chunk, err := stream.Recv()
-				if err != nil {
-					// 流关闭或错误时退出
-					if err.Error() == "EOF" || strings.Contains(err.Error(), "closed") {
-						break
+				for {
+					chunk, err := stream.Recv()
+					if err != nil {
+						// 流关闭或错误时退出
+						if err.Error() == "EOF" || strings.Contains(err.Error(), "closed") {
+							break
+						}
+						return nil, fmt.Errorf("stream error: %w", err)
 					}
-					return nil, fmt.Errorf("stream error: %w", err)
-				}
-				finalContent += chunk.Content
-				for _, tc := range chunk.ToolCalls {
-					toolCallCount++
-					if maxToolCalls > 0 && toolCallCount > maxToolCalls {
-						return &DispatchResult{
-							Content:      finalContent,
-							ToolCalls:    toolCalls,
-							FinishReason: "max_tool_calls_exceeded",
-							Metadata: &ResultMetadata{
-								Model:          d.defaultModelName,
-								TotalLatencyMs: time.Since(startTime).Milliseconds(),
-								ToolCallsCount: toolCallCount,
-								Iterations:     toolCallCount,
-								ToolCallsDetail: toolCallsDetail,
-							},
-						}, nil
+					finalContent += chunk.Content
+					for _, tc := range chunk.ToolCalls {
+						toolCallCount++
+						if maxToolCalls > 0 && toolCallCount > maxToolCalls {
+							return &DispatchResult{
+								Content:      finalContent,
+								ToolCalls:    toolCalls,
+								FinishReason: "max_tool_calls_exceeded",
+								Metadata: &ResultMetadata{
+									Model:           d.defaultModelName,
+									TotalLatencyMs:  time.Since(startTime).Milliseconds(),
+									ToolCallsCount:  toolCallCount,
+									Iterations:      toolCallCount,
+									ToolCallsDetail: toolCallsDetail,
+								},
+							}, nil
+						}
+						toolCalls = append(toolCalls, ToolCall{
+							Tool:   tc.Function.Name,
+							Input:  tc.Function.Arguments,
+							Output: nil,
+						})
+						toolCallsDetail = append(toolCallsDetail, ToolCallMetadata{
+							Tool:      tc.Function.Name,
+							Input:     tc.Function.Arguments,
+							LatencyMs: 0,
+							Success:   true,
+						})
 					}
-					toolCalls = append(toolCalls, ToolCall{
-						Tool:   tc.Function.Name,
-						Input:  tc.Function.Arguments,
-						Output: nil,
-					})
-					toolCallsDetail = append(toolCallsDetail, ToolCallMetadata{
-						Tool:      tc.Function.Name,
-						Input:     tc.Function.Arguments,
-						LatencyMs: 0,
-						Success:   true,
-					})
+					if len(chunk.ToolCalls) > 0 {
+						finishReason = "tool"
+					}
 				}
-				if len(chunk.ToolCalls) > 0 {
-					finishReason = "tool"
-				}
-			}
 			}
 		}
 	}
@@ -1179,13 +1224,13 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 		PendingApprovals: pendingApprovals,
 		CheckPointID:     checkpointID,
 		Metadata: &ResultMetadata{
-			Model:             d.defaultModelName,
-			TotalLatencyMs:    time.Since(startTime).Milliseconds(),
-			ToolCallsCount:    toolCallCount,
-			Iterations:        toolCallCount,
-			PromptTokens:      totalPromptTokens,
-			CompletionTokens:  totalCompletionTokens,
-			ToolCallsDetail:   toolCallsDetail,
+			Model:            d.defaultModelName,
+			TotalLatencyMs:   time.Since(startTime).Milliseconds(),
+			ToolCallsCount:   toolCallCount,
+			Iterations:       toolCallCount,
+			PromptTokens:     totalPromptTokens,
+			CompletionTokens: totalCompletionTokens,
+			ToolCallsDetail:  toolCallsDetail,
 		},
 	}, nil
 }
@@ -1248,11 +1293,11 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 		}
 
 		agentConfig := &adk.ChatModelAgentConfig{
-			Name:           "main_agent",
-			Description:    "Main agent with skill, A2A, MCP and tool support",
-			Instruction:    d.buildSystemPrompt(),
-			Model:          d.defaultModel,
-			MaxIterations:  maxIterations,
+			Name:             "main_agent",
+			Description:      "Main agent with skill, A2A, MCP and tool support",
+			Instruction:      d.buildSystemPrompt(),
+			Model:            d.defaultModel,
+			MaxIterations:    maxIterations,
 			ModelRetryConfig: d.buildModelRetryConfig(),
 			ToolsConfig: adk.ToolsConfig{
 				ToolsNodeConfig: compose.ToolsNodeConfig{
@@ -1313,8 +1358,8 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 						eventsChan <- StreamEvent{
 							Type: "tool_call",
 							Data: map[string]any{
-								"agent":    event.AgentName,
-								"tool":     tc.Function.Name,
+								"agent":     event.AgentName,
+								"tool":      tc.Function.Name,
 								"arguments": tc.Function.Arguments,
 							},
 						}
@@ -1337,10 +1382,10 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 					eventsChan <- StreamEvent{
 						Type: "tool",
 						Data: map[string]any{
-							"agent":      event.AgentName,
-							"tool":       mo.Message.ToolName,
+							"agent":        event.AgentName,
+							"tool":         mo.Message.ToolName,
 							"tool_call_id": mo.Message.ToolCallID,
-							"output":    content,
+							"output":       content,
 						},
 					}
 				}
@@ -1369,10 +1414,10 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 								eventsChan <- StreamEvent{
 									Type: "tool",
 									Data: map[string]any{
-										"agent":      event.AgentName,
-										"tool":       chunk.ToolName,
+										"agent":        event.AgentName,
+										"tool":         chunk.ToolName,
 										"tool_call_id": chunk.ToolCallID,
-										"output":    content,
+										"output":       content,
 									},
 								}
 							}
@@ -1394,8 +1439,8 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 		}
 
 		eventsChan <- StreamEvent{Type: "done", Data: map[string]any{
-			"content":          out.String(),
-			"prompt_tokens":    totalPromptTokens,
+			"content":           out.String(),
+			"prompt_tokens":     totalPromptTokens,
 			"completion_tokens": totalCompletionTokens,
 			"total_tokens":      totalPromptTokens + totalCompletionTokens,
 			"tool_calls_count":  toolCallsCount,
@@ -1476,7 +1521,7 @@ func (d *Dispatcher) buildA2UIMessagesFromSchema(content string, schema map[stri
 
 	createSurface, _ := json.Marshal(map[string]any{
 		"createSurface": map[string]any{
-			"surfaceId":  surfaceID,
+			"surfaceId": surfaceID,
 			"catalogId": "standard",
 		},
 	})
