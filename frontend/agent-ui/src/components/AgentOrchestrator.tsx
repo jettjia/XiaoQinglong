@@ -301,6 +301,7 @@ export function AgentOrchestrator() {
             variables: {},
           },
           knowledge,
+          sub_agents: subAgents,
         };
       };
 
@@ -340,6 +341,7 @@ export function AgentOrchestrator() {
           stream: agentConfig.stream,
           sandbox: agentConfig.sandbox,
           responseSchema: agentConfig.responseSchema,
+          subAgents: subAgents,
         }),
         // config_json: 可直接运行的完整配置版本
         config_json: JSON.stringify(generateFullConfig(), null, 2),
@@ -408,6 +410,11 @@ export function AgentOrchestrator() {
   // Skill Category State
   const [skillCategory, setSkillCategory] = React.useState<'all' | 'built-in' | 'mcp' | 'tool' | 'a2a' | 'skill'>('all');
 
+  // Sub-Agents State
+  const [subAgents, setSubAgents] = React.useState<any[]>([]);
+  const [isSubAgentModalOpen, setIsSubAgentModalOpen] = React.useState(false);
+  const [editingSubAgent, setEditingSubAgent] = React.useState<any>(null);
+
   const filteredSkills = backendSkills.filter(skill =>
     skillCategory === 'all' || skill.skill_type === skillCategory
   );
@@ -437,6 +444,41 @@ export function AgentOrchestrator() {
         ? prev.channels.filter(c => c !== channel)
         : [...prev.channels, channel]
     }));
+  };
+
+  // Sub-Agent handlers
+  const handleAddSubAgent = () => {
+    setEditingSubAgent({
+      id: `agent_${Date.now()}`,
+      name: '',
+      description: '',
+      prompt: '',
+      max_iterations: 5,
+      timeout_ms: 120000,
+    });
+    setIsSubAgentModalOpen(true);
+  };
+
+  const handleEditSubAgent = (agent: any) => {
+    setEditingSubAgent({ ...agent });
+    setIsSubAgentModalOpen(true);
+  };
+
+  const handleDeleteSubAgent = (agentId: string) => {
+    setSubAgents(prev => prev.filter(a => a.id !== agentId));
+  };
+
+  const handleSaveSubAgent = () => {
+    if (!editingSubAgent) return;
+
+    const exists = subAgents.find(a => a.id === editingSubAgent.id);
+    if (exists) {
+      setSubAgents(prev => prev.map(a => a.id === editingSubAgent.id ? editingSubAgent : a));
+    } else {
+      setSubAgents(prev => [...prev, editingSubAgent]);
+    }
+    setIsSubAgentModalOpen(false);
+    setEditingSubAgent(null);
   };
 
   const handleApprove = async (messageId: string) => {
@@ -1131,6 +1173,91 @@ export function AgentOrchestrator() {
                 </button>
               ))}
             </div>
+          </section>
+
+          {/* Sub-Agents Section */}
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-slate-900">
+                <Users size={18} className="text-brand-500" />
+                <h2 className="font-bold">{t('orchestrator.subAgents')}</h2>
+              </div>
+              <button
+                onClick={handleAddSubAgent}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-brand-500 text-white rounded-lg text-xs font-bold hover:bg-brand-600 transition-all"
+              >
+                <Plus size={14} />
+                {t('orchestrator.addSubAgent')}
+              </button>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+              {subAgents.length === 0 ? (
+                <div className="py-12 text-center">
+                  <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-300 mx-auto mb-4">
+                    <Users size={24} />
+                  </div>
+                  <p className="text-sm font-medium text-slate-500">{t('orchestrator.noSubAgents')}</p>
+                  <p className="text-xs text-slate-400 mt-1">{t('orchestrator.noSubAgentsDesc')}</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {subAgents.map((agent) => (
+                    <div key={agent.id} className="p-4 hover:bg-slate-50 transition-colors">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-slate-900">{agent.name || t('orchestrator.unnamedAgent')}</span>
+                            <span className="text-[9px] font-mono bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">{agent.id}</span>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-1 line-clamp-1">{agent.description || t('orchestrator.noDescription')}</p>
+                          <div className="flex items-center gap-4 mt-2">
+                            <span className="text-[10px] text-slate-400">
+                              <span className="font-medium">{t('orchestrator.maxIterations')}:</span> {agent.max_iterations}
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              <span className="font-medium">{t('orchestrator.timeoutMs')}:</span> {agent.timeout_ms}ms
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 ml-4">
+                          <button
+                            onClick={() => handleEditSubAgent(agent)}
+                            className="p-1.5 text-slate-400 hover:text-brand-500 hover:bg-brand-50 rounded-lg transition-all"
+                          >
+                            <Settings2 size={14} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteSubAgent(agent.id)}
+                            className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                      {agent.prompt && (
+                        <div className="mt-3 p-2 bg-slate-50 rounded-lg">
+                          <p className="text-[10px] text-slate-500 line-clamp-2 font-mono">{agent.prompt}</p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {subAgents.length > 0 && (
+              <div className="flex items-center gap-6 p-4 bg-slate-50 rounded-xl">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-slate-500">{t('orchestrator.total')}:</span>
+                  <span className="text-xs font-bold text-brand-500">{subAgents.length} {t('orchestrator.agentCount')}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-slate-500">{t('orchestrator.maxConcurrent')}:</span>
+                  <span className="text-xs font-bold text-brand-500">3</span>
+                </div>
+              </div>
+            )}
           </section>
 
           {/* System Prompt */}
@@ -1850,6 +1977,126 @@ export function AgentOrchestrator() {
           )}
         </div>
       </div>
+
+      {/* Sub-Agent Edit Modal */}
+      {isSubAgentModalOpen && editingSubAgent && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl w-[560px] shadow-2xl max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white">
+              <h2 className="text-lg font-bold text-slate-900">
+                {subAgents.find(a => a.id === editingSubAgent.id) ? t('orchestrator.editSubAgent') : t('orchestrator.addSubAgent')}
+              </h2>
+              <button
+                onClick={() => setIsSubAgentModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 transition-all"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 space-y-6">
+              {/* ID */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t('orchestrator.subAgentId')}</label>
+                <input
+                  type="text"
+                  value={editingSubAgent.id}
+                  onChange={(e) => setEditingSubAgent(prev => ({ ...prev, id: e.target.value }))}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500/20 outline-none font-mono"
+                  placeholder="e.g., researcher"
+                />
+                <p className="text-[10px] text-slate-400">{t('orchestrator.subAgentIdDesc')}</p>
+              </div>
+
+              {/* Name */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t('orchestrator.subAgentName')}</label>
+                <input
+                  type="text"
+                  value={editingSubAgent.name}
+                  onChange={(e) => setEditingSubAgent(prev => ({ ...prev, name: e.target.value }))}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500/20 outline-none"
+                  placeholder="e.g., Researcher Agent"
+                />
+              </div>
+
+              {/* Description */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t('orchestrator.subAgentDesc')}</label>
+                <input
+                  type="text"
+                  value={editingSubAgent.description}
+                  onChange={(e) => setEditingSubAgent(prev => ({ ...prev, description: e.target.value }))}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500/20 outline-none"
+                  placeholder="Brief description of what this agent does"
+                />
+              </div>
+
+              {/* Prompt */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t('orchestrator.subAgentPrompt')}</label>
+                <textarea
+                  value={editingSubAgent.prompt}
+                  onChange={(e) => setEditingSubAgent(prev => ({ ...prev, prompt: e.target.value }))}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-brand-500/20 outline-none resize-none font-mono"
+                  rows={5}
+                  placeholder="You are a research assistant specialized in..."
+                />
+                <p className="text-[10px] text-slate-400">{t('orchestrator.subAgentPromptDesc')}</p>
+              </div>
+
+              {/* Advanced Settings */}
+              <div className="p-4 bg-slate-50 rounded-xl space-y-4">
+                <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                  <Settings2 size={12} />
+                  {t('orchestrator.advancedSettings')}
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-slate-600">{t('orchestrator.maxIterations')}</label>
+                    <input
+                      type="number"
+                      value={editingSubAgent.max_iterations}
+                      onChange={(e) => setEditingSubAgent(prev => ({ ...prev, max_iterations: parseInt(e.target.value) || 5 }))}
+                      className="w-full px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+                      min={1}
+                      max={20}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-slate-600">{t('orchestrator.timeoutMs')}</label>
+                    <input
+                      type="number"
+                      value={editingSubAgent.timeout_ms}
+                      onChange={(e) => setEditingSubAgent(prev => ({ ...prev, timeout_ms: parseInt(e.target.value) || 120000 }))}
+                      className="w-full px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+                      min={1000}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-6 border-t border-slate-100 flex justify-end gap-3 sticky bottom-0 bg-white">
+              <button
+                onClick={() => setIsSubAgentModalOpen(false)}
+                className="px-6 py-2.5 bg-slate-100 text-slate-700 rounded-xl text-sm font-bold hover:bg-slate-200 transition-all"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                onClick={handleSaveSubAgent}
+                className="px-6 py-2.5 bg-brand-500 text-white rounded-xl text-sm font-bold hover:bg-brand-600 transition-all shadow-lg shadow-brand-500/20"
+              >
+                {t('orchestrator.saveSubAgent')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Deploy Agent Modal */}
       {isDeployModalOpen && (

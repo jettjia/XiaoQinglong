@@ -317,7 +317,27 @@ const resources = {
           triggers: 'Triggers',
           logic: 'Logic',
           actions: 'Actions'
-        }
+        },
+        // Sub-Agents
+        subAgents: 'Sub-Agents',
+        addSubAgent: 'Add Sub-Agent',
+        editSubAgent: 'Edit Sub-Agent',
+        saveSubAgent: 'Save Agent',
+        subAgentId: 'Agent ID',
+        subAgentIdDesc: 'Unique identifier for this agent. Used when delegating tasks.',
+        subAgentName: 'Name',
+        subAgentDesc: 'Description',
+        subAgentPrompt: 'System Prompt',
+        subAgentPromptDesc: 'The system prompt that defines this agent behavior and capabilities.',
+        advancedSettings: 'Advanced Settings',
+        timeoutMs: 'Timeout (ms)',
+        noSubAgents: 'No sub-agents configured',
+        noSubAgentsDesc: 'Click "Add Sub-Agent" to create a sub-agent that can be delegated tasks',
+        unnamedAgent: 'Unnamed Agent',
+        noDescription: 'No description',
+        total: 'Total',
+        agentCount: 'agent(s)',
+        maxConcurrent: 'Max Concurrent'
       },
       settings: {
         title: 'Global Configuration',
@@ -723,7 +743,27 @@ const resources = {
           triggers: '触发器',
           logic: '逻辑',
           actions: '操作'
-        }
+        },
+        // Sub-Agents
+        subAgents: '子Agent',
+        addSubAgent: '添加子Agent',
+        editSubAgent: '编辑子Agent',
+        saveSubAgent: '保存Agent',
+        subAgentId: 'Agent ID',
+        subAgentIdDesc: '唯一标识符，用于委托任务时引用此Agent',
+        subAgentName: '名称',
+        subAgentDesc: '描述',
+        subAgentPrompt: '系统提示词',
+        subAgentPromptDesc: '定义此Agent行为和能力系统提示词',
+        advancedSettings: '高级设置',
+        timeoutMs: '超时时间 (ms)',
+        noSubAgents: '暂未配置子Agent',
+        noSubAgentsDesc: '点击「添加子Agent」创建一个可委托任务的子Agent',
+        unnamedAgent: '未命名Agent',
+        noDescription: '暂无描述',
+        total: '总计',
+        agentCount: '个Agent',
+        maxConcurrent: '最大并发'
       },
       settings: {
         title: '全局配置',
