@@ -110,9 +110,9 @@ func (h *Handler) Run(c *gin.Context) {
 	if options, ok := agentConfig["options"].(map[string]any); ok && len(options) > 0 {
 		runnerReq["options"] = options
 	}
-	if knowledge, ok := agentConfig["knowledge"].([]any); ok && len(knowledge) > 0 {
-		runnerReq["knowledge"] = knowledge
-	}
+	// 注意：不要把 config_json 中的 knowledge 传给 runner，
+	// 因为 agent-frame 已经把召回结果注入到 messages 的 system message 中了
+	// 如果传入无效的 placeholder（如 id: "kc"），会导致 runner 尝试调用不存在的 skill
 	if mcps, ok := agentConfig["mcps"].([]any); ok && len(mcps) > 0 {
 		runnerReq["mcps"] = mcps
 	}
@@ -230,6 +230,13 @@ func (h *Handler) Run(c *gin.Context) {
 		c.Header("Cache-Control", "no-cache")
 		c.Header("Connection", "keep-alive")
 		c.Header("Access-Control-Allow-Origin", "*")
+
+		// 先发送召回完成事件
+		if len(knowledgeContext) > 0 {
+			recallMsg := fmt.Sprintf("event: recall_complete\ndata: {\"count\": %d, \"message\": \"知识召回完成\"}\n\n", len(knowledgeContext))
+			c.Writer.Write([]byte(recallMsg))
+			c.Writer.Flush()
+		}
 
 		// 直接将 SSE 数据流式转发给客户端
 		c.Status(resp.StatusCode)

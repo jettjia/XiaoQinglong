@@ -130,7 +130,13 @@ export interface Message {
     name: string;
     args: any;
     result?: any;
+    status?: 'pending' | 'running' | 'completed' | 'error';
   }[];
+  recallInfo?: {
+    status: 'pending' | 'running' | 'completed';
+    count?: number;
+    message?: string;
+  };
   a2ui?: {
     type: string;
     data: any;

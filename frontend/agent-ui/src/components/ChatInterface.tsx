@@ -83,6 +83,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
   const [isTraceOpen, setIsTraceOpen] = React.useState(false);
   const [selectedMessageId, setSelectedMessageId] = React.useState<string | null>(null);
   const [showThinking, setShowThinking] = React.useState<Record<string, boolean>>({});
+  const [collapsedTools, setCollapsedTools] = React.useState<Record<string, boolean>>({});
   const [pendingApprovals, setPendingApprovals] = React.useState<PendingApproval[]>([]);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const abortControllerRef = React.useRef<AbortController | null>(null);
@@ -370,6 +371,9 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
         const assistantMsgId = (Date.now() + 1).toString();
         let accumulatedContent = '';
         let streamTokenUsage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } = {};
+        let toolCalls: Message['toolCalls'] = [];
+        let pendingToolCall: { name: string; args: any } | null = null;
+        let recallInfo: Message['recallInfo'] = { status: 'running' };
 
         // 先创建一条空消息用于流式更新
         const assistantMessage: Message = {
@@ -377,13 +381,24 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
           role: 'assistant',
           content: '',
           timestamp: new Date(),
-          status: 'streaming'
+          status: 'streaming',
+          toolCalls: [],
+          recallInfo: { status: 'running' }
         };
         setMessages(prev => [...prev, assistantMessage]);
 
         const decoder = new TextDecoder();
         let buffer = '';
         let currentEventType = '';
+
+        // 更新消息内容和方法调用的辅助函数
+        const updateMessage = (updates: Partial<Message>) => {
+          setMessages(prev => prev.map(m =>
+            m.id === assistantMsgId
+              ? { ...m, ...updates }
+              : m
+          ));
+        };
 
         try {
           while (true) {
@@ -408,11 +423,39 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
 
                   if (data.text) {
                     accumulatedContent += data.text;
-                    setMessages(prev => prev.map(m =>
-                      m.id === assistantMsgId
-                        ? { ...m, content: accumulatedContent }
-                        : m
-                    ));
+                    updateMessage({ content: accumulatedContent });
+                  }
+
+                  // 处理 recall_complete 事件 - 显示知识召回完成
+                  if (currentEventType === 'recall_complete') {
+                    recallInfo = { status: 'completed', count: data.count, message: data.message };
+                    updateMessage({ recallInfo });
+                  }
+
+                  // 处理 tool_call 事件 - 显示正在调用的工具
+                  if (currentEventType === 'tool_call') {
+                    const toolName = data.tool || data.name || 'unknown';
+                    pendingToolCall = { name: toolName, args: data.arguments || {} };
+                    toolCalls = [...toolCalls, { name: toolName, args: data.arguments, result: '执行中...', status: 'running' }];
+                    updateMessage({ toolCalls: [...toolCalls] });
+                  }
+
+                  // 处理 tool 事件 - 显示工具执行结果（可能没有前置 tool_call）
+                  if (currentEventType === 'tool') {
+                    const toolName = data.tool || pendingToolCall?.name || 'unknown';
+                    if (pendingToolCall && toolCalls.length > 0) {
+                      // 更新最后一个 toolCall 的结果
+                      toolCalls = toolCalls.map((tc, idx) =>
+                        idx === toolCalls.length - 1
+                          ? { ...tc, result: data.output || '(无输出)', status: 'completed' }
+                          : tc
+                      );
+                    } else {
+                      // 没有 pendingToolCall，说明是独立的 tool 事件，直接添加
+                      toolCalls = [...toolCalls, { name: toolName, args: {}, result: data.output || '(无输出)', status: 'completed' }];
+                    }
+                    pendingToolCall = null;
+                    updateMessage({ toolCalls: [...toolCalls] });
                   }
 
                   if (currentEventType === 'done') {
@@ -421,15 +464,15 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                       completion_tokens: data.completion_tokens,
                       total_tokens: data.total_tokens
                     };
-                    setMessages(prev => prev.map(m =>
-                      m.id === assistantMsgId
-                        ? { ...m, content: data.content || accumulatedContent, status: 'completed' }
-                        : m
-                    ));
+                    updateMessage({ content: data.content || accumulatedContent, status: 'completed', toolCalls: [...toolCalls] });
                   }
 
                   if (currentEventType === 'error') {
                     console.error('Stream error:', data.error);
+                    // 将错误信息添加到消息内容中显示给用户
+                    const errorMsg = `\n\n⚠️ 执行错误: ${data.error}\n`;
+                    accumulatedContent += errorMsg;
+                    updateMessage({ content: accumulatedContent });
                   }
                 } catch (e) {
                   // 忽略解析错误
@@ -441,11 +484,36 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
 
                   if (data.text) {
                     accumulatedContent += data.text;
-                    setMessages(prev => prev.map(m =>
-                      m.id === assistantMsgId
-                        ? { ...m, content: accumulatedContent }
-                        : m
-                    ));
+                    updateMessage({ content: accumulatedContent });
+                  }
+
+                  // 处理 recall_complete 事件
+                  if (currentEventType === 'recall_complete') {
+                    recallInfo = { status: 'completed', count: data.count, message: data.message };
+                    updateMessage({ recallInfo });
+                  }
+
+                  // 处理 tool_call 事件
+                  if (currentEventType === 'tool_call') {
+                    pendingToolCall = { name: data.tool || data.name, args: data.arguments || {} };
+                    toolCalls = [...toolCalls, { name: data.tool || data.name, args: data.arguments, result: '执行中...', status: 'running' }];
+                    updateMessage({ toolCalls: [...toolCalls] });
+                  }
+
+                  // 处理 tool 事件（可能没有前置 tool_call）
+                  if (currentEventType === 'tool') {
+                    const toolName = data.tool || pendingToolCall?.name || 'unknown';
+                    if (pendingToolCall && toolCalls.length > 0) {
+                      toolCalls = toolCalls.map((tc, idx) =>
+                        idx === toolCalls.length - 1
+                          ? { ...tc, result: data.output || '(无输出)', status: 'completed' }
+                          : tc
+                      );
+                    } else {
+                      toolCalls = [...toolCalls, { name: toolName, args: {}, result: data.output || '(无输出)', status: 'completed' }];
+                    }
+                    pendingToolCall = null;
+                    updateMessage({ toolCalls: [...toolCalls] });
                   }
 
                   if (currentEventType === 'done') {
@@ -454,15 +522,14 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                       completion_tokens: data.completion_tokens,
                       total_tokens: data.total_tokens
                     };
-                    setMessages(prev => prev.map(m =>
-                      m.id === assistantMsgId
-                        ? { ...m, content: data.content || accumulatedContent, status: 'completed' }
-                        : m
-                    ));
+                    updateMessage({ content: data.content || accumulatedContent, status: 'completed', toolCalls: [...toolCalls] });
                   }
 
                   if (currentEventType === 'error') {
                     console.error('Stream error:', data.error);
+                    const errorMsg = `\n\n⚠️ 执行错误: ${data.error}\n`;
+                    accumulatedContent += errorMsg;
+                    updateMessage({ content: accumulatedContent });
                   }
                 } catch (e) {
                   // 忽略解析错误
@@ -853,36 +920,94 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                   </div>
                 )}
 
+                {/* Recall Status */}
+                {msg.recallInfo && (
+                  <div className="w-full max-w-2xl mb-2">
+                    <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                      {msg.recallInfo.status === 'running' ? (
+                        <>
+                          <div className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse" />
+                          <span>正在召回知识...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Check size={10} className="text-green-500" />
+                          <span>已召回 {msg.recallInfo.count || 0} 条相关知识</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Tool Calls */}
                 {msg.toolCalls && msg.toolCalls.length > 0 && (
                   <div className="w-full max-w-2xl space-y-2 mb-2">
-                    {msg.toolCalls.map((tool, idx) => (
-                      <div key={idx} className="bg-slate-50 border border-slate-100 rounded-xl overflow-hidden">
-                        <div className="px-4 py-2 border-b border-slate-100 flex items-center justify-between bg-slate-100/50">
-                          <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase">
-                            <Wrench size={12} className="text-brand-500" />
-                            工具调用: {tool.name}
-                          </div>
-                          <Check size={12} className="text-green-500" />
-                        </div>
-                        <div className="p-3 space-y-2">
-                          <div className="flex items-start gap-2">
-                            <Terminal size={12} className="text-slate-400 mt-0.5" />
-                            <code className="text-[10px] text-slate-600 bg-white px-1.5 py-0.5 rounded border border-slate-100">
-                              {JSON.stringify(tool.args)}
-                            </code>
-                          </div>
-                          {tool.result && (
-                            <div className="flex items-start gap-2 pt-2 border-t border-slate-100">
-                              <CheckSquare size={12} className="text-green-500 mt-0.5" />
-                              <div className="text-[10px] text-slate-500">
-                                {JSON.stringify(tool.result)}
+                    {msg.toolCalls.map((tool, idx) => {
+                      const toolKey = `${msg.id}-${idx}`;
+                      const isCollapsed = collapsedTools[toolKey];
+                      const isRunning = tool.status === 'running' || tool.result === '执行中...';
+                      const isError = tool.result?.startsWith('错误:') || tool.status === 'error';
+                      return (
+                        <div key={idx} className="bg-slate-50 border border-slate-100 rounded-xl overflow-hidden">
+                          <div
+                            className="px-4 py-2 border-b border-slate-100 flex items-center justify-between bg-slate-100/50 cursor-pointer hover:bg-slate-100/70 transition-colors"
+                            onClick={() => {
+                              setCollapsedTools(prev => ({
+                                ...prev,
+                                [toolKey]: !prev[toolKey]
+                              }));
+                            }}
+                          >
+                            <div className="flex items-center gap-2">
+                              <ChevronRight size={12} className={cn("text-slate-400 transition-transform", !isCollapsed && "rotate-90")} />
+                              <Wrench size={12} className="text-brand-500" />
+                              <span className="text-[10px] font-bold text-slate-600">
+                                {tool.name}
+                              </span>
+                            </div>
+                            {isRunning ? (
+                              <div className="flex items-center gap-1 text-amber-500">
+                                <div className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-bounce" />
+                                <span className="text-[10px]">执行中</span>
                               </div>
+                            ) : isError ? (
+                              <XCircle size={12} className="text-red-500" />
+                            ) : (
+                              <Check size={12} className="text-green-500" />
+                            )}
+                          </div>
+                          {!isCollapsed && (
+                            <div className="p-3 space-y-2">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1 text-[9px] text-slate-400 uppercase font-medium">
+                                  <Terminal size={10} /> 输入
+                                </div>
+                                <code className="block text-[10px] text-slate-600 bg-white px-2 py-1.5 rounded border border-slate-100 font-mono">
+                                  {JSON.stringify(tool.args, null, 2)}
+                                </code>
+                              </div>
+                              {tool.result && (
+                                <div className="space-y-1 pt-2 border-t border-slate-100">
+                                  <div className="flex items-center gap-1 text-[9px] text-slate-400 uppercase font-medium">
+                                    {isRunning ? (
+                                      <Clock size={10} className="text-amber-500" />
+                                    ) : isError ? (
+                                      <XCircle size={10} className="text-red-500" />
+                                    ) : (
+                                      <CheckSquare size={10} className="text-green-500" />
+                                    )}
+                                    输出
+                                  </div>
+                                  <code className="block text-[10px] text-slate-600 bg-white px-2 py-1.5 rounded border border-slate-100 font-mono max-h-32 overflow-auto">
+                                    {typeof tool.result === 'string' ? tool.result : JSON.stringify(tool.result, null, 2)}
+                                  </code>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
 
