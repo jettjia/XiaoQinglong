@@ -58,6 +58,14 @@ export function AgentManager({ onViewChange, onPlayAgent }: AgentManagerProps) {
   const [jobExecutions, setJobExecutions] = React.useState<JobExecution[]>([]);
   const [loadingLogs, setLoadingLogs] = React.useState(false);
 
+  // Confirmation dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({ open: false, title: '', message: '', onConfirm: () => {} });
+
   // 用于解析配置的数据
   const [backendModels, setBackendModels] = React.useState<any[]>([]);
   const [backendSkills, setBackendSkills] = React.useState<any[]>([]);
@@ -200,15 +208,22 @@ export function AgentManager({ onViewChange, onPlayAgent }: AgentManagerProps) {
       toast.error('系统内置 Agent 不能删除');
       return;
     }
-    if (!confirm(`确定要删除 Agent "${agent.name}" 吗？`)) {
-      return;
-    }
-    try {
-      await agentApi.delete(agent.ulid || agent.id);
-      await loadAgents();
-    } catch (err: any) {
-      toast.error(err.message || '删除失败');
-    }
+    setConfirmDialog({
+      open: true,
+      title: '确认删除',
+      message: `确定要删除 Agent "${agent.name}" 吗？`,
+      onConfirm: async () => {
+        try {
+          await agentApi.delete(agent.ulid || agent.id);
+          setConfirmDialog(prev => ({ ...prev, open: false }));
+          await loadAgents();
+          toast.success('删除成功');
+        } catch (err: any) {
+          setConfirmDialog(prev => ({ ...prev, open: false }));
+          toast.error(err.message || '删除失败');
+        }
+      }
+    });
   };
 
   // 启用/停用 Agent
@@ -826,6 +841,49 @@ export function AgentManager({ onViewChange, onPlayAgent }: AgentManagerProps) {
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* Confirmation Dialog */}
+      <AnimatePresence>
+        {confirmDialog.open && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+            onClick={() => setConfirmDialog(prev => ({ ...prev, open: false }))}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                  <AlertCircle className="w-6 h-6 text-red-500" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-900">{confirmDialog.title}</h3>
+              </div>
+              <p className="text-slate-600 mb-6">{confirmDialog.message}</p>
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setConfirmDialog(prev => ({ ...prev, open: false }))}
+                  className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={confirmDialog.onConfirm}
+                  className="px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors"
+                >
+                  确认删除
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
