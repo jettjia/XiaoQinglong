@@ -893,9 +893,13 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                     : "bg-white border border-slate-200 text-slate-800 rounded-tl-none w-fit max-w-[85%]"
                 )}>
                   {msg.role === 'assistant' ? (
-                    <div className="markdown-body prose prose-slate prose-sm max-w-none">
-                      <ReactMarkdown>{msg.content}</ReactMarkdown>
-                    </div>
+                    msg.status === 'streaming' ? (
+                      <div className="text-slate-800 whitespace-pre-wrap">{msg.content}</div>
+                    ) : (
+                      <div className="markdown-body prose prose-slate prose-sm max-w-none">
+                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      </div>
+                    )
                   ) : (
                     msg.content
                   )}
