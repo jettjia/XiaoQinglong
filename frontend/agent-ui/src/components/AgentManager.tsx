@@ -34,6 +34,7 @@ import { INITIAL_AGENTS } from '../constants';
 import { cn } from '../lib/utils';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'motion/react';
+import { toast } from 'sonner';
 import { agentApi, modelApi, skillApi, knowledgeBaseApi, chatApi } from '../lib/api';
 
 interface AgentManagerProps {
@@ -166,7 +167,13 @@ export function AgentManager({ onViewChange, onPlayAgent }: AgentManagerProps) {
     try {
       setAgents([]); // 先清空
       const data = await agentApi.findAll();
-      setAgents(data || []);
+      // 转换后端字段 is_periodic -> isPeriodic
+      const mapped = (data || []).map((agent: any) => ({
+        ...agent,
+        isPeriodic: agent.is_periodic || agent.isPeriodic,
+        cronRule: agent.cron_rule || agent.cronRule,
+      }));
+      setAgents(mapped);
     } catch (err) {
       console.error('Failed to load agents:', err);
       setAgents([]);
@@ -190,7 +197,7 @@ export function AgentManager({ onViewChange, onPlayAgent }: AgentManagerProps) {
   // 删除 Agent
   const handleDelete = async (agent: Agent) => {
     if (agent.is_system || agent.isBuiltIn) {
-      alert('系统内置 Agent 不能删除');
+      toast.error('系统内置 Agent 不能删除');
       return;
     }
     if (!confirm(`确定要删除 Agent "${agent.name}" 吗？`)) {
@@ -200,21 +207,21 @@ export function AgentManager({ onViewChange, onPlayAgent }: AgentManagerProps) {
       await agentApi.delete(agent.ulid || agent.id);
       await loadAgents();
     } catch (err: any) {
-      alert(err.message || '删除失败');
+      toast.error(err.message || '删除失败');
     }
   };
 
   // 启用/停用 Agent
   const handleToggleEnabled = async (agent: Agent) => {
     if (agent.is_system || agent.isBuiltIn) {
-      alert('系统内置 Agent 不能停用');
+      toast.error('系统内置 Agent 不能停用');
       return;
     }
     try {
       await agentApi.updateEnabled(agent.ulid || agent.id, !agent.enabled);
       await loadAgents();
     } catch (err: any) {
-      alert(err.message || '操作失败');
+      toast.error(err.message || '操作失败');
     }
   };
 
@@ -230,19 +237,19 @@ export function AgentManager({ onViewChange, onPlayAgent }: AgentManagerProps) {
     };
     const jsonStr = JSON.stringify(exportData, null, 2);
     navigator.clipboard.writeText(jsonStr);
-    alert('Agent JSON 已复制到剪贴板');
+    toast.success('Agent JSON 已复制到剪贴板');
   };
 
   // 导入 Agent
   const handleImport = async () => {
     if (!importJson.trim()) {
-      alert('请输入 JSON 数据');
+      toast.error('请输入 JSON 数据');
       return;
     }
     try {
       const config = JSON.parse(importJson);
       if (!config.name) {
-        alert('JSON 数据缺少 name 字段');
+        toast.error('JSON 数据缺少 name 字段');
         return;
       }
       setLoading(true);
@@ -257,9 +264,9 @@ export function AgentManager({ onViewChange, onPlayAgent }: AgentManagerProps) {
       await loadAgents();
       setIsImportModalOpen(false);
       setImportJson('');
-      alert('导入成功');
+      toast.success('导入成功');
     } catch (err: any) {
-      alert(err.message || '导入失败');
+      toast.error(err.message || '导入失败');
     } finally {
       setLoading(false);
     }
@@ -433,8 +440,8 @@ export function AgentManager({ onViewChange, onPlayAgent }: AgentManagerProps) {
                         setLoadingLogs(false);
                       }
                     }}
-                    className="p-2 hover:bg-slate-50 rounded-lg text-slate-400 hover:text-brand-500 transition-colors"
-                    title={t('agents.viewLogs')}
+                    className="p-2 hover:bg-amber-50 rounded-lg text-slate-400 hover:text-amber-600 transition-colors"
+                    title="查看日志"
                   >
                     <History size={16} />
                   </button>

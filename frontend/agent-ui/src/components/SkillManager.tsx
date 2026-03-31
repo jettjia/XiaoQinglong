@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { Skill } from '../types';
 import { skillApi, Skill as BackendSkill } from '../lib/api';
 
@@ -77,7 +78,7 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
     const message = err?.message || defaultMsg;
     const cause = err?.response?.data?.cause || '';
     const fullMessage = cause ? `${message}\n${cause}` : message;
-    alert(fullMessage);
+    toast.error(fullMessage);
   };
 
   const handleUploadZip = () => {
@@ -94,7 +95,7 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
       await loadSkills();
     } catch (err: any) {
       console.error('Failed to upload skill:', err);
-      alert(err.message || 'Upload failed');
+      toast.error(err.message || 'Upload failed');
     } finally {
       setLoading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';

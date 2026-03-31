@@ -34,6 +34,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { modelApi, skillApi, knowledgeBaseApi, agentApi, channelApi, chatApi } from '../lib/api';
 import { Message, Variable } from '../types';
 
@@ -351,11 +352,11 @@ export function AgentOrchestrator() {
       if (result && result.ulid) {
         setDeployedAgentId(result.ulid);
       }
-      alert(`Agent "${deployForm.name}" created successfully!`);
+      toast.success(`Agent "${deployForm.name}" created successfully!`);
       setIsDeployModalOpen(false);
     } catch (err: any) {
       console.error('Failed to create agent:', err);
-      alert(err.message || 'Failed to create agent');
+      toast.error(err.message || 'Failed to create agent');
     } finally {
       setLoading(false);
     }
@@ -369,10 +370,10 @@ export function AgentOrchestrator() {
         savedAt: Date.now(),
       };
       localStorage.setItem('orchestrator_draft', JSON.stringify(draftData));
-      alert('Draft saved successfully!');
+      toast.success('Draft saved successfully!');
     } catch (err: any) {
       console.error('Failed to save draft:', err);
-      alert(err.message || 'Failed to save draft');
+      toast.error(err.message || 'Failed to save draft');
     }
   };
 
@@ -544,7 +545,7 @@ export function AgentOrchestrator() {
 
     // 检查是否已部署 agent
     if (!deployedAgentId) {
-      alert('请先部署 Agent 再进行测试');
+      toast('请先部署 Agent 再进行测试');
       return;
     }
 

@@ -28,12 +28,12 @@ func initDefaultAgents() error {
 			name:        "翻译",
 			description: "多语言实时翻译，支持中英日韩等常用语言互译",
 			icon:        "Languages",
-			model:       "gemini-3.1-pro-preview",
+			model:       "default",
 			configJson: `{
 				"endpoint": "http://localhost:18080/run",
 				"models": {
 					"default": {
-						"provider": "google",
+						"provider": "default",
 						"name": "${OPENAI_MODEL}",
 						"api_key": "${OPENAI_API_KEY}",
 						"api_base": "${OPENAI_BASE_URL}"
@@ -65,12 +65,12 @@ func initDefaultAgents() error {
 			name:        "文档问答",
 			description: "基于文档内容的智能问答，可以从上传的文档中查找答案",
 			icon:        "FileSearch",
-			model:       "gemini-3.1-pro-preview",
+			model:       "default",
 			configJson: `{
 				"endpoint": "http://localhost:18080/run",
 				"models": {
 					"default": {
-						"provider": "google",
+						"provider": "default",
 						"name": "${OPENAI_MODEL}",
 						"api_key": "${OPENAI_API_KEY}",
 						"api_base": "${OPENAI_BASE_URL}"
