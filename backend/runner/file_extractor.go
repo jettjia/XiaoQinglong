@@ -3,11 +3,12 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 )
 
 // FileExtractor 文件内容提取器
@@ -73,16 +74,16 @@ func (e *FileExtractor) extractFileContent(f FileConfig) (string, error) {
 // virtualToReal 将虚拟路径转换为实际路径
 // /mnt/uploads/session_id/file.md -> {baseDir}/session_id/file.md
 func (e *FileExtractor) virtualToReal(virtualPath string) string {
-	log.Printf("[FileExtractor] virtualToReal: virtualPath=%s, baseDir=%s", virtualPath, e.baseDir)
+	logger.Infof("[FileExtractor] virtualToReal: virtualPath=%s, baseDir=%s", virtualPath, e.baseDir)
 	// 去掉 /mnt/uploads/ 前缀
 	if strings.HasPrefix(virtualPath, "/mnt/uploads/") {
 		relativePath := strings.TrimPrefix(virtualPath, "/mnt/uploads/")
 		realPath := filepath.Join(e.baseDir, relativePath)
-		log.Printf("[FileExtractor] virtualToReal: converted to realPath=%s", realPath)
+		logger.Infof("[FileExtractor] virtualToReal: converted to realPath=%s", realPath)
 		return realPath
 	}
 	// 如果不是虚拟路径格式，直接返回
-	log.Printf("[FileExtractor] virtualToReal: not a virtual path, returning as-is")
+	logger.Infof("[FileExtractor] virtualToReal: not a virtual path, returning as-is")
 	return virtualPath
 }
 

@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: xiaoqinglong-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-root}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin123}
+      POSTGRES_DB: ${POSTGRES_DB:-xiaoqinglong}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-root}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Agent Frame Backend
+  agent-frame:
+    build:
+      context: ../../backend/agent-frame
+      dockerfile: deploy/Dockerfile-ez
+    container_name: xiaoqinglong-agent-frame
+    restart: unless-stopped
+    ports:
+      - "6666:6666"
+      - "6667:6667"
+      - "6668:6668"
+    environment:
+      env: docker
+    volumes:
+      - ./config/agent-frame/manifest:/app/manifest
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:6666/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Runner Service
+  runner:
+    build:
+      context: ../../backend/runner
+      dockerfile: Dockerfile
+    container_name: xiaoqinglong-runner
+    restart: unless-stopped
+    ports:
+      - "18080:18080"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=${POSTGRES_USER:-root}
+      - DB_PASSWORD=${POSTGRES_PASSWORD:-admin123}
+      - DB_NAME=${POSTGRES_DB:-xiaoqinglong}
+      - AGENT_FRAME_URL=http://agent-frame:6666
+      - A2A_HOSTPORTS=agent-frame:6667
+    depends_on:
+      postgres:
+        condition: service_healthy
+      agent-frame:
+        condition: service_healthy
+
+  # Agent UI Frontend
+  agent-ui:
+    build:
+      context: ../../frontend/agent-ui
+      dockerfile: Dockerfile
+    container_name: xiaoqinglong-agent-ui
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_AGENT_FRAME_API_URL=http://localhost:6666
+    depends_on:
+      - agent-frame
+
+volumes:
+  postgres_data:

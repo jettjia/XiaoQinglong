@@ -18,3 +18,24 @@
 ├── deploy
 │   ├── docker docker部署
 ```
+
+## 快速开始
+```bash
+# 构建所有 Docker 镜像
+make docker-build
+
+# 单独构建某个服务的 Docker 镜像
+make docker-build-frame   # 构建 agent-frame
+make docker-build-runner  # 构建 runner
+make docker-build-ui      # 构建 agent-ui
+
+# 快速启动 agent-frame, runner, agent-ui
+make quick-start
+
+# 快速启动 mock 服务
+make mock-start
+
+# 快速停止 mock 服务
+make mock-stop
+
+```

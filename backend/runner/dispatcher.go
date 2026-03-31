@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"strings"
 	"time"
@@ -18,6 +17,7 @@ import (
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"github.com/google/uuid"
+	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 	"github.com/jettjia/XiaoQinglong/runner/subagent"
 )
 
@@ -114,13 +114,13 @@ func (d *Dispatcher) Run(ctx context.Context) (*DispatchResult, error) {
 
 	// 5. 初始化 Sub-Agents
 	if err := d.initSubAgents(ctx); err != nil {
-		log.Printf("[Dispatcher] Warning: init sub-agents failed: %v", err)
+		logger.Infof("[Dispatcher] Warning: init sub-agents failed: %v", err)
 		// Sub-Agent 初始化失败不影响主流程，继续执行
 	}
 
 	// 6. 初始化 MCP
 	if err := d.initMCPs(ctx); err != nil {
-		log.Printf("[Dispatcher] Warning: init mcps failed: %v", err)
+		logger.Infof("[Dispatcher] Warning: init mcps failed: %v", err)
 	}
 
 	// 6. 初始化 skill runner
@@ -144,10 +144,10 @@ func (d *Dispatcher) Run(ctx context.Context) (*DispatchResult, error) {
 // setUploadsBaseDir 设置 uploads 目录的宿主机路径
 // 从 context 或 sandbox.volumes 中获取
 func (d *Dispatcher) setUploadsBaseDir() {
-	log.Printf("[Dispatcher] setUploadsBaseDir: context=%v", d.request.Context)
+	logger.Infof("[Dispatcher] setUploadsBaseDir: context=%v", d.request.Context)
 	// 优先从 context 中获取
 	if dir, ok := d.request.Context["uploads_dir"].(string); ok && dir != "" {
-		log.Printf("[Dispatcher] setUploadsBaseDir: set from context to %s", dir)
+		logger.Infof("[Dispatcher] setUploadsBaseDir: set from context to %s", dir)
 		d.uploadsBaseDir = dir
 		return
 	}
@@ -243,7 +243,7 @@ func (d *Dispatcher) wrapToolWithApproval(t tool.InvokableTool, toolName, toolTy
 		return t
 	}
 
-	log.Printf("[Dispatcher] Wrapping tool %s (%s) with approval, risk_level=%s", toolName, toolType, riskLevel)
+	logger.Infof("[Dispatcher] Wrapping tool %s (%s) with approval, risk_level=%s", toolName, toolType, riskLevel)
 	return NewInvokableApprovableTool(t, toolName, toolType, riskLevel)
 }
 
@@ -251,23 +251,23 @@ func (d *Dispatcher) wrapToolWithApproval(t tool.InvokableTool, toolName, toolTy
 func (d *Dispatcher) buildToolRiskLevels() map[string]string {
 	riskLevels := make(map[string]string)
 
-	log.Printf("[Dispatcher] buildToolRiskLevels: d.request.Tools has %d tools", len(d.request.Tools))
+	logger.Infof("[Dispatcher] buildToolRiskLevels: d.request.Tools has %d tools", len(d.request.Tools))
 	for _, tc := range d.request.Tools {
-		log.Printf("[Dispatcher]   tool: name=%s, type=%s, risk_level=%s", tc.Name, tc.Type, tc.RiskLevel)
+		logger.Infof("[Dispatcher]   tool: name=%s, type=%s, risk_level=%s", tc.Name, tc.Type, tc.RiskLevel)
 		riskLevels[tc.Name] = tc.RiskLevel
 	}
 
-	log.Printf("[Dispatcher] buildToolRiskLevels: d.request.A2A has %d agents", len(d.request.A2A))
+	logger.Infof("[Dispatcher] buildToolRiskLevels: d.request.A2A has %d agents", len(d.request.A2A))
 	// A2A agents
 	for _, cfg := range d.request.A2A {
-		log.Printf("[Dispatcher]   a2a: name=%s, risk_level=%s", cfg.Name, cfg.RiskLevel)
+		logger.Infof("[Dispatcher]   a2a: name=%s, risk_level=%s", cfg.Name, cfg.RiskLevel)
 		riskLevels["a2a"] = cfg.RiskLevel
 	}
 
-	log.Printf("[Dispatcher] buildToolRiskLevels: d.request.MCPs has %d configs", len(d.request.MCPs))
+	logger.Infof("[Dispatcher] buildToolRiskLevels: d.request.MCPs has %d configs", len(d.request.MCPs))
 	// MCP tools (using the mcp name)
 	for _, cfg := range d.request.MCPs {
-		log.Printf("[Dispatcher]   mcp: name=%s, risk_level=%s", cfg.Name, cfg.RiskLevel)
+		logger.Infof("[Dispatcher]   mcp: name=%s, risk_level=%s", cfg.Name, cfg.RiskLevel)
 		riskLevels[cfg.Name] = cfg.RiskLevel
 	}
 
@@ -292,7 +292,7 @@ func (d *Dispatcher) buildApprovalToolMiddleware() compose.InvokableToolMiddlewa
 	}
 
 	riskLevels := d.buildToolRiskLevels()
-	log.Printf("[Dispatcher] Building approval middleware with %d tools, threshold=%s", len(riskLevels), approvalThreshold)
+	logger.Infof("[Dispatcher] Building approval middleware with %d tools, threshold=%s", len(riskLevels), approvalThreshold)
 
 	return newApprovalToolMiddleware(riskLevels).Wrap
 }
@@ -318,18 +318,18 @@ func (d *Dispatcher) initA2A(ctx context.Context) error {
 	for _, cfg := range d.request.A2A {
 		client, err := NewA2AClient(ctx, cfg)
 		if err != nil {
-			log.Printf("[Dispatcher] initA2A: failed to create client for %s: %v", cfg.Name, err)
+			logger.Infof("[Dispatcher] initA2A: failed to create client for %s: %v", cfg.Name, err)
 			continue
 		}
 
 		runner, err := client.CreateA2ARunner(ctx, d.defaultModel)
 		if err != nil {
-			log.Printf("[Dispatcher] initA2A: failed to create runner for %s: %v", cfg.Name, err)
+			logger.Infof("[Dispatcher] initA2A: failed to create runner for %s: %v", cfg.Name, err)
 			continue
 		}
 
 		d.a2aRunners[cfg.Name] = runner
-		log.Printf("[Dispatcher] initA2A: registered agent %s", cfg.Name)
+		logger.Infof("[Dispatcher] initA2A: registered agent %s", cfg.Name)
 	}
 
 	// 如果有 A2A agents，创建 A2A tool 并添加到 tools
@@ -366,7 +366,7 @@ func (d *Dispatcher) initA2A(ctx context.Context) error {
 				}
 				if len(traceCtx) > 0 {
 					a2aTool.SetTraceContext(traceCtx)
-					log.Printf("[Dispatcher] A2A trace context set: %v", traceCtx)
+					logger.Infof("[Dispatcher] A2A trace context set: %v", traceCtx)
 				}
 			}
 
@@ -382,7 +382,7 @@ func (d *Dispatcher) initA2A(ctx context.Context) error {
 		}
 	}
 
-	log.Printf("[Dispatcher] initA2A: %d agents initialized", len(d.a2aRunners))
+	logger.Infof("[Dispatcher] initA2A: %d agents initialized", len(d.a2aRunners))
 	return nil
 }
 
@@ -392,22 +392,22 @@ func (d *Dispatcher) initInternalAgents(ctx context.Context) error {
 	for _, cfg := range d.request.InternalAgents {
 		agent, err := d.createInternalAgent(ctx, cfg)
 		if err != nil {
-			log.Printf("[Dispatcher] initInternalAgents: failed to create agent %s: %v", cfg.Name, err)
+			logger.Infof("[Dispatcher] initInternalAgents: failed to create agent %s: %v", cfg.Name, err)
 			continue
 		}
 
 		d.internalAgents[cfg.ID] = agent
-		log.Printf("[Dispatcher] initInternalAgents: registered agent %s (%s)", cfg.Name, cfg.ID)
+		logger.Infof("[Dispatcher] initInternalAgents: registered agent %s (%s)", cfg.Name, cfg.ID)
 	}
 
-	log.Printf("[Dispatcher] initInternalAgents: %d agents initialized", len(d.internalAgents))
+	logger.Infof("[Dispatcher] initInternalAgents: %d agents initialized", len(d.internalAgents))
 	return nil
 }
 
 // initSubAgents 初始化 Sub-Agent 管理器
 func (d *Dispatcher) initSubAgents(ctx context.Context) error {
 	if len(d.request.SubAgents) == 0 {
-		log.Printf("[Dispatcher] initSubAgents: no sub-agents configured")
+		logger.Infof("[Dispatcher] initSubAgents: no sub-agents configured")
 		return nil
 	}
 
@@ -437,7 +437,7 @@ func (d *Dispatcher) initSubAgents(ctx context.Context) error {
 	delegateTool := subagent.NewDelegateTool(d.subAgentManager)
 	d.tools = append(d.tools, delegateTool)
 
-	log.Printf("[Dispatcher] initSubAgents: %d sub-agents registered, spawn/collect/list/cancel/delegate tools added", len(d.request.SubAgents))
+	logger.Infof("[Dispatcher] initSubAgents: %d sub-agents registered, spawn/collect/list/cancel/delegate tools added", len(d.request.SubAgents))
 	return nil
 }
 
@@ -448,19 +448,19 @@ func (d *Dispatcher) initMCPs(ctx context.Context) error {
 	}
 
 	for _, mcpCfg := range d.request.MCPs {
-		log.Printf("[Dispatcher] initMCP: name=%s, transport=%s", mcpCfg.Name, mcpCfg.Transport)
+		logger.Infof("[Dispatcher] initMCP: name=%s, transport=%s", mcpCfg.Name, mcpCfg.Transport)
 
 		switch mcpCfg.Transport {
 		case "http":
 			// HTTP 模式：通过 HTTP API 加载 tools
 			if mcpCfg.Endpoint == "" {
-				log.Printf("[Dispatcher] initMCP: %s has empty endpoint, skipping", mcpCfg.Name)
+				logger.Infof("[Dispatcher] initMCP: %s has empty endpoint, skipping", mcpCfg.Name)
 				continue
 			}
 			loader := NewMCPToolLoader(mcpCfg.Endpoint, mcpCfg.Headers)
 			tools, err := loader.LoadTools(ctx)
 			if err != nil {
-				log.Printf("[Dispatcher] initMCP: failed to load tools for %s: %v", mcpCfg.Name, err)
+				logger.Infof("[Dispatcher] initMCP: failed to load tools for %s: %v", mcpCfg.Name, err)
 				continue
 			}
 			for _, t := range tools {
@@ -472,17 +472,17 @@ func (d *Dispatcher) initMCPs(ctx context.Context) error {
 					d.tools = append(d.tools, t)
 				}
 			}
-			log.Printf("[Dispatcher] initMCP: %s loaded %d tools", mcpCfg.Name, len(tools))
+			logger.Infof("[Dispatcher] initMCP: %s loaded %d tools", mcpCfg.Name, len(tools))
 
 		case "stdio":
 			// stdio 模式：启动本地进程
 			if mcpCfg.Command == "" {
-				log.Printf("[Dispatcher] initMCP: %s has empty command, skipping", mcpCfg.Name)
+				logger.Infof("[Dispatcher] initMCP: %s has empty command, skipping", mcpCfg.Name)
 				continue
 			}
 			client, err := NewMCPStdioClient(mcpCfg.Command, mcpCfg.Args, mcpCfg.Env)
 			if err != nil {
-				log.Printf("[Dispatcher] initMCP: failed to create stdio client for %s: %v", mcpCfg.Name, err)
+				logger.Infof("[Dispatcher] initMCP: failed to create stdio client for %s: %v", mcpCfg.Name, err)
 				continue
 			}
 			// 创建 stdio MCP tool 并添加
@@ -493,10 +493,10 @@ func (d *Dispatcher) initMCPs(ctx context.Context) error {
 			// 根据 risk_level 判断是否需要包装审批
 			wrapped := d.wrapToolWithApproval(mcpTool, mcpCfg.Name, "mcp", mcpCfg.RiskLevel)
 			d.tools = append(d.tools, wrapped)
-			log.Printf("[Dispatcher] initMCP: %s (stdio) initialized", mcpCfg.Name)
+			logger.Infof("[Dispatcher] initMCP: %s (stdio) initialized", mcpCfg.Name)
 
 		default:
-			log.Printf("[Dispatcher] initMCP: unknown transport %s for %s, skipping", mcpCfg.Transport, mcpCfg.Name)
+			logger.Infof("[Dispatcher] initMCP: unknown transport %s for %s, skipping", mcpCfg.Transport, mcpCfg.Name)
 		}
 	}
 
@@ -544,7 +544,7 @@ func (d *Dispatcher) initSkills(ctx context.Context) error {
 	// 创建 skill 配置管理器
 	configMgr, err := NewSkillConfigManager(DefaultSkillConfigPath())
 	if err != nil {
-		log.Printf("[Dispatcher] initSkills: warning - failed to load config: %v", err)
+		logger.Infof("[Dispatcher] initSkills: warning - failed to load config: %v", err)
 		// 配置加载失败不影响 skill 运行，使用空配置
 		configMgr, _ = NewSkillConfigManager("")
 	}
@@ -561,7 +561,7 @@ func (d *Dispatcher) initSkills(ctx context.Context) error {
 	// 设置 session ID（从 context 中获取）
 	if sessionID, ok := d.request.Context["session_id"].(string); ok && sessionID != "" {
 		d.skillRunner.CurrentSessionID = sessionID
-		log.Printf("[Dispatcher] Using session_id: %s for skill execution", sessionID)
+		logger.Infof("[Dispatcher] Using session_id: %s for skill execution", sessionID)
 	}
 
 	// 创建 skill tool 并添加到 tools
@@ -604,7 +604,7 @@ func (d *Dispatcher) initSkills(ctx context.Context) error {
 				}
 				wrappedSkillTool := NewInvokableApprovableToolWithGetter(invokableTool, "skill", "skill", "medium", getter)
 				d.tools = append(d.tools, wrappedSkillTool)
-				log.Printf("[Dispatcher] Skill tool wrapped with dynamic approval (skill count: %d)", len(skillRiskLevels))
+				logger.Infof("[Dispatcher] Skill tool wrapped with dynamic approval (skill count: %d)", len(skillRiskLevels))
 			} else {
 				d.tools = append(d.tools, skillToolBase)
 			}
@@ -619,18 +619,18 @@ func (d *Dispatcher) initSkills(ctx context.Context) error {
 		d.tools = append(d.tools, loadSkillTool)
 	}
 
-	log.Printf("[Dispatcher] initSkills: %d skills registered, config: %s",
+	logger.Infof("[Dispatcher] initSkills: %d skills registered, config: %s",
 		len(d.request.Skills), DefaultSkillConfigPath())
 
 	// 创建技能规划器 (SkillPlanner)
 	d.skillPlanner = NewSkillPlanner(d.request.Skills, d.skillRunner, d.defaultModel)
-	log.Printf("[Dispatcher] SkillPlanner created")
+	logger.Infof("[Dispatcher] SkillPlanner created")
 
 	// 创建技能编排工具 (当需要多 skill 协同时使用)
 	skillOrchestratorTool := d.skillRunner.BuildSkillOrchestratorTool(d.skillPlanner)
 	if skillOrchestratorTool != nil {
 		d.tools = append(d.tools, skillOrchestratorTool)
-		log.Printf("[Dispatcher] SkillOrchestrator tool registered")
+		logger.Infof("[Dispatcher] SkillOrchestrator tool registered")
 	}
 
 	return nil
@@ -730,6 +730,22 @@ func (d *Dispatcher) buildSystemPrompt() string {
 		}
 	}
 
+	// 添加上传文件信息
+	if len(d.request.Files) > 0 {
+		prompt += "\n\n## 用户上传的文件\n"
+		prompt += "注意：用户上传了以下文件，请根据需要处理：\n"
+		for _, f := range d.request.Files {
+			// 注入文件内容（自动提取）
+			if d.uploadsBaseDir != "" {
+				extractor := NewFileExtractor(d.uploadsBaseDir)
+				filesContent, err := extractor.ExtractFilesContent([]FileConfig{f})
+				if err == nil && filesContent != "" {
+					prompt += "\n" + filesContent + "\n"
+				}
+			}
+		}
+	}
+
 	return prompt
 }
 
@@ -746,10 +762,10 @@ func (d *Dispatcher) buildMessagesWithRewrite(ctx context.Context, systemPrompt 
 				// 调用rewrite模型改写query
 				rewritten, err := d.rewriteQuery(ctx, messages[i].Content)
 				if err != nil {
-					log.Printf("[Dispatcher] rewriteQuery failed: %v, using original", err)
+					logger.Infof("[Dispatcher] rewriteQuery failed: %v, using original", err)
 					break
 				}
-				log.Printf("[Dispatcher] query rewritten: %s -> %s", messages[i].Content, rewritten)
+				logger.Infof("[Dispatcher] query rewritten: %s -> %s", messages[i].Content, rewritten)
 				messages[i].Content = rewritten
 				break
 			}
@@ -781,27 +797,6 @@ func (d *Dispatcher) buildMessages(systemPrompt string) []adk.Message {
 		case "system":
 			messages = append(messages, schema.SystemMessage(msg.Content))
 		}
-	}
-
-	// 如果有上传文件，提取并注入文件内容
-	if len(d.request.Files) > 0 && d.uploadsBaseDir != "" {
-		log.Printf("[Dispatcher] buildMessages: files count=%d, uploadsBaseDir=%s", len(d.request.Files), d.uploadsBaseDir)
-		for _, f := range d.request.Files {
-			log.Printf("[Dispatcher] buildMessages: file=%s, virtual_path=%s, size=%d", f.Name, f.VirtualPath, f.Size)
-		}
-		extractor := NewFileExtractor(d.uploadsBaseDir)
-		filesContent, err := extractor.ExtractFilesContent(d.request.Files)
-		if err != nil {
-			log.Printf("[Dispatcher] extract files content failed: %v", err)
-		} else if filesContent != "" {
-			log.Printf("[Dispatcher] extract files content success, length=%d", len(filesContent))
-			// 在最后一条 user message 之前插入文件内容
-			messages = append(messages, schema.SystemMessage(filesContent))
-		} else {
-			log.Printf("[Dispatcher] extract files content returned empty")
-		}
-	} else {
-		log.Printf("[Dispatcher] buildMessages: skipping file extraction, files=%d, uploadsBaseDir=%s", len(d.request.Files), d.uploadsBaseDir)
 	}
 
 	return messages
@@ -959,7 +954,7 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 	// 如果没有指定 checkpointID，自动生成一个
 	if checkpointID == "" {
 		checkpointID = uuid.New().String()
-		log.Printf("[Dispatcher] Auto-generated checkpointID=%s", checkpointID)
+		logger.Infof("[Dispatcher] Auto-generated checkpointID=%s", checkpointID)
 	}
 	var checkpointStore compose.CheckPointStore
 	if checkpointID != "" {
@@ -969,7 +964,7 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 			// 创建基于文件的 checkpoint store 并存储（持久化）
 			checkpointStore = NewFileCheckPointStore("/tmp/runner_checkpoints")
 			SetCheckPointStore(checkpointID, checkpointStore)
-			log.Printf("[Dispatcher] Created FileCheckPointStore for checkpointID=%s", checkpointID)
+			logger.Infof("[Dispatcher] Created FileCheckPointStore for checkpointID=%s", checkpointID)
 		}
 	} else {
 		// 如果没有指定 checkpoint ID，使用临时的 store
@@ -1010,10 +1005,10 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 		}
 
 		if event.Err != nil {
-			log.Printf("[Dispatcher] Agent error: %v (type: %T)", event.Err, event.Err)
+			logger.Infof("[Dispatcher] Agent error: %v (type: %T)", event.Err, event.Err)
 			// 检查是否是 ApprovalInterruptError
 			if ae, ok := event.Err.(*ApprovalInterruptError); ok {
-				log.Printf("[Dispatcher] Caught ApprovalInterruptError for tool=%s", ae.ToolName)
+				logger.Infof("[Dispatcher] Caught ApprovalInterruptError for tool=%s", ae.ToolName)
 				interrupted = true
 				// 如果有 checkpointID，存储 runner 以便后续 resume
 				if checkpointID != "" {
@@ -1021,7 +1016,7 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 						runner:   runner,
 						Messages: messages,
 					})
-					log.Printf("[Dispatcher] Stored runner for checkpointID=%s", checkpointID)
+					logger.Infof("[Dispatcher] Stored runner for checkpointID=%s", checkpointID)
 				}
 				pendingApprovals = append(pendingApprovals, PendingApproval{
 					ToolName:      ae.ToolName,
@@ -1054,7 +1049,7 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 			// 使用 errors.Is 检查被包装的错误
 			var approvalErr *ApprovalInterruptError
 			if errors.As(event.Err, &approvalErr) {
-				log.Printf("[Dispatcher] Caught wrapped ApprovalInterruptError for tool=%s", approvalErr.ToolName)
+				logger.Infof("[Dispatcher] Caught wrapped ApprovalInterruptError for tool=%s", approvalErr.ToolName)
 				interrupted = true
 				pendingApprovals = append(pendingApprovals, PendingApproval{
 					ToolName:      approvalErr.ToolName,
@@ -1087,7 +1082,7 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 
 		// 首先检查是否是中断事件（不管 event.Output 是否存在）
 		if event.Action != nil && event.Action.Interrupted != nil {
-			log.Printf("[Dispatcher] >>>>>>> Interrupt detected in event loop!")
+			logger.Infof("[Dispatcher] >>>>>>> Interrupt detected in event loop!")
 			interrupted = true
 			// 从已收集的 toolCalls 中获取最近一次工具调用的信息
 			// 因为中断是在工具执行过程中发生的
@@ -1102,18 +1097,18 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 						lastArgsJSON = string(jsonBytes)
 					}
 				}
-				log.Printf("[Dispatcher]   Last tool call: %s, args: %s", lastToolName, lastArgsJSON)
+				logger.Infof("[Dispatcher]   Last tool call: %s, args: %s", lastToolName, lastArgsJSON)
 			}
 			// 获取中断上下文信息
 			for _, ic := range event.Action.Interrupted.InterruptContexts {
-				log.Printf("[Dispatcher]   interrupt context: ID=%s", ic.ID)
+				logger.Infof("[Dispatcher]   interrupt context: ID=%s", ic.ID)
 				// 查找工具配置以获取 ToolType 和 RiskLevel
 				var toolType, riskLevel string
 				if tc, ok := d.toolConfigs[lastToolName]; ok {
 					toolType = tc.Type
 					riskLevel = tc.RiskLevel
 				}
-				log.Printf("[Dispatcher]   tool config: type=%s, risk=%s", toolType, riskLevel)
+				logger.Infof("[Dispatcher]   tool config: type=%s, risk=%s", toolType, riskLevel)
 				pa := PendingApproval{
 					InterruptID:   ic.ID,
 					ToolName:      lastToolName,
@@ -1123,14 +1118,14 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 				}
 				pendingApprovals = append(pendingApprovals, pa)
 			}
-			log.Printf("[Dispatcher] Captured %d pending approvals", len(pendingApprovals))
+			logger.Infof("[Dispatcher] Captured %d pending approvals", len(pendingApprovals))
 			// 如果有 checkpointID，存储 runner 以便后续 resume
 			if checkpointID != "" {
 				SetRunner(checkpointID, &adkRunner{
 					runner:   runner,
 					Messages: messages,
 				})
-				log.Printf("[Dispatcher] Stored runner for checkpointID=%s", checkpointID)
+				logger.Infof("[Dispatcher] Stored runner for checkpointID=%s", checkpointID)
 			}
 			// 中断事件后的 tool calls 应该被忽略
 			// 因为这些工具实际上没有执行成功（返回了空结果）
@@ -1518,13 +1513,13 @@ func (d *Dispatcher) formatResponse(content string) (string, []json.RawMessage) 
 	}
 
 	rs := d.request.Options.ResponseSchema
-	log.Printf("[Dispatcher] formatResponse: type=%s", rs.Type)
+	logger.Infof("[Dispatcher] formatResponse: type=%s", rs.Type)
 
 	switch rs.Type {
 	case "a2ui":
 		// 使用 schema 构建 A2UI 格式
 		msgs := d.buildA2UIMessagesFromSchema(content, rs.Schema)
-		log.Printf("[Dispatcher] formatResponse: built %d a2ui messages", len(msgs))
+		logger.Infof("[Dispatcher] formatResponse: built %d a2ui messages", len(msgs))
 		return "", msgs
 
 	case "markdown", "text":
@@ -1559,7 +1554,7 @@ func (d *Dispatcher) formatResponse(content string) (string, []json.RawMessage) 
 
 	default:
 		// 未知格式，返回原始内容
-		log.Printf("[Dispatcher] formatResponse: unknown type %s, returning raw content", rs.Type)
+		logger.Infof("[Dispatcher] formatResponse: unknown type %s, returning raw content", rs.Type)
 		return content, nil
 	}
 }
