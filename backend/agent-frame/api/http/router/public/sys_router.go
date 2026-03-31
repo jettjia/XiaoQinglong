@@ -12,6 +12,8 @@ import (
 	handChannel "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/channel"
 	handChat "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/chat"
 	handRunner "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/runner"
+	handJob "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/job"
+	handDashboard "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/dashboard"
 )
 
 func SetPublicRouter(Router *gin.RouterGroup) {
@@ -24,6 +26,8 @@ func SetPublicRouter(Router *gin.RouterGroup) {
 	handChannel := handChannel.NewHandler()
 	handChat := handChat.NewHandler()
 	handRunner := handRunner.NewHandler()
+	handJob := handJob.NewHandler()
+	handDashboard := handDashboard.NewHandler()
 
 	GRouter := Router.Group("/user")
 	{
@@ -141,5 +145,21 @@ func SetPublicRouter(Router *gin.RouterGroup) {
 	{
 		RunnerRouter.POST("/run", handRunner.Run)       // 代理runner run请求
 		RunnerRouter.POST("/resume", handRunner.Resume)  // 代理runner resume请求
+	}
+
+	// job execution
+	JobRouter := Router.Group("/job")
+	{
+		JobRouter.GET("/execution/:ulid", handJob.FindJobExecutionById)                      // 查询执行记录byId
+		JobRouter.GET("/execution/byAgentId", handJob.FindJobExecutionByAgentId)             // 根据AgentId查询执行记录
+		JobRouter.POST("/execution/page", handJob.FindJobExecutionPage)                       // 分页查询执行记录
+	}
+
+	// dashboard
+	DashboardRouter := Router.Group("/dashboard")
+	{
+		DashboardRouter.GET("/overview", handDashboard.GetOverview)                 // 概览统计
+		DashboardRouter.GET("/token-ranking", handDashboard.GetTokenRanking)      // Token排行
+		DashboardRouter.GET("/channel-activity", handDashboard.GetChannelActivity)  // 渠道活动
 	}
 }

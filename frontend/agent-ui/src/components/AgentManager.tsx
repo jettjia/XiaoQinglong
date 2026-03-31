@@ -26,14 +26,15 @@ import {
   MessageSquare,
   Terminal,
   Code,
-  Power
+  Power,
+  History
 } from 'lucide-react';
-import { Agent, View } from '../types';
+import { Agent, View, JobExecution } from '../types';
 import { INITIAL_AGENTS } from '../constants';
 import { cn } from '../lib/utils';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'motion/react';
-import { agentApi, modelApi, skillApi, knowledgeBaseApi } from '../lib/api';
+import { agentApi, modelApi, skillApi, knowledgeBaseApi, chatApi } from '../lib/api';
 
 interface AgentManagerProps {
   onViewChange: (view: View) => void;
@@ -53,6 +54,8 @@ export function AgentManager({ onViewChange, onPlayAgent }: AgentManagerProps) {
   const [selectedAgent, setSelectedAgent] = React.useState<Agent | null>(null);
   const [importJson, setImportJson] = React.useState('');
   const [loading, setLoading] = React.useState(false);
+  const [jobExecutions, setJobExecutions] = React.useState<JobExecution[]>([]);
+  const [loadingLogs, setLoadingLogs] = React.useState(false);
 
   // 用于解析配置的数据
   const [backendModels, setBackendModels] = React.useState<any[]>([]);
@@ -415,14 +418,25 @@ export function AgentManager({ onViewChange, onPlayAgent }: AgentManagerProps) {
               <div className="flex items-center gap-1">
                 {agent.isPeriodic && (
                   <button
-                    onClick={(e) => {
+                    onClick={async (e) => {
                       e.stopPropagation();
                       setSelectedAgentForLogs(agent);
+                      setLoadingLogs(true);
+                      try {
+                        const agentId = agent.ulid || agent.id;
+                        const data = await chatApi.getJobExecutions(agentId);
+                        setJobExecutions(data || []);
+                      } catch (err) {
+                        console.error('Failed to load job executions:', err);
+                        setJobExecutions([]);
+                      } finally {
+                        setLoadingLogs(false);
+                      }
                     }}
                     className="p-2 hover:bg-slate-50 rounded-lg text-slate-400 hover:text-brand-500 transition-colors"
                     title={t('agents.viewLogs')}
                   >
-                    <Clock size={16} />
+                    <History size={16} />
                   </button>
                 )}
                 <button
@@ -743,43 +757,61 @@ export function AgentManager({ onViewChange, onPlayAgent }: AgentManagerProps) {
               </div>
 
               <div className="flex-1 overflow-y-auto p-6 space-y-4 scrollbar-hide">
-                {!selectedAgentForLogs.logs || selectedAgentForLogs.logs.length === 0 ? (
+                {loadingLogs ? (
+                  <div className="py-12 text-center">
+                    <div className="w-8 h-8 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                    <p className="text-sm text-slate-500">加载中...</p>
+                  </div>
+                ) : jobExecutions.length === 0 ? (
                   <div className="py-12 text-center">
                     <AlertCircle size={32} className="mx-auto text-slate-300 mb-3" />
                     <p className="text-sm text-slate-500">{t('agents.noLogs')}</p>
                   </div>
                 ) : (
-                  selectedAgentForLogs.logs.map((log) => (
-                    <div key={log.id} className="flex gap-4 p-4 rounded-xl border border-slate-100 bg-slate-50/50">
+                  jobExecutions.map((execution) => (
+                    <div key={execution.ulid} className="flex gap-4 p-4 rounded-xl border border-slate-100 bg-slate-50/50">
                       <div className={cn(
                         "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
-                        log.status === 'success' ? "bg-green-50 text-green-500" :
-                        log.status === 'failed' ? "bg-red-50 text-red-500" :
+                        execution.status === 'success' ? "bg-green-50 text-green-500" :
+                        execution.status === 'failed' ? "bg-red-50 text-red-500" :
                         "bg-blue-50 text-blue-500"
                       )}>
-                        {log.status === 'success' && <CheckCircle2 size={16} />}
-                        {log.status === 'failed' && <XCircle size={16} />}
-                        {log.status === 'running' && <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />}
+                        {execution.status === 'success' && <CheckCircle2 size={16} />}
+                        {execution.status === 'failed' && <XCircle size={16} />}
+                        {execution.status === 'running' && <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />}
                       </div>
                       <div className="flex-1">
                         <div className="flex items-center justify-between mb-1">
                           <span className={cn(
                             "text-[10px] font-bold uppercase tracking-wider",
-                            log.status === 'success' ? "text-green-600" :
-                            log.status === 'failed' ? "text-red-600" :
+                            execution.status === 'success' ? "text-green-600" :
+                            execution.status === 'failed' ? "text-red-600" :
                             "text-blue-600"
                           )}>
-                            {log.status}
+                            {execution.status === 'success' ? '成功' :
+                             execution.status === 'failed' ? '失败' : '运行中'}
                           </span>
-                          <span className="text-[10px] font-medium text-slate-400">{log.timestamp.toLocaleString()}</span>
+                          <span className="text-[10px] font-medium text-slate-400">
+                            {new Date(execution.trigger_time * 1000).toLocaleString()}
+                          </span>
                         </div>
-                        <p className="text-sm text-slate-700">{log.message}</p>
-                        {log.duration && (
-                          <div className="mt-2 flex items-center gap-1 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                            <Clock size={10} />
-                            Duration: {log.duration}
-                          </div>
+                        {execution.input_summary && (
+                          <p className="text-sm text-slate-700 mb-1">输入: {execution.input_summary}</p>
                         )}
+                        {execution.output_summary && (
+                          <p className="text-sm text-slate-700 mb-1">输出: {execution.output_summary}</p>
+                        )}
+                        {execution.error_msg && (
+                          <p className="text-sm text-red-500">错误: {execution.error_msg}</p>
+                        )}
+                        <div className="flex items-center gap-4 mt-2 text-[10px] text-slate-400">
+                          {execution.tokens_used > 0 && (
+                            <span>Token: {execution.tokens_used}</span>
+                          )}
+                          {execution.latency_ms > 0 && (
+                            <span>耗时: {execution.latency_ms}ms</span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))

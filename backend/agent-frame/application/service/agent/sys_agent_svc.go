@@ -10,6 +10,8 @@ import (
 	dto "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/agent"
 	srv "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/agent"
 	"github.com/jettjia/xiaoqinglong/agent-frame/types/apierror"
+
+	"github.com/jettjia/xiaoqinglong/agent-frame/api/job"
 )
 
 type SysAgentService struct {
@@ -34,6 +36,14 @@ func (s *SysAgentService) CreateSysAgent(ctx context.Context, req *dto.CreateSys
 	}
 	rsp.Ulid = ulid
 
+	// 如果是周期任务，注册到 JobManager
+	if req.IsPeriodic && req.CronRule != "" {
+		jm := job.GetJobManager()
+		if jm != nil {
+			_ = jm.AddCronJob(ulid, req.Name, req.CronRule, req.Config)
+		}
+	}
+
 	return &rsp, nil
 }
 
@@ -52,13 +62,40 @@ func (s *SysAgentService) DeleteSysAgent(ctx context.Context, req *dto.DelSysAge
 
 	en := s.sysAgentDto.D2EDeleteSysAgent(req)
 
-	return s.sysAgentSrv.Delete(ctx, en)
+	err = s.sysAgentSrv.Delete(ctx, en)
+	if err != nil {
+		return err
+	}
+
+	// 从 JobManager 中移除 cron job
+	jm := job.GetJobManager()
+	if jm != nil {
+		_ = jm.RemoveCronJob(req.Ulid)
+	}
+
+	return nil
 }
 
 func (s *SysAgentService) UpdateSysAgent(ctx context.Context, req *dto.UpdateSysAgentReq) error {
 	en := s.sysAgentDto.D2EUpdateSysAgent(req)
+	err := s.sysAgentSrv.Update(ctx, en)
+	if err != nil {
+		return err
+	}
 
-	return s.sysAgentSrv.Update(ctx, en)
+	// 更新 JobManager 中的 cron job
+	jm := job.GetJobManager()
+	if jm != nil {
+		if req.IsPeriodic != nil && *req.IsPeriodic && req.CronRule != "" {
+			// 需要重新注册
+			_ = jm.UpdateCronJob(req.Ulid, req.Name, req.CronRule, req.Config)
+		} else {
+			// 需要删除
+			_ = jm.RemoveCronJob(req.Ulid)
+		}
+	}
+
+	return nil
 }
 
 // UpdateSysAgentEnabled 修改启用状态

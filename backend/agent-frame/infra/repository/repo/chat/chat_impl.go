@@ -335,3 +335,54 @@ func (r *ChatTokenStats) AddTokens(ctx context.Context, agentId, userId, date, m
 	statsPo := converter.E2PChatTokenStatsUpdate(stats)
 	return r.data.DB(ctx).Model(&po.ChatTokenStats{}).Where("ulid = ?", stats.Ulid).Updates(statsPo).Error
 }
+
+func (r *ChatTokenStats) GetTotalTokens(ctx context.Context) (int, error) {
+	var result struct {
+		Total int
+	}
+	if err := r.data.DB(ctx).Model(&po.ChatTokenStats{}).Select("COALESCE(SUM(total_tokens), 0) as total").Scan(&result).Error; err != nil {
+		return 0, err
+	}
+	return result.Total, nil
+}
+
+func (r *ChatTokenStats) GetTokenRanking(ctx context.Context, limit int) ([]*irepository.TokenRankingItem, error) {
+	var results []*struct {
+		AgentId     string
+		AgentName   string
+		TotalTokens int
+	}
+
+	if limit <= 0 {
+		limit = 10
+	}
+
+	err := r.data.DB(ctx).Model(&po.ChatTokenStats{}).
+		Select("agent_id, SUM(total_tokens) as total_tokens").
+		Group("agent_id").
+		Order("total_tokens DESC").
+		Limit(limit).
+		Scan(&results).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// Get agent names
+	items := make([]*irepository.TokenRankingItem, 0, len(results))
+	for _, res := range results {
+		agentName := res.AgentId // fallback to ID if not found
+		// Try to get agent name from sys_agent table if available
+		var agentNameFromDB string
+		err := r.data.DB(ctx).Table("sys_agent").Where("ulid = ?", res.AgentId).Pluck("name", &agentNameFromDB).Error
+		if err == nil && agentNameFromDB != "" {
+			agentName = agentNameFromDB
+		}
+		items = append(items, &irepository.TokenRankingItem{
+			AgentId:     res.AgentId,
+			AgentName:   agentName,
+			TotalTokens: res.TotalTokens,
+		})
+	}
+
+	return items, nil
+}

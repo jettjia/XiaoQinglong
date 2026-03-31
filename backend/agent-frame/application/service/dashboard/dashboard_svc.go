@@ -1,0 +1,114 @@
+package dashboard
+
+import (
+	"context"
+
+	dto "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/dashboard"
+	agentSrv "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/agent"
+	channelSrv "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/channel"
+	chatSrv "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/chat"
+	knowledgeBaseSrv "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/knowledge_base"
+)
+
+type DashboardSvc struct {
+	agentSvc          *agentSrv.SysAgentSvc
+	kbSvc             *knowledgeBaseSrv.SysKnowledgeBaseSvc
+	channelSvc        *channelSrv.SysChannelSvc
+	chatTokenStatsSvc *chatSrv.ChatTokenStatsSvc
+}
+
+func NewDashboardSvc() *DashboardSvc {
+	return &DashboardSvc{
+		agentSvc:          agentSrv.NewSysAgentSvc(),
+		kbSvc:             knowledgeBaseSrv.NewSysKnowledgeBaseSvc(),
+		channelSvc:        channelSrv.NewSysChannelSvc(),
+		chatTokenStatsSvc: chatSrv.NewChatTokenStatsSvc(),
+	}
+}
+
+func (s *DashboardSvc) GetOverview(ctx context.Context, req *dto.DashboardOverviewReq) (*dto.DashboardOverviewRsp, error) {
+	// Get active agents count
+	agents, err := s.agentSvc.FindAll(ctx, nil)
+	activeAgents := 0
+	periodicAgents := 0
+	if err == nil && agents != nil {
+		for _, a := range agents {
+			if a.Enabled {
+				activeAgents++
+			}
+			if a.IsPeriodic || a.CronRule != "" {
+				periodicAgents++
+			}
+		}
+	}
+
+	// Get active knowledge sources count
+	kbList, err := s.kbSvc.FindAll(ctx, nil)
+	activeKnowledgeSources := 0
+	if err == nil && kbList != nil {
+		for _, kb := range kbList {
+			if kb.Enabled {
+				activeKnowledgeSources++
+			}
+		}
+	}
+
+	// Get total tokens
+	totalTokens, err := s.chatTokenStatsSvc.GetTotalTokens(ctx)
+	if err != nil {
+		totalTokens = 0
+	}
+
+	// Tasks completed - count sessions with status = 'completed'
+	// For now, return 0 as we need to add this method
+	tasksCompleted := 0
+
+	return &dto.DashboardOverviewRsp{
+		ActiveAgents:           activeAgents,
+		PeriodicAgents:         periodicAgents,
+		TasksCompleted:         tasksCompleted,
+		TotalTokens:            totalTokens,
+		ActiveKnowledgeSources: activeKnowledgeSources,
+	}, nil
+}
+
+func (s *DashboardSvc) GetTokenUsageRanking(ctx context.Context, req *dto.TokenUsageRankingReq) (*dto.TokenUsageRankingRsp, error) {
+	items, err := s.chatTokenStatsSvc.GetTokenRanking(ctx, req.Limit)
+	if err != nil {
+		return nil, err
+	}
+
+	rankings := make([]dto.TokenUsageItem, 0, len(items))
+	for _, item := range items {
+		rankings = append(rankings, dto.TokenUsageItem{
+			AgentId:     item.AgentId,
+			AgentName:   item.AgentName,
+			TotalTokens: item.TotalTokens,
+		})
+	}
+
+	return &dto.TokenUsageRankingRsp{Rankings: rankings}, nil
+}
+
+func (s *DashboardSvc) GetChannelActivity(ctx context.Context, req *dto.ChannelActivityReq) (*dto.ChannelActivityRsp, error) {
+	channels, err := s.channelSvc.FindAll(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]dto.ChannelActivityItem, 0, len(channels))
+	for _, ch := range channels {
+		status := "inactive"
+		if ch.Enabled {
+			status = "active"
+		}
+		items = append(items, dto.ChannelActivityItem{
+			ChannelId:    ch.Ulid,
+			ChannelName:  ch.Name,
+			Status:       status,
+			MessageCount: 0, // TODO: Need to join with chat_session to count messages
+		})
+	}
+
+	return &dto.ChannelActivityRsp{Channels: items}, nil
+}

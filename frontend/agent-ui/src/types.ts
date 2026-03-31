@@ -253,3 +253,23 @@ export interface PendingApproval {
   status: 'pending' | 'approved' | 'rejected';
   timestamp: Date;
 }
+
+// Job execution types
+export interface JobExecution {
+  ulid: string;
+  agent_id: string;
+  agent_name: string;
+  session_id: string;
+  status: 'running' | 'success' | 'failed';
+  trigger_time: number;
+  started_at: number;
+  finished_at: number;
+  input_summary: string;
+  output_summary: string;
+  output_full: string;
+  error_msg: string;
+  tokens_used: number;
+  latency_ms: number;
+  created_at: number;
+  updated_at: number;
+}

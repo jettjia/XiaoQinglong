@@ -7,6 +7,7 @@ import (
 	"github.com/jettjia/igo-pkg/pkg/xsql/builder"
 
 	entity "github.com/jettjia/xiaoqinglong/agent-frame/domain/entity/chat"
+	irepository "github.com/jettjia/xiaoqinglong/agent-frame/domain/irepository/chat"
 	repo "github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/repo/chat"
 )
 
@@ -179,4 +180,14 @@ func (s *ChatTokenStatsSvc) FindOrCreateStats(ctx context.Context, agentId, user
 func (s *ChatTokenStatsSvc) AddTokens(ctx context.Context, agentId, userId, model string, input, output int) error {
 	date := time.Now().Format("2006-01-02")
 	return s.statsRepo.AddTokens(ctx, agentId, userId, date, model, input, output)
+}
+
+// GetTotalTokens 获取总token数
+func (s *ChatTokenStatsSvc) GetTotalTokens(ctx context.Context) (int, error) {
+	return s.statsRepo.GetTotalTokens(ctx)
+}
+
+// GetTokenRanking 获取Token排行
+func (s *ChatTokenStatsSvc) GetTokenRanking(ctx context.Context, limit int) ([]*irepository.TokenRankingItem, error) {
+	return s.statsRepo.GetTokenRanking(ctx, limit)
 }

@@ -45,4 +45,13 @@ type IChatTokenStatsRepo interface {
 	Update(ctx context.Context, stats *entity.ChatTokenStats) error
 	FindOrCreate(ctx context.Context, agentId, userId, date, model string) (*entity.ChatTokenStats, error)
 	AddTokens(ctx context.Context, agentId, userId, date, model string, input, output int) error
+	GetTotalTokens(ctx context.Context) (int, error)
+	GetTokenRanking(ctx context.Context, limit int) ([]*TokenRankingItem, error)
+}
+
+// TokenRankingItem Token排行项
+type TokenRankingItem struct {
+	AgentId     string
+	AgentName   string
+	TotalTokens int
 }

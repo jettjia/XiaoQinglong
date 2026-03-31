@@ -878,4 +878,101 @@ export const chatApi = {
     }
     return res.json();
   },
+
+  // Job execution APIs
+  async getJobExecutions(agentId: string, limit: number = 50): Promise<any> {
+    const res = await fetch(`${API_BASE}/job/execution/byAgentId?agent_id=${agentId}&limit=${limit}`);
+    if (!res.ok) {
+      const json = await res.json();
+      throw new Error(json.message || 'Failed to get job executions');
+    }
+    return res.json();
+  },
+
+  async getJobExecutionDetail(ulid: string): Promise<any> {
+    const res = await fetch(`${API_BASE}/job/execution/${ulid}`);
+    if (!res.ok) {
+      const json = await res.json();
+      throw new Error(json.message || 'Failed to get job execution detail');
+    }
+    return res.json();
+  },
+};
+
+// ====== Dashboard APIs ======
+
+export interface DashboardOverview {
+  active_agents: number;
+  periodic_agents: number;
+  tasks_completed: number;
+  total_tokens: number;
+  active_knowledge_sources: number;
+}
+
+export interface TokenUsageItem {
+  agent_id: string;
+  agent_name: string;
+  total_tokens: number;
+}
+
+export interface ChannelActivityItem {
+  channel_id: string;
+  channel_name: string;
+  status: 'active' | 'inactive';
+  message_count: number;
+}
+
+export const dashboardApi = {
+  // Dashboard 统计概览
+  async getOverview(): Promise<DashboardOverview | null> {
+    try {
+      const res = await fetch(`${API_BASE}/dashboard/overview`);
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.message || `Request failed: ${res.status}`);
+      }
+      return await res.json();
+    } catch (e) {
+      console.error('getOverview failed:', e);
+      return null;
+    }
+  },
+
+  // Token 使用排行
+  async getTokenUsageRanking(limit: number = 10): Promise<TokenUsageItem[]> {
+    try {
+      const res = await fetch(`${API_BASE}/dashboard/token-ranking?limit=${limit}`);
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.message || `Request failed: ${res.status}`);
+      }
+      const data = await res.json();
+      // Handle both array and object response
+      if (Array.isArray(data)) return data;
+      if (data.rankings && Array.isArray(data.rankings)) return data.rankings;
+      return [];
+    } catch (e) {
+      console.error('getTokenUsageRanking failed:', e);
+      return [];
+    }
+  },
+
+  // 渠道活动统计
+  async getChannelActivity(): Promise<ChannelActivityItem[]> {
+    try {
+      const res = await fetch(`${API_BASE}/dashboard/channel-activity`);
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.message || `Request failed: ${res.status}`);
+      }
+      const data = await res.json();
+      // Handle both array and object response
+      if (Array.isArray(data)) return data;
+      if (data.channels && Array.isArray(data.channels)) return data.channels;
+      return [];
+    } catch (e) {
+      console.error('getChannelActivity failed:', e);
+      return [];
+    }
+  },
 };
