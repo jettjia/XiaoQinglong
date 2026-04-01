@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -8,12 +9,18 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
+
+// stopFuncs 保存 checkpoint_id -> cancel 函数
+var stopFuncs = make(map[string]context.CancelFunc)
+var stopMu sync.Mutex
 
 func main() {
 	http.HandleFunc("/run", handleRun)
 	http.HandleFunc("/resume", handleResume)
+	http.HandleFunc("/stop", handleStop)
 	log.Println("Runner server starting on :18080")
 	log.Fatal(http.ListenAndServe(":18080", nil))
 }
@@ -87,13 +94,48 @@ func handleRunStream(w http.ResponseWriter, r *http.Request, req *RunRequest) {
 	w.WriteHeader(http.StatusOK)
 	sw.flusher.Flush()
 
+	// 确保有 Options 并设置 checkpoint_id
+	if req.Options == nil {
+		req.Options = &RunOptions{}
+	}
+	if req.Options.CheckPointID == "" {
+		req.Options.CheckPointID = fmt.Sprintf("run-%d", time.Now().UnixNano())
+	}
+	checkpointID := req.Options.CheckPointID
+
 	startedAt := time.Now()
 	_ = write("meta", map[string]any{
 		"started_at":      startedAt.Format(time.RFC3339Nano),
 		"stream_protocol": "sse",
+		"checkpoint_id":   checkpointID,
 	})
 
-	ctx := r.Context()
+	// 创建可取消的上下文
+	ctx, cancel := context.WithCancel(r.Context())
+
+	// 保存取消函数到 stopFuncs (同时用 checkpoint_id 和 session_id 作为 key)
+	sessionID := ""
+	if req.Context != nil {
+		if s, ok := req.Context["session_id"].(string); ok {
+			sessionID = s
+		}
+	}
+	stopMu.Lock()
+	stopFuncs[checkpointID] = cancel
+	if sessionID != "" {
+		stopFuncs[sessionID] = cancel
+	}
+	stopMu.Unlock()
+
+	// 确保退出时清理
+	defer func() {
+		stopMu.Lock()
+		delete(stopFuncs, checkpointID)
+		if sessionID != "" {
+			delete(stopFuncs, sessionID)
+		}
+		stopMu.Unlock()
+	}()
 
 	runner := NewRunner(req)
 	eventsChan, err := runner.RunStream(ctx)
@@ -206,6 +248,47 @@ func handleResume(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+func handleStop(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[handleStop] Received stop request")
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		CheckpointID string `json:"checkpoint_id"`
+		SessionID    string `json:"session_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("[handleStop] Failed to decode request: %v", err)
+		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("[handleStop] checkpoint_id: %s, session_id: %s", req.CheckpointID, req.SessionID)
+
+	// 优先用 checkpoint_id 查找，其次用 session_id
+	targetID := req.CheckpointID
+	if targetID == "" {
+		targetID = req.SessionID
+	}
+
+	log.Printf("[handleStop] Looking for cancel func with key: %s", targetID)
+	stopMu.Lock()
+	cancel, ok := stopFuncs[targetID]
+	if ok {
+		log.Printf("[handleStop] Found cancel func for %s, calling it", targetID)
+		cancel()
+		delete(stopFuncs, targetID)
+	} else {
+		log.Printf("[handleStop] No cancel func found for %s", targetID)
+	}
+	stopMu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"stopped": ok})
 }
 
 // expandEnvInRequest 展开请求中的环境变量

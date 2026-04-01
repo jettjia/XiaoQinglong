@@ -88,6 +88,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const abortControllerRef = React.useRef<AbortController | null>(null);
   const pollingRef = React.useRef<NodeJS.Timeout | null>(null);
+  const checkpointIdRef = React.useRef<string | null>(null);
 
   // Load agents from backend
   React.useEffect(() => {
@@ -261,6 +262,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
     setFiles([]);
     filesRef.current = [];
     setIsLoading(true);
+    checkpointIdRef.current = null;
     abortControllerRef.current = new AbortController();
 
     try {
@@ -421,6 +423,12 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                 try {
                   const data = JSON.parse(dataStr);
 
+                  // 处理 meta 事件 - 捕获 checkpoint_id
+                  if (currentEventType === 'meta' && data.checkpoint_id) {
+                    checkpointIdRef.current = data.checkpoint_id;
+                    console.log('[SSE] checkpoint_id:', checkpointIdRef.current);
+                  }
+
                   if (data.text) {
                     accumulatedContent += data.text;
                     updateMessage({ content: accumulatedContent });
@@ -483,6 +491,12 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                 // Runner sends JSON directly after event line without "data: " prefix
                 try {
                   const data = JSON.parse(trimmedLine);
+
+                  // 处理 meta 事件 - 捕获 checkpoint_id
+                  if (currentEventType === 'meta' && data.checkpoint_id) {
+                    checkpointIdRef.current = data.checkpoint_id;
+                    console.log('[SSE] checkpoint_id:', checkpointIdRef.current);
+                  }
 
                   if (data.text) {
                     accumulatedContent += data.text;
@@ -636,6 +650,14 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
   };
 
   const stopGeneration = () => {
+    console.log('[Stop] stopGeneration called, checkpointId:', checkpointIdRef.current, 'sessionId:', activeConversationId);
+    // 直接发送 stop 请求到后端（使用 session_id 来停止）
+    void chatApi.stopAgent(checkpointIdRef.current || '', activeConversationId || '').then(() => {
+      console.log('[Stop] Backend stop API success');
+    }).catch(err => {
+      console.error('[Stop] Backend stop API failed:', err);
+    });
+    // abort 前端的 fetch 请求
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       setIsLoading(false);

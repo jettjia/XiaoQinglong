@@ -882,6 +882,21 @@ export const chatApi = {
     return res.json();
   },
 
+  // Stop agent execution
+  async stopAgent(checkpoint_id: string, session_id?: string): Promise<{ stopped: boolean }> {
+    console.log('[API] stopAgent called, checkpoint_id:', checkpoint_id, 'session_id:', session_id);
+    const res = await fetch(`${API_BASE}/runner/stop`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ checkpoint_id, session_id }),
+    });
+    if (!res.ok) {
+      const json = await res.json();
+      throw new Error(json.message || 'Failed to stop agent');
+    }
+    return res.json();
+  },
+
   // Upload files for agent execution
   async uploadFiles(sessionId: string, files: File[]): Promise<{
     files: Array<{

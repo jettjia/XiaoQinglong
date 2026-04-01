@@ -145,6 +145,7 @@ func SetPublicRouter(Router *gin.RouterGroup) {
 	{
 		RunnerRouter.POST("/run", handRunner.Run)        // 代理runner run请求
 		RunnerRouter.POST("/resume", handRunner.Resume)  // 代理runner resume请求
+		RunnerRouter.POST("/stop", handRunner.Stop)      // 代理runner stop请求
 		RunnerRouter.POST("/upload", handRunner.Upload)  // 文件上传
 	}
 

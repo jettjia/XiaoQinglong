@@ -317,6 +317,58 @@ func (h *Handler) Resume(c *gin.Context) {
 	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), respBody)
 }
 
+// Stop 代理runner的stop请求
+func (h *Handler) Stop(c *gin.Context) {
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "failed to read request body"})
+		return
+	}
+
+	log := logger.GetRunnerLogger()
+	log.Info("====== RUNNER STOP REQUEST ======")
+	log.Infof("Request Body:\n%s", string(body))
+	log.Info("============================")
+
+	// 从 agent config 获取 runner endpoint
+	runnerURL := h.runnerURL
+	if runnerURL == "" {
+		runnerURL = "http://localhost:18080"
+	}
+	stopURL := runnerURL + "/stop"
+
+	req, err := http.NewRequest("POST", stopURL, bytes.NewReader(body))
+	if err != nil {
+		log.WithError(err).Error("Failed to create stop request")
+		c.JSON(500, gin.H{"error": "failed to create request"})
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.WithError(err).Error("Failed to call runner stop")
+		c.JSON(502, gin.H{"error": "failed to call runner service"})
+		return
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.WithError(err).Error("Failed to read stop response")
+		c.JSON(500, gin.H{"error": "failed to read runner response"})
+		return
+	}
+
+	log.Info("====== RUNNER STOP RESPONSE ======")
+	log.Infof("Status: %d", resp.StatusCode)
+	log.Infof("Response Body:\n%s", string(respBody))
+	log.Info("============================")
+
+	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), respBody)
+}
+
 // loadHistoricalMessages 加载历史消息并根据context_window策略限制
 func (h *Handler) loadHistoricalMessages(ctx context.Context, sessionID string, agentConfig map[string]any) ([]map[string]any, error) {
 	// 1. 获取历史消息
