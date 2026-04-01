@@ -240,6 +240,19 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
     setFiles(filesRef.current);
   }, []);
 
+  // 删除文件的处理函数，同时更新 filesRef 和 state
+  const removeFile = (index: number) => {
+    const removedFile = filesRef.current[index];
+    // 如果有 blob URL，释放它
+    if (removedFile?.url && removedFile.url.startsWith('blob:')) {
+      URL.revokeObjectURL(removedFile.url);
+    }
+    filesRef.current = filesRef.current.filter((_, idx) => idx !== index);
+    pendingFilesRef.current = pendingFilesRef.current.filter((_, idx) => idx !== index);
+    setFiles(filesRef.current);
+    console.log('[removeFile] after - filesRef.current.length:', filesRef.current.length);
+  };
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     noClick: true
@@ -1233,7 +1246,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                     <Paperclip size={14} className="text-slate-400" />
                     <span className="text-xs text-slate-600 truncate max-w-[150px]">{file.name}</span>
                     <button
-                      onClick={() => setFiles(prev => prev.filter((_, idx) => idx !== i))}
+                      onClick={() => removeFile(i)}
                       className="p-1 hover:bg-slate-200 rounded-full text-slate-400 hover:text-red-500 transition-colors"
                     >
                       <Trash2 size={12} />
