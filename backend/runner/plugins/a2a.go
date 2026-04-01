@@ -1,4 +1,4 @@
-package main
+package plugins
 
 import (
 	"bytes"
@@ -15,20 +15,21 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
+	"github.com/jettjia/XiaoQinglong/runner/types"
 )
 
 // ========== A2A Client ==========
 
 // A2AClient represents an A2A agent client
 type A2AClient struct {
-	name      string
-	endpoint  string
-	headers   map[string]string
+	name       string
+	endpoint   string
+	headers    map[string]string
 	httpClient *http.Client
 }
 
 // NewA2AClient creates a new A2A client
-func NewA2AClient(ctx context.Context, config A2AAgentConfig) (*A2AClient, error) {
+func NewA2AClient(ctx context.Context, config types.A2AAgentConfig) (*A2AClient, error) {
 	// Validate endpoint
 	if config.Endpoint == "" {
 		return nil, fmt.Errorf("empty endpoint")
@@ -58,9 +59,9 @@ func NewA2AClient(ctx context.Context, config A2AAgentConfig) (*A2AClient, error
 	log.Printf("[A2A] Created client for agent: %s, endpoint: %s", config.Name, endpoint)
 
 	return &A2AClient{
-		name:      config.Name,
-		endpoint:  endpoint,
-		headers:   headers,
+		name:       config.Name,
+		endpoint:   endpoint,
+		headers:    headers,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}, nil
 }
@@ -179,10 +180,10 @@ func (a *A2AClient) CreateA2ARunner(ctx context.Context, model model.ToolCalling
 // ========== A2A Tool ==========
 
 type A2ATool struct {
-	clients    map[string]*A2AClient
-	callCount  *int           // shared counter pointer
-	maxCalls   int            // max allowed calls
-	traceCtx   map[string]string // trace context (trace_id, parent_span_id)
+	clients   map[string]*A2AClient
+	callCount *int              // shared counter pointer
+	maxCalls  int               // max allowed calls
+	traceCtx  map[string]string // trace context (trace_id, parent_span_id)
 }
 
 func NewA2ATool(clients map[string]*A2AClient) *A2ATool {

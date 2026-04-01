@@ -1,4 +1,4 @@
-package main
+package plugins
 
 import (
 	"bytes"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
+	"github.com/jettjia/XiaoQinglong/runner/types"
 )
 
 // ========== HTTP Tool ==========
@@ -23,7 +24,7 @@ type HTTPTool struct {
 	headers     map[string]string
 }
 
-func NewHTTPTool(config ToolConfig) *HTTPTool {
+func NewHTTPTool(config types.ToolConfig) *HTTPTool {
 	return &HTTPTool{
 		name:        config.Name,
 		description: config.Description,

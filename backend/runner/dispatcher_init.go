@@ -10,8 +10,10 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
+	"github.com/jettjia/XiaoQinglong/runner/plugins"
 	"github.com/jettjia/XiaoQinglong/runner/retriever"
 	"github.com/jettjia/XiaoQinglong/runner/subagent"
+	"github.com/jettjia/XiaoQinglong/runner/types"
 )
 
 func (d *Dispatcher) initModels(ctx context.Context) error {
@@ -69,7 +71,15 @@ func (d *Dispatcher) initTools(ctx context.Context) error {
 		d.toolConfigs[tc.Name] = tc
 		switch tc.Type {
 		case "http":
-			httpTool := NewHTTPTool(tc)
+			httpTool := plugins.NewHTTPTool(types.ToolConfig{
+				Type:        tc.Type,
+				Name:        tc.Name,
+				Description: tc.Description,
+				Endpoint:    tc.Endpoint,
+				Method:      tc.Method,
+				Headers:     tc.Headers,
+				RiskLevel:   tc.RiskLevel,
+			})
 			// 根据 risk_level 判断是否需要包装审批
 			wrapped := d.wrapToolWithApproval(httpTool, tc.Name, "http", tc.RiskLevel)
 			d.tools = append(d.tools, wrapped)
@@ -87,7 +97,17 @@ func (d *Dispatcher) initKnowledgeRetriever(ctx context.Context) error {
 	}
 
 	// 创建检索工具
-	retrievalTool := retriever.CreateRetrievalTool(d.request.KnowledgeBases)
+	kbs := make([]retriever.KnowledgeBaseConfig, len(d.request.KnowledgeBases))
+	for i, kb := range d.request.KnowledgeBases {
+		kbs[i] = retriever.KnowledgeBaseConfig{
+			ID:           kb.ID,
+			Name:         kb.Name,
+			RetrievalURL: kb.RetrievalURL,
+			Token:        kb.Token,
+			TopK:         kb.TopK,
+		}
+	}
+	retrievalTool := retriever.CreateRetrievalTool(kbs)
 	d.tools = append(d.tools, retrievalTool)
 
 	logger.Infof("[Dispatcher] initKnowledgeRetriever: added retrieval tool with %d knowledge bases", len(d.request.KnowledgeBases))
@@ -114,7 +134,13 @@ func (d *Dispatcher) initA2A(ctx context.Context) error {
 	d.a2aRunners = make(map[string]*adk.Runner)
 
 	for _, cfg := range d.request.A2A {
-		client, err := NewA2AClient(ctx, cfg)
+		a2aCfg := types.A2AAgentConfig{
+			Name:      cfg.Name,
+			Endpoint:  cfg.Endpoint,
+			Headers:   cfg.Headers,
+			RiskLevel: cfg.RiskLevel,
+		}
+		client, err := plugins.NewA2AClient(ctx, a2aCfg)
 		if err != nil {
 			logger.Infof("[Dispatcher] initA2A: failed to create client for %s: %v", cfg.Name, err)
 			continue
@@ -132,13 +158,19 @@ func (d *Dispatcher) initA2A(ctx context.Context) error {
 
 	// 如果有 A2A agents，创建 A2A tool 并添加到 tools
 	if len(d.a2aRunners) > 0 {
-		clients := make(map[string]*A2AClient)
+		clients := make(map[string]*plugins.A2AClient)
 		for name, runner := range d.a2aRunners {
 			_ = runner // runner 已存储
 			// 创建 client 引用
 			for _, cfg := range d.request.A2A {
 				if cfg.Name == name {
-					client, _ := NewA2AClient(ctx, cfg)
+					a2aCfg := types.A2AAgentConfig{
+						Name:      cfg.Name,
+						Endpoint:  cfg.Endpoint,
+						Headers:   cfg.Headers,
+						RiskLevel: cfg.RiskLevel,
+					}
+					client, _ := plugins.NewA2AClient(ctx, a2aCfg)
 					if client != nil {
 						clients[name] = client
 					}
@@ -152,7 +184,7 @@ func (d *Dispatcher) initA2A(ctx context.Context) error {
 			if d.request.Options != nil {
 				maxA2ACalls = d.request.Options.MaxA2ACalls
 			}
-			a2aTool := NewA2AToolWithCounter(clients, &d.a2aCallCount, maxA2ACalls)
+			a2aTool := plugins.NewA2AToolWithCounter(clients, &d.a2aCallCount, maxA2ACalls)
 			// 设置 trace context
 			if d.request.Context != nil {
 				traceCtx := make(map[string]string)
@@ -255,7 +287,7 @@ func (d *Dispatcher) initMCPs(ctx context.Context) error {
 				logger.Infof("[Dispatcher] initMCP: %s has empty endpoint, skipping", mcpCfg.Name)
 				continue
 			}
-			loader := NewMCPToolLoader(mcpCfg.Endpoint, mcpCfg.Headers)
+			loader := plugins.NewMCPToolLoader(mcpCfg.Endpoint, mcpCfg.Headers)
 			tools, err := loader.LoadTools(ctx)
 			if err != nil {
 				logger.Infof("[Dispatcher] initMCP: failed to load tools for %s: %v", mcpCfg.Name, err)
@@ -278,7 +310,7 @@ func (d *Dispatcher) initMCPs(ctx context.Context) error {
 				logger.Infof("[Dispatcher] initMCP: %s has empty command, skipping", mcpCfg.Name)
 				continue
 			}
-			client, err := NewMCPStdioClient(mcpCfg.Command, mcpCfg.Args, mcpCfg.Env)
+			client, err := plugins.NewMCPStdioClient(mcpCfg.Command, mcpCfg.Args, mcpCfg.Env)
 			if err != nil {
 				logger.Infof("[Dispatcher] initMCP: failed to create stdio client for %s: %v", mcpCfg.Name, err)
 				continue
@@ -312,18 +344,65 @@ func (d *Dispatcher) initSkills(ctx context.Context) error {
 	}
 
 	// 创建 skill 配置管理器
-	configMgr, err := NewSkillConfigManager(DefaultSkillConfigPath())
+	configMgr, err := plugins.NewSkillConfigManager(plugins.DefaultSkillConfigPath())
 	if err != nil {
 		logger.Infof("[Dispatcher] initSkills: warning - failed to load config: %v", err)
 		// 配置加载失败不影响 skill 运行，使用空配置
-		configMgr, _ = NewSkillConfigManager("")
+		configMgr, _ = plugins.NewSkillConfigManager("")
 	}
 
-	// 创建 skill runner
-	d.skillRunner = NewSkillRunner(
-		d.request.Skills,
+	// 转换 skills 和 sandbox 到 types 包类型
+	var skills []types.Skill
+	for _, s := range d.request.Skills {
+		skills = append(skills, types.Skill{
+			ID:          s.ID,
+			Name:        s.Name,
+			Description: s.Description,
+			Instruction: s.Instruction,
+			Scope:       s.Scope,
+			Trigger:     s.Trigger,
+			EntryScript: s.EntryScript,
+			FilePath:    s.FilePath,
+			Inputs:      s.Inputs,
+			Outputs:     s.Outputs,
+			RiskLevel:   s.RiskLevel,
+		})
+	}
+
+	var sandboxCfg *types.SandboxConfig
+	if d.request.Sandbox != nil {
+		var limits *types.SandboxLimits
+		if d.request.Sandbox.Limits != nil {
+			limits = &types.SandboxLimits{
+				CPU:    d.request.Sandbox.Limits.CPU,
+				Memory: d.request.Sandbox.Limits.Memory,
+			}
+		}
+		var volumes []types.VolumeMount
+		for _, v := range d.request.Sandbox.Volumes {
+			volumes = append(volumes, types.VolumeMount{
+				HostPath:      v.HostPath,
+				ContainerPath: v.ContainerPath,
+				ReadOnly:      v.ReadOnly,
+			})
+		}
+		sandboxCfg = &types.SandboxConfig{
+			Enabled:   d.request.Sandbox.Enabled,
+			Mode:      d.request.Sandbox.Mode,
+			Image:     d.request.Sandbox.Image,
+			Workdir:   d.request.Sandbox.Workdir,
+			Network:   d.request.Sandbox.Network,
+			TimeoutMs: d.request.Sandbox.TimeoutMs,
+			Env:       d.request.Sandbox.Env,
+			Limits:    limits,
+			Volumes:   volumes,
+		}
+	}
+
+	d.skillRunner = plugins.NewSkillRunner(
+		skills,
 		skillsDir,
-		d.request.Sandbox,
+		sandboxCfg,
 		d.defaultModel,
 		configMgr,
 	)
@@ -390,10 +469,10 @@ func (d *Dispatcher) initSkills(ctx context.Context) error {
 	}
 
 	logger.Infof("[Dispatcher] initSkills: %d skills registered, config: %s",
-		len(d.request.Skills), DefaultSkillConfigPath())
+		len(d.request.Skills), plugins.DefaultSkillConfigPath())
 
 	// 创建技能规划器 (SkillPlanner)
-	d.skillPlanner = NewSkillPlanner(d.request.Skills, d.skillRunner, d.defaultModel)
+	d.skillPlanner = plugins.NewSkillPlanner(skills, d.skillRunner, d.defaultModel)
 	logger.Infof("[Dispatcher] SkillPlanner created")
 
 	// 创建技能编排工具 (当需要多 skill 协同时使用)

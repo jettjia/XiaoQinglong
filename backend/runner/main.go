@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jettjia/XiaoQinglong/runner/types"
 )
 
 // stopFuncs 保存 checkpoint_id -> cancel 函数
@@ -31,7 +33,7 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req RunRequest
+	var req types.RunRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
 		return
@@ -81,7 +83,7 @@ func (s *sseWriter) Write(event string, data any) error {
 }
 
 // handleRunStream 处理流式输出
-func handleRunStream(w http.ResponseWriter, r *http.Request, req *RunRequest) {
+func handleRunStream(w http.ResponseWriter, r *http.Request, req *types.RunRequest) {
 	sw := newSSEWriter(w)
 	write := sw.Write
 
@@ -96,7 +98,7 @@ func handleRunStream(w http.ResponseWriter, r *http.Request, req *RunRequest) {
 
 	// 确保有 Options 并设置 checkpoint_id
 	if req.Options == nil {
-		req.Options = &RunOptions{}
+		req.Options = &types.RunOptions{}
 	}
 	if req.Options.CheckPointID == "" {
 		req.Options.CheckPointID = fmt.Sprintf("run-%d", time.Now().UnixNano())
@@ -205,7 +207,7 @@ func handleResume(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Convert to ResumeRequest
-	req := ResumeRequest{}
+	req := types.ResumeRequest{}
 
 	// Handle two formats:
 	// 1. New format: {checkpoint_id: "xxx", approvals: [{interrupt_id: "xxx", approved: true}]}
@@ -215,7 +217,7 @@ func handleResume(w http.ResponseWriter, r *http.Request) {
 		if approvals, ok := rawReq["approvals"].([]any); ok {
 			for _, a := range approvals {
 				if approvalMap, ok := a.(map[string]any); ok {
-					approval := ResumeApproval{}
+					approval := types.ResumeApproval{}
 					if id, ok := approvalMap["interrupt_id"].(string); ok {
 						approval.InterruptID = id
 					}
@@ -233,13 +235,13 @@ func handleResume(w http.ResponseWriter, r *http.Request) {
 		if a, ok := rawReq["approved"].(bool); ok {
 			approved = a
 		}
-		req.Approvals = []ResumeApproval{{
+		req.Approvals = []types.ResumeApproval{{
 			InterruptID: interruptID,
 			Approved:    approved,
 		}}
 	}
 
-	runner := NewRunner(&RunRequest{})
+	runner := NewRunner(&types.RunRequest{})
 	resp, err := runner.Resume(r.Context(), &req)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Resume failed: %v", err), http.StatusInternalServerError)
@@ -292,7 +294,7 @@ func handleStop(w http.ResponseWriter, r *http.Request) {
 }
 
 // expandEnvInRequest 展开请求中的环境变量
-func expandEnvInRequest(req *RunRequest) {
+func expandEnvInRequest(req *types.RunRequest) {
 	// 展开 models 中的环境变量
 	for key, model := range req.Models {
 		model.Name = expandEnvStr(model.Name)

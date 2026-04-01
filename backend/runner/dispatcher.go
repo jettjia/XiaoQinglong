@@ -21,11 +21,189 @@ import (
 	"github.com/jettjia/XiaoQinglong/runner/contextcompressor"
 	"github.com/jettjia/XiaoQinglong/runner/contextcompressor/compactors"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
+	"github.com/jettjia/XiaoQinglong/runner/plugins"
 	"github.com/jettjia/XiaoQinglong/runner/subagent"
+	"github.com/jettjia/XiaoQinglong/runner/types"
 )
 
 // contextKey 用于在 context 中传递数据
 type contextKey string
+
+// ========== Type Aliases & Constants ==========
+
+type ToolCall = types.ToolCall
+
+const (
+	ModelRoleDefault   ModelRole = "default"
+	ModelRoleRewrite   ModelRole = "rewrite"
+	ModelRoleSkill     ModelRole = "skill"
+	ModelRoleSummarize ModelRole = "summarize"
+)
+
+type ModelRole = types.ModelRole
+
+// ========== Global Checkpoint Store Manager ==========
+
+var (
+	checkpointStores = make(map[string]compose.CheckPointStore)
+	checkpointMu     sync.RWMutex
+	runners          = make(map[string]*adkRunner)
+	runnersMu        sync.RWMutex
+)
+
+type adkRunner struct {
+	runner   *adk.Runner
+	Messages []adk.Message
+}
+
+func GetCheckPointStore(id string) compose.CheckPointStore {
+	checkpointMu.RLock()
+	defer checkpointMu.RUnlock()
+	return checkpointStores[id]
+}
+
+func SetCheckPointStore(id string, store compose.CheckPointStore) {
+	checkpointMu.Lock()
+	defer checkpointMu.Unlock()
+	checkpointStores[id] = store
+}
+
+func GetRunner(id string) *adkRunner {
+	runnersMu.RLock()
+	defer runnersMu.RUnlock()
+	return runners[id]
+}
+
+func SetRunner(id string, r *adkRunner) {
+	runnersMu.Lock()
+	defer runnersMu.Unlock()
+	runners[id] = r
+}
+
+// ========== Runner ==========
+
+type Runner struct {
+	request    *types.RunRequest
+	dispatcher *Dispatcher
+}
+
+func NewRunner(req *types.RunRequest) *Runner {
+	return &Runner{
+		request:    req,
+		dispatcher: NewDispatcher(req),
+	}
+}
+
+func (r *Runner) Run(ctx context.Context) (*DispatchResult, error) {
+	return r.dispatcher.Run(ctx)
+}
+
+func (r *Runner) RunStream(ctx context.Context) (<-chan StreamEvent, error) {
+	return r.dispatcher.RunStream(ctx)
+}
+
+func (r *Runner) Resume(ctx context.Context, req *types.ResumeRequest) (*types.ResumeResponse, error) {
+	// 获取存储的 runner
+	adkRunner := GetRunner(req.CheckPointID)
+	if adkRunner == nil {
+		return &types.ResumeResponse{
+			Success: false,
+			Error:   "checkpoint not found or expired",
+		}, nil
+	}
+
+	// 构建 approval results
+	approvals := make(map[string]any)
+	for _, approval := range req.Approvals {
+		result := &types.ApprovalResult{
+			Approved:         approval.Approved,
+			DisapproveReason: approval.DisapproveReason,
+		}
+		approvals[approval.InterruptID] = result
+	}
+
+	// 恢复执行
+	events, err := adkRunner.runner.ResumeWithParams(ctx, req.CheckPointID, &adk.ResumeParams{
+		Targets: approvals,
+	})
+	if err != nil {
+		return &types.ResumeResponse{
+			Success: false,
+			Error:   fmt.Sprintf("resume failed: %v", err),
+		}, nil
+	}
+
+	// 处理事件
+	var finalContent string
+	var toolCalls []types.ToolCall
+	var finishReason string
+	var toolCallsDetail []types.ToolCallMetadata
+	toolCallCount := 0
+
+	for {
+		event, ok := events.Next()
+		if !ok {
+			break
+		}
+
+		if event.Err != nil {
+			return &types.ResumeResponse{
+				Success: false,
+				Error:   fmt.Sprintf("resume error: %v", event.Err),
+			}, nil
+		}
+
+		if event.Output != nil {
+			if msg, err := event.Output.MessageOutput.GetMessage(); err == nil {
+				finalContent = msg.Content
+
+				for _, tc := range msg.ToolCalls {
+					toolCallCount++
+					tcMeta := types.ToolCallMetadata{
+						Tool:  tc.Function.Name,
+						Input: tc.Function.Arguments,
+					}
+					toolCallsDetail = append(toolCallsDetail, tcMeta)
+
+					toolCalls = append(toolCalls, types.ToolCall{
+						Tool:   tc.Function.Name,
+						Input:  tc.Function.Arguments,
+						Output: nil,
+					})
+				}
+
+				if len(msg.ToolCalls) == 0 && finishReason == "" {
+					finishReason = "completed"
+				}
+			}
+		}
+	}
+
+	metadata := types.ResponseMetadata{
+		Model:          r.getDefaultModelName(),
+		ToolCallsCount: toolCallCount,
+		Iterations:     toolCallCount,
+	}
+
+	return &types.ResumeResponse{
+		Success:      true,
+		FinishReason: finishReason,
+		Content:      finalContent,
+		ToolCalls:    toolCalls,
+		Metadata:     metadata,
+	}, nil
+}
+
+func (r *Runner) getDefaultModelName() string {
+	if r.request.Models == nil {
+		return ""
+	}
+	cfg, ok := r.request.Models["default"]
+	if !ok {
+		return ""
+	}
+	return cfg.Name
+}
 
 const eventsChanKey contextKey = "eventsChan"
 const toolArgsMapKey contextKey = "toolArgsMap"
@@ -60,12 +238,12 @@ func getToolArgsMap(ctx context.Context) toolArgsMapType {
 type DispatchResult struct {
 	Content          string
 	ToolCalls        []ToolCall
-	A2AResults       []A2AResult
+	A2AResults       []types.A2AResult
 	FinishReason     string
 	A2UIMessages     []json.RawMessage
 	TokensUsed       int
 	Metadata         *ResultMetadata
-	PendingApprovals []PendingApproval
+	PendingApprovals []types.PendingApproval
 	CheckPointID     string
 }
 
@@ -79,17 +257,8 @@ type ResultMetadata struct {
 	A2ACallsCount    int
 	SkillCallsCount  int
 	Iterations       int
-	ToolCallsDetail  []ToolCallMetadata
+	ToolCallsDetail  []types.ToolCallMetadata
 	Error            string
-}
-
-type ToolCallMetadata struct {
-	Tool      string
-	Input     any
-	Output    any
-	LatencyMs int64
-	Success   bool
-	Error     string
 }
 
 // toolCallEventsMiddleware 工具调用中间件，用于发送 tool_call 事件
@@ -145,7 +314,7 @@ type CompactionResponse struct {
 }
 
 type Dispatcher struct {
-	request *RunRequest
+	request *types.RunRequest
 
 	// 组件
 	defaultModel     model.ToolCallingChatModel
@@ -153,11 +322,11 @@ type Dispatcher struct {
 	models           map[string]model.ToolCallingChatModel
 	modelsByRole     map[ModelRole]model.ToolCallingChatModel
 	tools            []tool.BaseTool
-	toolConfigs      map[string]ToolConfig // tool name -> config for interrupt handling
+	toolConfigs      map[string]types.ToolConfig // tool name -> config for interrupt handling
 	a2aRunners       map[string]*adk.Runner
 	internalAgents   map[string]adk.Agent
-	skillRunner      *SkillRunner
-	skillPlanner     *SkillPlanner             // LLM 驱动的技能规划器
+	skillRunner      *plugins.SkillRunner
+	skillPlanner     *plugins.SkillPlanner     // LLM 驱动的技能规划器
 	subAgentManager  *subagent.SubAgentManager // Sub-Agent 管理器
 	a2aCallCount     int
 
@@ -165,18 +334,17 @@ type Dispatcher struct {
 	uploadsBaseDir string // uploads 目录的宿主机路径
 
 	// 上下文压缩器
-	compactService    *contextcompressor.IntegrationService
-	compactChan       chan CompactionRequest  // 发送压缩请求
-	compactDoneChan   chan CompactionResponse // 接收压缩结果
-	pendingCompact    *CompactionResponse     // 待应用的压缩结果
-	compactedMessages []adk.Message           // 压缩后的消息（用于替换）
-	compactMu         sync.Mutex              // 保护 pendingCompact
+	compactService  *contextcompressor.IntegrationService
+	compactChan     chan CompactionRequest  // 发送压缩请求
+	compactDoneChan chan CompactionResponse // 接收压缩结果
+	pendingCompact  *CompactionResponse     // 待应用的压缩结果
+	compactMu       sync.Mutex              // 保护 pendingCompact
 }
 
-func NewDispatcher(req *RunRequest) *Dispatcher {
+func NewDispatcher(req *types.RunRequest) *Dispatcher {
 	d := &Dispatcher{
 		request:     req,
-		toolConfigs: make(map[string]ToolConfig),
+		toolConfigs: make(map[string]types.ToolConfig),
 	}
 	// 初始化压缩通道
 	d.compactChan = make(chan CompactionRequest, 1)
@@ -408,7 +576,7 @@ func (d *Dispatcher) buildApprovalToolMiddleware() compose.InvokableToolMiddlewa
 // mcpStdioTool stdio 模式的 MCP tool
 type mcpStdioTool struct {
 	name   string
-	client *MCPStdioClient
+	client *plugins.MCPStdioClient
 }
 
 func (t *mcpStdioTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
@@ -434,7 +602,7 @@ func (t *mcpStdioTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 }
 
 // createInternalAgent 创建内部 agent
-func (d *Dispatcher) createInternalAgent(ctx context.Context, cfg InternalAgentConfig) (adk.Agent, error) {
+func (d *Dispatcher) createInternalAgent(ctx context.Context, cfg types.InternalAgentConfig) (adk.Agent, error) {
 	var chatModel model.ToolCallingChatModel
 
 	// 使用指定的模型配置
@@ -643,7 +811,7 @@ func (d *Dispatcher) summarizeContent(ctx context.Context, content string) (stri
 }
 
 // getRoutingConfig returns the routing configuration
-func (d *Dispatcher) getRoutingConfig() *RoutingConfig {
+func (d *Dispatcher) getRoutingConfig() *types.RoutingConfig {
 	if d.request.Options != nil && d.request.Options.Routing != nil {
 		return d.request.Options.Routing
 	}
@@ -739,27 +907,6 @@ func (d *Dispatcher) checkAndTriggerCompaction(messages []adk.Message) {
 	}
 }
 
-// applyCompactionResult 应用压缩结果
-func (d *Dispatcher) applyCompactionResult() {
-	d.compactMu.Lock()
-	defer d.compactMu.Unlock()
-
-	if d.pendingCompact == nil {
-		return
-	}
-
-	if d.pendingCompact.Error != nil {
-		logger.Infof("[Dispatcher] applyCompactionResult: compaction failed: %v", d.pendingCompact.Error)
-		d.pendingCompact = nil
-		return
-	}
-
-	// 压缩成功
-	logger.Infof("[Dispatcher] applyCompactionResult: compaction succeeded, preTokens=%d, postTokens=%d",
-		d.pendingCompact.Result.PreCompactTokens, d.pendingCompact.Result.PostCompactTokens)
-	d.pendingCompact = nil
-}
-
 // applyCompactionResultNonBlocking 非阻塞应用压缩结果
 // checkpointID 用于日志记录
 func (d *Dispatcher) applyCompactionResultNonBlocking(messages *[]adk.Message, checkpointID string) {
@@ -781,37 +928,11 @@ func (d *Dispatcher) applyCompactionResultNonBlocking(messages *[]adk.Message, c
 			checkpointID, len(*messages), len(compactedAdk))
 
 		// 替换消息
-		d.compactMu.Lock()
-		d.compactedMessages = compactedAdk
-		d.compactMu.Unlock()
-
-		// 更新传入的 messages 引用
 		*messages = compactedAdk
 
 	default:
 		// 没有结果可读
 	}
-}
-
-// hasCompactedMessages 检查是否有待应用的压缩消息
-func (d *Dispatcher) hasCompactedMessages() bool {
-	d.compactMu.Lock()
-	defer d.compactMu.Unlock()
-	return len(d.compactedMessages) > 0
-}
-
-// getCompactedMessages 获取压缩后的消息
-func (d *Dispatcher) getCompactedMessages() []adk.Message {
-	d.compactMu.Lock()
-	defer d.compactMu.Unlock()
-	return d.compactedMessages
-}
-
-// clearCompactedMessages 清除压缩消息标记
-func (d *Dispatcher) clearCompactedMessages() {
-	d.compactMu.Lock()
-	defer d.compactMu.Unlock()
-	d.compactedMessages = nil
 }
 
 // convertToCCMessages 将 adk.Message 转换为 contextcompressor.Message
@@ -942,8 +1063,8 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 	var finalContent string
 	var toolCalls []ToolCall
 	var finishReason string
-	var toolCallsDetail []ToolCallMetadata
-	var pendingApprovals []PendingApproval
+	var toolCallsDetail []types.ToolCallMetadata
+	var pendingApprovals []types.PendingApproval
 	var interrupted bool
 
 	// 工具调用计数
@@ -985,7 +1106,7 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 					})
 					logger.Infof("[Dispatcher] Stored runner for checkpointID=%s", checkpointID)
 				}
-				pendingApprovals = append(pendingApprovals, PendingApproval{
+				pendingApprovals = append(pendingApprovals, types.PendingApproval{
 					ToolName:      ae.ToolName,
 					ToolType:      ae.ApprovalInfo.ToolType,
 					ArgumentsJSON: ae.ApprovalInfo.ArgumentsInJSON,
@@ -1018,7 +1139,7 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 			if errors.As(event.Err, &approvalErr) {
 				logger.Infof("[Dispatcher] Caught wrapped ApprovalInterruptError for tool=%s", approvalErr.ToolName)
 				interrupted = true
-				pendingApprovals = append(pendingApprovals, PendingApproval{
+				pendingApprovals = append(pendingApprovals, types.PendingApproval{
 					ToolName:      approvalErr.ToolName,
 					ToolType:      approvalErr.ApprovalInfo.ToolType,
 					ArgumentsJSON: approvalErr.ApprovalInfo.ArgumentsInJSON,
@@ -1076,7 +1197,7 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 					riskLevel = tc.RiskLevel
 				}
 				logger.Infof("[Dispatcher]   tool config: type=%s, risk=%s", toolType, riskLevel)
-				pa := PendingApproval{
+				pa := types.PendingApproval{
 					InterruptID:   ic.ID,
 					ToolName:      lastToolName,
 					ToolType:      toolType,
@@ -1156,7 +1277,7 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 					Input:  tc.Function.Arguments,
 					Output: nil,
 				})
-				toolCallsDetail = append(toolCallsDetail, ToolCallMetadata{
+				toolCallsDetail = append(toolCallsDetail, types.ToolCallMetadata{
 					Tool:      tc.Function.Name,
 					Input:     tc.Function.Arguments,
 					LatencyMs: 0, // 将在工具执行后更新
@@ -1205,7 +1326,7 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 							Input:  tc.Function.Arguments,
 							Output: nil,
 						})
-						toolCallsDetail = append(toolCallsDetail, ToolCallMetadata{
+						toolCallsDetail = append(toolCallsDetail, types.ToolCallMetadata{
 							Tool:      tc.Function.Name,
 							Input:     tc.Function.Arguments,
 							LatencyMs: 0,

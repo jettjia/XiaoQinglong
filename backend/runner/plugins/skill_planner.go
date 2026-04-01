@@ -1,4 +1,4 @@
-package main
+package plugins
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+	"github.com/jettjia/XiaoQinglong/runner/types"
 )
 
 // ExecutionPlan 执行计划
@@ -22,23 +23,23 @@ type ExecutionStage struct {
 }
 
 type SkillExecution struct {
-	Skill    Skill
+	Skill    types.Skill
 	InputCtx map[string]any // 该 skill 的输入上下文 (从上游 skill 结果获取)
 }
 
 // SkillPlanner 技能规划器 - LLM 驱动
 type SkillPlanner struct {
-	skills         []Skill
-	skillRunner    *SkillRunner
-	model          model.ToolCallingChatModel // 用于 LLM 规划的模型
+	skills      []types.Skill
+	skillRunner *SkillRunner
+	model       model.ToolCallingChatModel // 用于 LLM 规划的模型
 }
 
 // NewSkillPlanner 创建技能规划器
-func NewSkillPlanner(skills []Skill, skillRunner *SkillRunner, model model.ToolCallingChatModel) *SkillPlanner {
+func NewSkillPlanner(skills []types.Skill, skillRunner *SkillRunner, model model.ToolCallingChatModel) *SkillPlanner {
 	return &SkillPlanner{
 		skills:      skills,
 		skillRunner: skillRunner,
-		model:      model,
+		model:       model,
 	}
 }
 
@@ -166,7 +167,7 @@ func (p *SkillPlanner) parseExecutionPlan(llmResult string, contextData map[stri
 	}
 
 	// 构建 skill map 方便查找
-	skillMap := make(map[string]Skill)
+	skillMap := make(map[string]types.Skill)
 	for _, skill := range p.skills {
 		skillMap[skill.ID] = skill
 	}
@@ -208,7 +209,7 @@ func (p *SkillPlanner) extractSkillIDs(llmResult string) ([]string, error) {
 }
 
 // buildExecutionStages 构建执行阶段，同一层可并行
-func (p *SkillPlanner) buildExecutionStages(skillIDs []string, skillMap map[string]Skill, contextData map[string]any) []ExecutionStage {
+func (p *SkillPlanner) buildExecutionStages(skillIDs []string, skillMap map[string]types.Skill, contextData map[string]any) []ExecutionStage {
 	// 分析每个 skill 的输入是否可以被当前上下文满足
 	var stages []ExecutionStage
 	processed := make(map[string]bool)
@@ -250,7 +251,7 @@ func (p *SkillPlanner) buildExecutionStages(skillIDs []string, skillMap map[stri
 }
 
 // canExecute 检查 skill 的依赖是否已满足
-func (p *SkillPlanner) canExecute(skill Skill, contextData map[string]any, processed map[string]bool) bool {
+func (p *SkillPlanner) canExecute(skill types.Skill, contextData map[string]any, processed map[string]bool) bool {
 	// 检查所有输入是否可满足
 	for _, input := range skill.Inputs {
 		// 检查是否在全局上下文中
@@ -281,7 +282,7 @@ func (p *SkillPlanner) canExecute(skill Skill, contextData map[string]any, proce
 }
 
 // collectInputs 收集 skill 执行所需的输入
-func (p *SkillPlanner) collectInputs(skill Skill, contextData map[string]any, processed map[string]bool) map[string]any {
+func (p *SkillPlanner) collectInputs(skill types.Skill, contextData map[string]any, processed map[string]bool) map[string]any {
 	inputCtx := make(map[string]any)
 
 	for _, input := range skill.Inputs {
@@ -307,7 +308,7 @@ func (p *SkillPlanner) collectInputs(skill Skill, contextData map[string]any, pr
 }
 
 // getSkillByID 根据 ID 获取 skill
-func (p *SkillPlanner) getSkillByID(id string) *Skill {
+func (p *SkillPlanner) getSkillByID(id string) *types.Skill {
 	for _, skill := range p.skills {
 		if skill.ID == id {
 			return &skill
@@ -331,7 +332,7 @@ func (p *SkillPlanner) Execute(ctx context.Context, plan *ExecutionPlan) (map[st
 		}, len(stage.Skills))
 
 		for _, exec := range stage.Skills {
-			go func(skill Skill, inputCtx map[string]any) {
+			go func(skill types.Skill, inputCtx map[string]any) {
 				result, err := p.executeSkill(ctx, skill, inputCtx)
 				resultsCh <- struct {
 					skillID string
@@ -362,7 +363,7 @@ func (p *SkillPlanner) Execute(ctx context.Context, plan *ExecutionPlan) (map[st
 }
 
 // executeSkill 执行单个 skill
-func (p *SkillPlanner) executeSkill(ctx context.Context, skill Skill, inputCtx map[string]any) (any, error) {
+func (p *SkillPlanner) executeSkill(ctx context.Context, skill types.Skill, inputCtx map[string]any) (any, error) {
 	if p.skillRunner == nil {
 		return nil, fmt.Errorf("skill runner not initialized")
 	}

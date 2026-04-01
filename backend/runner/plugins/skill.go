@@ -1,4 +1,4 @@
-package main
+package plugins
 
 import (
 	"bytes"
@@ -17,15 +17,16 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
+	"github.com/jettjia/XiaoQinglong/runner/types"
 )
 
 // ========== Skill Runner ==========
 
 // SkillRunner runs skills progressively with sliding-window approach
 type SkillRunner struct {
-	skills     map[string]Skill
+	skills     map[string]types.Skill
 	skillsDir  string // 存储所有 skill 脚本的目录
-	sandboxCfg *SandboxConfig
+	sandboxCfg *types.SandboxConfig
 	model      model.ToolCallingChatModel // 用于执行 skill 的模型
 	configMgr  *SkillConfigManager        // skill 配置管理器
 
@@ -38,8 +39,8 @@ type SkillRunner struct {
 }
 
 // NewSkillRunner creates a new skill runner
-func NewSkillRunner(skills []Skill, skillsDir string, sandboxCfg *SandboxConfig, model model.ToolCallingChatModel, configMgr *SkillConfigManager) *SkillRunner {
-	skillMap := make(map[string]Skill)
+func NewSkillRunner(skills []types.Skill, skillsDir string, sandboxCfg *types.SandboxConfig, model model.ToolCallingChatModel, configMgr *SkillConfigManager) *SkillRunner {
+	skillMap := make(map[string]types.Skill)
 	for _, s := range skills {
 		skillMap[s.ID] = s
 	}
@@ -89,7 +90,7 @@ func (r *SkillRunner) RunSkill(ctx context.Context, name string, input map[strin
 
 // runSkillWithSandbox 在沙箱中执行 skill（滑动窗口模式）
 // sessionID 用于标识同一个请求中的多次 skill 调用，实现工作目录共享
-func (r *SkillRunner) runSkillWithSandbox(ctx context.Context, skill Skill, input string, sessionID string) (string, error) {
+func (r *SkillRunner) runSkillWithSandbox(ctx context.Context, skill types.Skill, input string, sessionID string) (string, error) {
 	// 1. 准备 skill 文件目录
 	skillDir := r.getSkillDir(skill.ID)
 	if skillDir == "" {
@@ -189,7 +190,7 @@ func (r *SkillRunner) runSkillWithAgent(ctx context.Context, instruction string,
 }
 
 // runSkillSimple 简单模式执行 skill（无沙箱）
-func (r *SkillRunner) runSkillSimple(ctx context.Context, skill Skill, input string) (string, error) {
+func (r *SkillRunner) runSkillSimple(ctx context.Context, skill types.Skill, input string) (string, error) {
 	// 简单返回 skill instruction 作为执行指引
 	return fmt.Sprintf("Skill: %s\nDescription: %s\nInstruction: %s\nInput: %s",
 		skill.Name, skill.Description, skill.Instruction, input), nil
@@ -231,7 +232,7 @@ func (r *SkillRunner) copySkillFiles(srcDir, dstDir string) error {
 }
 
 // buildSkillSandboxTools 构建沙箱工具
-func (r *SkillRunner) buildSkillSandboxTools(workDir string, skill Skill, skillInput string) []tool.BaseTool {
+func (r *SkillRunner) buildSkillSandboxTools(workDir string, skill types.Skill, skillInput string) []tool.BaseTool {
 	files := r.listSkillFiles(workDir)
 
 	// list_skill_files 工具
@@ -259,7 +260,7 @@ func (r *SkillRunner) buildSkillSandboxTools(workDir string, skill Skill, skillI
 }
 
 // buildSkillInstruction 构建 skill 执行 instruction
-func (r *SkillRunner) buildSkillInstruction(skill Skill, input string) string {
+func (r *SkillRunner) buildSkillInstruction(skill types.Skill, input string) string {
 	return fmt.Sprintf(`你是一个 Skill 执行助手。
 当前 Skill 名称: %s
 输入: %s
@@ -358,7 +359,7 @@ func (t *skillReadFileTool) InvokableRun(ctx context.Context, argumentsInJSON st
 type skillExecCommandTool struct {
 	workDir    string
 	baseDir    string
-	sandboxCfg *SandboxConfig
+	sandboxCfg *types.SandboxConfig
 	dockerBin  string
 	skillName  string              // skill 名称，用于获取配置
 	configMgr  *SkillConfigManager // 配置管理器
