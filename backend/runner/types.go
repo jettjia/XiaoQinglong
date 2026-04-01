@@ -9,6 +9,7 @@ import (
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/compose"
+	"github.com/jettjia/XiaoQinglong/runner/retriever"
 	"github.com/jettjia/XiaoQinglong/runner/subagent"
 )
 
@@ -63,7 +64,7 @@ type RunRequest struct {
 	Models         map[string]ModelConfig    `json:"models"`
 	Messages       []Message                 `json:"messages"`
 	Context        map[string]any            `json:"context"`
-	Knowledge      []KnowledgeItem           `json:"knowledge"`
+	KnowledgeBases []retriever.KnowledgeBaseConfig `json:"knowledge_bases"` // 知识库配置（用于运行时检索）
 	Skills         []Skill                   `json:"skills"`
 	MCPs           []MCPConfig               `json:"mcps"`
 	A2A            []A2AAgentConfig          `json:"a2a"`
@@ -96,14 +97,6 @@ type ModelConfig struct {
 	Temperature float64 `json:"temperature"`
 	MaxTokens   int     `json:"max_tokens"`
 	TopP        float64 `json:"top_p"`
-}
-
-type KnowledgeItem struct {
-	ID       string         `json:"id"`
-	Name     string         `json:"name"`
-	Content  string         `json:"content"`
-	Score    float64        `json:"score"`
-	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 type Skill struct {

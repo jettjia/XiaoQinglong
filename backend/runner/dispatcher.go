@@ -18,6 +18,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/google/uuid"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
+	"github.com/jettjia/XiaoQinglong/runner/retriever"
 	"github.com/jettjia/XiaoQinglong/runner/subagent"
 )
 
@@ -100,6 +101,18 @@ func (d *Dispatcher) Run(ctx context.Context) (*DispatchResult, error) {
 	// 2. 初始化工具 (HTTP tools)
 	if err := d.initTools(ctx); err != nil {
 		return nil, fmt.Errorf("init tools failed: %w", err)
+	}
+
+	// 2.1 初始化知识检索器（作为工具供 Agent 调用）
+	if err := d.initKnowledgeRetriever(ctx); err != nil {
+		logger.Infof("[Dispatcher] Warning: init knowledge retriever failed: %v", err)
+		// 知识检索器初始化失败不影响主流程
+	}
+
+	// 2.2 初始化文件检索工具（作为工具供 Agent 调用）
+	if err := d.initFileRetrieval(ctx); err != nil {
+		logger.Infof("[Dispatcher] Warning: init file retrieval failed: %v", err)
+		// 文件检索初始化失败不影响主流程
 	}
 
 	// 3. 初始化 A2A agents
@@ -309,6 +322,38 @@ func (d *Dispatcher) initTools(ctx context.Context) error {
 			d.tools = append(d.tools, wrapped)
 		}
 	}
+	return nil
+}
+
+// initKnowledgeRetriever 初始化知识检索器（作为工具供 Agent 调用）
+func (d *Dispatcher) initKnowledgeRetriever(ctx context.Context) error {
+	// 如果没有配置知识库，则跳过
+	if len(d.request.KnowledgeBases) == 0 {
+		logger.Infof("[Dispatcher] initKnowledgeRetriever: no knowledge bases configured")
+		return nil
+	}
+
+	// 创建检索工具
+	retrievalTool := retriever.CreateRetrievalTool(d.request.KnowledgeBases)
+	d.tools = append(d.tools, retrievalTool)
+
+	logger.Infof("[Dispatcher] initKnowledgeRetriever: added retrieval tool with %d knowledge bases", len(d.request.KnowledgeBases))
+	return nil
+}
+
+// initFileRetrieval 初始化文件检索工具（作为工具供 Agent 调用）
+func (d *Dispatcher) initFileRetrieval(ctx context.Context) error {
+	// 如果没有上传文件或 uploadsBaseDir，则跳过
+	if d.uploadsBaseDir == "" {
+		logger.Infof("[Dispatcher] initFileRetrieval: no uploads base dir configured")
+		return nil
+	}
+
+	// 创建文件检索工具
+	fileRetrievalTool := retriever.CreateFileRetrievalTool(d.uploadsBaseDir)
+	d.tools = append(d.tools, fileRetrievalTool)
+
+	logger.Infof("[Dispatcher] initFileRetrieval: added file retrieval tool")
 	return nil
 }
 
@@ -684,19 +729,6 @@ func (d *Dispatcher) createInternalAgent(ctx context.Context, cfg InternalAgentC
 func (d *Dispatcher) buildSystemPrompt() string {
 	prompt := d.request.Prompt
 
-	// 添加知识库上下文
-	if len(d.request.Knowledge) > 0 {
-		prompt += "\n\n## 知识库信息\n"
-		for _, kb := range d.request.Knowledge {
-			prompt += fmt.Sprintf("\n### %s (相关性: %.2f)\n%s\n", kb.Name, kb.Score, kb.Content)
-			if kb.Metadata != nil {
-				for k, v := range kb.Metadata {
-					prompt += fmt.Sprintf("%s: %v\n", k, v)
-				}
-			}
-		}
-	}
-
 	// 添加 skills 上下文
 	if len(d.request.Skills) > 0 {
 		prompt += "\n\n## 可用技能\n"
@@ -730,19 +762,12 @@ func (d *Dispatcher) buildSystemPrompt() string {
 		}
 	}
 
-	// 添加上传文件信息
+	// 添加上传文件信息（让 Agent 知道有文件上传，文件内容通过 retrieve_file 工具获取）
 	if len(d.request.Files) > 0 {
 		prompt += "\n\n## 用户上传的文件\n"
-		prompt += "注意：用户上传了以下文件，请根据需要处理：\n"
+		prompt += "用户上传了以下文件，文件名和路径如下，请根据需要调用 retrieve_file 工具获取内容：\n"
 		for _, f := range d.request.Files {
-			// 注入文件内容（自动提取）
-			if d.uploadsBaseDir != "" {
-				extractor := NewFileExtractor(d.uploadsBaseDir)
-				filesContent, err := extractor.ExtractFilesContent([]FileConfig{f})
-				if err == nil && filesContent != "" {
-					prompt += "\n" + filesContent + "\n"
-				}
-			}
+			prompt += fmt.Sprintf("- %s (Path: %s)\n", f.Name, f.VirtualPath)
 		}
 	}
 
@@ -1305,6 +1330,16 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 		if err := d.initTools(ctx); err != nil {
 			eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": fmt.Sprintf("init tools failed: %v", err)}}
 			return
+		}
+
+		// 2.1 初始化知识检索器
+		if err := d.initKnowledgeRetriever(ctx); err != nil {
+			logger.Infof("[Dispatcher] RunStream: warning - init knowledge retriever failed: %v", err)
+		}
+
+		// 2.2 初始化文件检索工具
+		if err := d.initFileRetrieval(ctx); err != nil {
+			logger.Infof("[Dispatcher] RunStream: warning - init file retrieval failed: %v", err)
 		}
 
 		// 3. 初始化 A2A

@@ -20,7 +20,7 @@ type RunRequest struct {
 	Models         map[string]ModelConfig `json:"models"`
 	Messages       []Message              `json:"messages"`
 	Context        map[string]any         `json:"context"`
-	Knowledge      []KnowledgeItem         `json:"knowledge"`
+	KnowledgeBases []KnowledgeBaseConfig   `json:"knowledge_bases"`
 	Skills         []Skill                `json:"skills"`
 	MCPs           []MCPConfig            `json:"mcps"`
 	A2A            []A2AAgentConfig       `json:"a2a"`
@@ -28,6 +28,14 @@ type RunRequest struct {
 	InternalAgents []InternalAgentConfig  `json:"internal_agents"`
 	Options        *RunOptions            `json:"options"`
 	Sandbox        *SandboxConfig         `json:"sandbox"`
+}
+
+type KnowledgeBaseConfig struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	RetrievalURL string `json:"retrieval_url"`
+	Token        string `json:"token"`
+	TopK         int    `json:"top_k"`
 }
 
 type Message struct {
@@ -43,14 +51,6 @@ type ModelConfig struct {
 	Temperature float64 `json:"temperature"`
 	MaxTokens   int     `json:"max_tokens"`
 	TopP        float64 `json:"top_p"`
-}
-
-type KnowledgeItem struct {
-	ID       string         `json:"id"`
-	Name     string         `json:"name"`
-	Content  string         `json:"content"`
-	Score    float64        `json:"score"`
-	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 type Skill struct {
@@ -222,18 +222,18 @@ type ToolCallMetadata struct {
 // ========== 测试配置（简化版，用于加载 JSON 文件）==========
 
 type TestConfig struct {
-	Endpoint     string            `json:"endpoint"`
-	Models       map[string]ModelConfig `json:"models"`
-	SystemPrompt string            `json:"system_prompt"`
-	UserMessage  string            `json:"user_message"`
-	Tools        []ToolConfig     `json:"tools"`
-	A2A          []A2AAgentConfig  `json:"a2a"`
-	MCPs         []MCPConfig       `json:"mcps"`
-	Skills       []Skill          `json:"skills"`
-	Sandbox      *SandboxConfig   `json:"sandbox"`
-	Options      *RunOptions      `json:"options"`
-	Knowledge    []KnowledgeItem  `json:"knowledge"`
-	Context      map[string]any   `json:"context"`
+	Endpoint      string                 `json:"endpoint"`
+	Models        map[string]ModelConfig `json:"models"`
+	SystemPrompt string                 `json:"system_prompt"`
+	UserMessage   string                 `json:"user_message"`
+	Tools         []ToolConfig          `json:"tools"`
+	A2A           []A2AAgentConfig      `json:"a2a"`
+	MCPs          []MCPConfig           `json:"mcps"`
+	Skills        []Skill               `json:"skills"`
+	Sandbox       *SandboxConfig        `json:"sandbox"`
+	Options       *RunOptions           `json:"options"`
+	KnowledgeBases []KnowledgeBaseConfig `json:"knowledge_bases"`
+	Context       map[string]any       `json:"context"`
 }
 
 func main() {
@@ -257,17 +257,17 @@ func main() {
 
 	// 构建请求
 	req := RunRequest{
-		Prompt:    config.SystemPrompt,
-		Models:    models,
-		Messages:  []Message{{Role: "user", Content: config.UserMessage}},
-		Skills:    config.Skills,
-		Tools:     config.Tools,
-		A2A:       config.A2A,
-		MCPs:      config.MCPs,
-		Sandbox:   config.Sandbox,
-		Options:    config.Options,
-		Knowledge:  config.Knowledge,
-		Context:    config.Context,
+		Prompt:        config.SystemPrompt,
+		Models:        models,
+		Messages:      []Message{{Role: "user", Content: config.UserMessage}},
+		Skills:        config.Skills,
+		Tools:         config.Tools,
+		A2A:           config.A2A,
+		MCPs:          config.MCPs,
+		Sandbox:       config.Sandbox,
+		Options:       config.Options,
+		KnowledgeBases: config.KnowledgeBases,
+		Context:       config.Context,
 	}
 
 	// 发送请求
