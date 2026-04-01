@@ -461,6 +461,9 @@ export const agentApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(agent),
     });
+    if (res.status === 204) {
+      return; // No Content
+    }
     const json = await res.json();
     if (!res.ok) {
       throw new Error(json.message || 'Failed to update agent');

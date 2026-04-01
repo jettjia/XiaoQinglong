@@ -40,11 +40,12 @@ import { agentApi, modelApi, skillApi, knowledgeBaseApi, chatApi } from '../lib/
 interface AgentManagerProps {
   onViewChange: (view: View) => void;
   onPlayAgent?: (agent: Agent) => void;
+  onEditAgent?: (agent: Agent) => void;
 }
 
 const AGENT_ICONS = ['Bot', 'Users', 'Sparkles', 'Brain', 'Zap', 'Workflow', 'MessageSquare', 'Globe', 'Terminal', 'Code'];
 
-export function AgentManager({ onViewChange, onPlayAgent }: AgentManagerProps) {
+export function AgentManager({ onViewChange, onPlayAgent, onEditAgent }: AgentManagerProps) {
   const { t } = useTranslation();
   const [agents, setAgents] = React.useState<Agent[]>(INITIAL_AGENTS);
   const [searchQuery, setSearchQuery] = React.useState('');
@@ -381,8 +382,9 @@ export function AgentManager({ onViewChange, onPlayAgent }: AgentManagerProps) {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      // Handle edit - navigate to orchestrator
-                      onViewChange('orchestrator');
+                      if (onEditAgent) {
+                        onEditAgent(agent);
+                      }
                     }}
                     className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 transition-colors"
                   >

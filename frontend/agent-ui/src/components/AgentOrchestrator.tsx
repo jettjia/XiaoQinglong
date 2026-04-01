@@ -36,9 +36,14 @@ import { cn } from '../lib/utils';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { modelApi, skillApi, knowledgeBaseApi, agentApi, channelApi, chatApi } from '../lib/api';
-import { Message, Variable } from '../types';
+import { Agent, Message, Variable } from '../types';
 
-export function AgentOrchestrator() {
+interface AgentOrchestratorProps {
+  editingAgent?: Agent | null;
+  onSaved?: () => void;
+}
+
+export function AgentOrchestrator({ editingAgent, onSaved }: AgentOrchestratorProps) {
   const { t } = useTranslation();
 
   // Backend Data State
@@ -141,6 +146,60 @@ export function AgentOrchestrator() {
       }));
     }
   }, [backendModels]);
+
+  // Load editing agent data
+  React.useEffect(() => {
+    if (editingAgent) {
+      // Parse config_json if exists
+      let parsedConfig: any = {};
+      if (editingAgent.config_json) {
+        try {
+          parsedConfig = typeof editingAgent.config_json === 'string'
+            ? JSON.parse(editingAgent.config_json)
+            : editingAgent.config_json;
+        } catch (e) {
+          console.error('Failed to parse config_json:', e);
+        }
+      } else if (editingAgent.config) {
+        try {
+          parsedConfig = typeof editingAgent.config === 'string'
+            ? JSON.parse(editingAgent.config)
+            : editingAgent.config;
+        } catch (e) {
+          console.error('Failed to parse config:', e);
+        }
+      }
+
+      setAgentConfig(prev => ({
+        ...prev,
+        name: editingAgent.name || prev.name,
+        description: editingAgent.description || prev.description,
+        systemPrompt: parsedConfig.system_prompt || parsedConfig.systemPrompt || prev.systemPrompt,
+        models: parsedConfig.models || prev.models,
+        temperature: parsedConfig.options?.temperature ?? prev.temperature,
+        maxTokens: parsedConfig.options?.max_tokens ?? prev.maxTokens,
+        topK: parsedConfig.top_k ?? parsedConfig.topK ?? prev.topK,
+        rerank: parsedConfig.rerank ?? prev.rerank,
+        selectedKBs: parsedConfig.selected_kbs || parsedConfig.selectedKBs || prev.selectedKBs,
+        selectedSkills: parsedConfig.selected_skills || parsedConfig.selectedSkills || prev.selectedSkills,
+        requireApproval: parsedConfig.require_approval ?? prev.requireApproval,
+        approvalThreshold: parsedConfig.approval_threshold || prev.approvalThreshold,
+        channels: parsedConfig.channels || prev.channels,
+        isPeriodic: parsedConfig.is_periodic || parsedConfig.isPeriodic || prev.isPeriodic,
+        cronRule: parsedConfig.cron_rule || parsedConfig.cronRule || prev.cronRule,
+        memoryLimit: parsedConfig.memory_limit || parsedConfig.memoryLimit || prev.memoryLimit,
+        longTermMemory: parsedConfig.long_term_memory || parsedConfig.longTermMemory || prev.longTermMemory,
+        variables: parsedConfig.variables || prev.variables,
+        retryCount: parsedConfig.retry_count || parsedConfig.retryCount || prev.retryCount,
+        retryInterval: parsedConfig.retry_interval || parsedConfig.retryInterval || prev.retryInterval,
+        timeout: parsedConfig.timeout || prev.timeout,
+        endpoint: parsedConfig.endpoint || prev.endpoint,
+        maxIterations: parsedConfig.options?.max_iterations || parsedConfig.max_iterations || prev.maxIterations,
+        stream: parsedConfig.options?.stream ?? prev.stream,
+        sandbox: parsedConfig.sandbox || prev.sandbox,
+      }));
+    }
+  }, [editingAgent]);
 
   // Deploy Modal State
   const [isDeployModalOpen, setIsDeployModalOpen] = React.useState(false);
@@ -348,17 +407,28 @@ export function AgentOrchestrator() {
         is_system: false,
       };
       console.log('Deploy agent:', agentData);
-      const result = await agentApi.create(agentData as any);
-      console.log('Agent created:', result);
-      // 保存部署的 agent ID 用于测试
-      if (result && result.ulid) {
-        setDeployedAgentId(result.ulid);
+      let result;
+      if (editingAgent?.ulid || editingAgent?.id) {
+        // 编辑模式：更新已有 Agent
+        result = await agentApi.update(editingAgent.ulid || editingAgent.id, agentData as any);
+        console.log('Agent updated:', result);
+        toast.success(`Agent "${deployForm.name}" updated successfully!`);
+      } else {
+        // 新建模式：创建 Agent
+        result = await agentApi.create(agentData as any);
+        console.log('Agent created:', result);
+        if (result && result.ulid) {
+          setDeployedAgentId(result.ulid);
+        }
+        toast.success(`Agent "${deployForm.name}" created successfully!`);
       }
-      toast.success(`Agent "${deployForm.name}" created successfully!`);
       setIsDeployModalOpen(false);
+      if (onSaved) {
+        onSaved();
+      }
     } catch (err: any) {
-      console.error('Failed to create agent:', err);
-      toast.error(err.message || 'Failed to create agent');
+      console.error('Failed to deploy agent:', err);
+      toast.error(err.message || 'Failed to deploy agent');
     } finally {
       setLoading(false);
     }
@@ -852,7 +922,7 @@ export function AgentOrchestrator() {
             className="flex items-center gap-2 px-4 py-2 bg-brand-500 text-white rounded-lg text-sm font-bold hover:bg-brand-600 transition-all shadow-lg shadow-brand-500/20"
           >
             <Sparkles size={16} />
-            {t('orchestrator.deployAsAgent')}
+            {editingAgent ? '更新智能体' : t('orchestrator.deployAsAgent')}
           </button>
         </div>
       </header>
@@ -2104,7 +2174,7 @@ export function AgentOrchestrator() {
           <div className="bg-white rounded-2xl w-[480px] shadow-2xl">
             {/* Modal Header */}
             <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-              <h2 className="text-lg font-bold text-slate-900">部署为智能体</h2>
+              <h2 className="text-lg font-bold text-slate-900">{editingAgent ? '更新智能体' : '部署为智能体'}</h2>
               <button
                 onClick={() => setIsDeployModalOpen(false)}
                 className="text-slate-400 hover:text-slate-600 transition-all"

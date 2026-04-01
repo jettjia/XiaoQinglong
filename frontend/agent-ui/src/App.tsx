@@ -22,6 +22,12 @@ import { Toaster } from 'sonner';
 export default function App() {
   const [activeView, setActiveView] = React.useState<View>('dashboard');
   const [preselectedAgent, setPreselectedAgent] = React.useState<Agent | null>(null);
+  const [editingAgent, setEditingAgent] = React.useState<Agent | null>(null);
+
+  const handleEditAgent = (agent: Agent) => {
+    setEditingAgent(agent);
+    setActiveView('orchestrator');
+  };
 
   const renderView = () => {
     switch (activeView) {
@@ -30,7 +36,7 @@ export default function App() {
       case 'agents':
         return <AgentManager onViewChange={setActiveView} onPlayAgent={(agent) => {
           setPreselectedAgent(agent);
-        }} />;
+        }} onEditAgent={handleEditAgent} />;
       case 'chat':
         return <ChatInterface preselectedAgent={preselectedAgent} onAgentUsed={() => setPreselectedAgent(null)} />;
       case 'knowledge':
@@ -38,7 +44,9 @@ export default function App() {
       case 'skills':
         return <SkillManager initialTab="skills" />;
       case 'orchestrator':
-        return <AgentOrchestrator />;
+        return <AgentOrchestrator editingAgent={editingAgent} onSaved={() => {
+          setEditingAgent(null);
+        }} />
       case 'models':
         return <ModelManager />;
       case 'settings':
