@@ -12,6 +12,7 @@ import (
 	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 	"github.com/jettjia/XiaoQinglong/runner/plugins"
 	"github.com/jettjia/XiaoQinglong/runner/retriever"
+	"github.com/jettjia/XiaoQinglong/runner/cron"
 	"github.com/jettjia/XiaoQinglong/runner/subagent"
 	"github.com/jettjia/XiaoQinglong/runner/types"
 )
@@ -483,4 +484,80 @@ func (d *Dispatcher) initSkills(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// initLoopCron 初始化 /loop 定时任务工具
+func (d *Dispatcher) initLoopCron(ctx context.Context) error {
+	// 获取 project dir（从 context 或默认值）
+	projectDir := "."
+	if d.request.Context != nil {
+		if dir, ok := d.request.Context["project_dir"].(string); ok && dir != "" {
+			projectDir = dir
+		}
+	}
+
+	// 创建 cron tools
+	cronTools := cron.CreateLoopTools(projectDir)
+	for _, t := range cronTools {
+		d.tools = append(d.tools, t)
+	}
+
+	logger.Infof("[Dispatcher] initLoopCron: %d cron tools registered", len(cronTools))
+
+	// 设置任务触发处理器
+	scheduler := cron.GetScheduler()
+	scheduler.SetHandler(&cronTaskHandler{
+		request: d.request,
+	})
+
+	// 启动调度器
+	scheduler.Start()
+	logger.Infof("[Dispatcher] Cron scheduler started")
+
+	return nil
+}
+
+// cronTaskHandler 处理定时任务触发
+type cronTaskHandler struct {
+	request *types.RunRequest
+}
+
+// OnTaskFired 当任务触发时执行
+func (h *cronTaskHandler) OnTaskFired(taskID string, prompt string) {
+	logger.Infof("[CronTaskHandler] Task %s fired with prompt: %s", taskID, prompt)
+
+	// 启动新 goroutine 执行定时任务
+	go func() {
+		// 创建新的 RunRequest，复制原始配置但使用新的 prompt
+		req := &types.RunRequest{
+			Prompt:         prompt,
+			Models:         h.request.Models,
+			Messages:       []types.Message{}, // 定时任务从新 prompt 开始
+			Context:        h.request.Context,
+			KnowledgeBases: h.request.KnowledgeBases,
+			Skills:         h.request.Skills,
+			MCPs:           h.request.MCPs,
+			A2A:            h.request.A2A,
+			Tools:          h.request.Tools,
+			InternalAgents: h.request.InternalAgents,
+			SubAgents:      h.request.SubAgents,
+			Options:        h.request.Options,
+			Sandbox:        h.request.Sandbox,
+			Files:          h.request.Files,
+		}
+
+		runner := NewRunner(req)
+		result, err := runner.Run(context.Background())
+		if err != nil {
+			logger.Errorf("[CronTaskHandler] Task %s execution failed: %v", taskID, err)
+			return
+		}
+
+		logger.Infof("[CronTaskHandler] Task %s completed, finish_reason: %s", taskID, result.FinishReason)
+	}()
+}
+
+// OnTaskError 当任务执行出错时记录日志
+func (h *cronTaskHandler) OnTaskError(taskID string, err error) {
+	logger.Errorf("[CronTaskHandler] Task %s error: %v", taskID, err)
 }
