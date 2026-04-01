@@ -649,13 +649,21 @@ func (d *Dispatcher) createInternalAgent(ctx context.Context, cfg types.Internal
 func (d *Dispatcher) buildSystemPrompt() string {
 	prompt := d.request.Prompt
 
-	// 添加 skills 上下文
+	// 添加 skills 上下文（懒加载模式：只显示 name + 描述，完整内容通过 load_skill 工具按需获取）
 	if len(d.request.Skills) > 0 {
 		prompt += "\n\n## 可用技能\n"
 		for _, skill := range d.request.Skills {
-			prompt += fmt.Sprintf("\n### %s\n%s\n", skill.Name, skill.Description)
-			prompt += fmt.Sprintf("指令: %s\n", skill.Instruction)
+			desc := skill.Description
+			if desc == "" {
+				desc = "无描述"
+			}
+			// 限制描述长度，参考 Claude Code 的 MAX_LISTING_DESC_CHARS = 250
+			if len([]rune(desc)) > 249 {
+				desc = string([]rune(desc)[:248]) + "…"
+			}
+			prompt += fmt.Sprintf("- %s: %s\n", skill.Name, desc)
 		}
+		prompt += "\n（完整技能说明请使用 load_skill 工具获取）\n"
 	}
 
 	// 添加 context 变量

@@ -880,6 +880,9 @@ func formatSkillResults(results map[string]any) string {
 }
 
 // SkillListText 生成 Layer 1 的简短 skill 列表
+// 每个 skill 的描述限制在 MaxSkillDescChars 字符内（参考 Claude Code 的 MAX_LISTING_DESC_CHARS = 250）
+const MaxSkillDescChars = 250
+
 func (r *SkillRunner) SkillListText() string {
 	if len(r.skills) == 0 {
 		return "(无可用skills)"
@@ -894,9 +897,9 @@ func (r *SkillRunner) SkillListText() string {
 		if desc == "" {
 			desc = "无描述"
 		}
-		// 截断过长的描述
-		if len([]rune(desc)) > 50 {
-			desc = string([]rune(desc)[:50]) + "..."
+		// 截断过长的描述，限制在 MaxSkillDescChars 字符内
+		if len([]rune(desc)) > MaxSkillDescChars {
+			desc = string([]rune(desc)[:MaxSkillDescChars-1]) + "…"
 		}
 
 		item := fmt.Sprintf("%s: %s", name, desc)
