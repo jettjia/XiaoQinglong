@@ -164,7 +164,7 @@ type fileRetrievalTool struct {
 
 func (t *fileRetrievalTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
-		Name: "retrieve_file",
+		Name: "parse_file",
 		Desc: "解析并获取上传文件的内容。支持 txt, md, json, pdf, docx 等格式。",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"file_path": {Type: schema.String, Desc: "文件路径或路径数组，如 /mnt/uploads/session_id/file.md 或 [\"file1.md\", \"file2.md\"]", Required: true},

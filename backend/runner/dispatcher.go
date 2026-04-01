@@ -762,10 +762,10 @@ func (d *Dispatcher) buildSystemPrompt() string {
 		}
 	}
 
-	// 添加上传文件信息（让 Agent 知道有文件上传，文件内容通过 retrieve_file 工具获取）
+	// 添加上传文件信息（让 Agent 知道有文件上传，文件内容通过 parse_file 工具获取）
 	if len(d.request.Files) > 0 {
 		prompt += "\n\n## 用户上传的文件\n"
-		prompt += "用户上传了以下文件，文件名和路径如下，请根据需要调用 retrieve_file 工具获取内容：\n"
+		prompt += "用户上传了以下文件，文件名和路径如下，请根据需要调用 parse_file 工具获取内容：\n"
 		for _, f := range d.request.Files {
 			prompt += fmt.Sprintf("- %s (Path: %s)\n", f.Name, f.VirtualPath)
 		}
@@ -1418,6 +1418,8 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 		var totalPromptTokens int
 		var totalCompletionTokens int
 		var toolCallsCount int
+		// 保存 tool_call_id 到 arguments 的映射，用于在 tool 返回时获取输入参数
+		toolCallArgsMap := make(map[string]string)
 		for {
 			event, ok := events.Next()
 			if !ok {
@@ -1443,6 +1445,8 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 				if mo.Message != nil && len(mo.Message.ToolCalls) > 0 {
 					toolCallsCount += len(mo.Message.ToolCalls)
 					for _, tc := range mo.Message.ToolCalls {
+						// 保存 arguments 到 map
+						toolCallArgsMap[tc.ID] = tc.Function.Arguments
 						eventsChan <- StreamEvent{
 							Type: "tool_call",
 							Data: map[string]any{
@@ -1467,12 +1471,15 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 					if strings.TrimSpace(content) == "" {
 						content = "(无输出)"
 					}
+					// 获取对应的 arguments
+					args := toolCallArgsMap[mo.Message.ToolCallID]
 					eventsChan <- StreamEvent{
 						Type: "tool",
 						Data: map[string]any{
 							"agent":        event.AgentName,
 							"tool":         mo.Message.ToolName,
 							"tool_call_id": mo.Message.ToolCallID,
+							"arguments":    args,
 							"output":       content,
 						},
 					}
@@ -1499,12 +1506,15 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 								if strings.TrimSpace(content) == "" {
 									content = "(无输出)"
 								}
+								// 获取对应的 arguments
+								args := toolCallArgsMap[chunk.ToolCallID]
 								eventsChan <- StreamEvent{
 									Type: "tool",
 									Data: map[string]any{
 										"agent":        event.AgentName,
 										"tool":         chunk.ToolName,
 										"tool_call_id": chunk.ToolCallID,
+										"arguments":    args,
 										"output":       content,
 									},
 								}
