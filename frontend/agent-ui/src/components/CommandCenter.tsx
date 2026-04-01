@@ -175,7 +175,7 @@ export function CommandCenter({ onViewChange }: CommandCenterProps) {
         whileTap={{ scale: 0.9 }}
         onClick={() => setIsOpen(true)}
         className={cn(
-          "fixed bottom-8 right-8 w-14 h-14 rounded-2xl bg-slate-900 text-white shadow-2xl flex items-center justify-center transition-opacity z-40 group cursor-move",
+          "fixed bottom-60 right-8 w-14 h-14 rounded-2xl bg-slate-900 text-white shadow-2xl flex items-center justify-center transition-opacity z-40 group cursor-move",
           isOpen && "opacity-0 pointer-events-none"
         )}
       >
