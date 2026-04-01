@@ -443,6 +443,8 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                   // 处理 tool 事件 - 显示工具执行结果（可能没有前置 tool_call）
                   if (currentEventType === 'tool') {
                     const toolName = data.tool || pendingToolCall?.name || 'unknown';
+                    // 优先使用 data.arguments，其次使用 pendingToolCall?.args
+                    const toolArgs = data.arguments || pendingToolCall?.args || {};
                     if (pendingToolCall && toolCalls.length > 0) {
                       // 更新最后一个 toolCall 的结果
                       toolCalls = toolCalls.map((tc, idx) =>
@@ -452,7 +454,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                       );
                     } else {
                       // 没有 pendingToolCall，说明是独立的 tool 事件，直接添加
-                      toolCalls = [...toolCalls, { name: toolName, args: {}, result: data.output || '(无输出)', status: 'completed' }];
+                      toolCalls = [...toolCalls, { name: toolName, args: toolArgs, result: data.output || '(无输出)', status: 'completed' }];
                     }
                     pendingToolCall = null;
                     updateMessage({ toolCalls: [...toolCalls] });
@@ -503,6 +505,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                   // 处理 tool 事件（可能没有前置 tool_call）
                   if (currentEventType === 'tool') {
                     const toolName = data.tool || pendingToolCall?.name || 'unknown';
+                    const toolArgs = data.arguments || pendingToolCall?.args || {};
                     if (pendingToolCall && toolCalls.length > 0) {
                       toolCalls = toolCalls.map((tc, idx) =>
                         idx === toolCalls.length - 1
@@ -510,7 +513,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                           : tc
                       );
                     } else {
-                      toolCalls = [...toolCalls, { name: toolName, args: {}, result: data.output || '(无输出)', status: 'completed' }];
+                      toolCalls = [...toolCalls, { name: toolName, args: toolArgs, result: data.output || '(无输出)', status: 'completed' }];
                     }
                     pendingToolCall = null;
                     updateMessage({ toolCalls: [...toolCalls] });
@@ -961,7 +964,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                             <div className="p-3 space-y-2">
                               <div className="space-y-1">
                                 <div className="flex items-center gap-1 text-[9px] text-slate-400 uppercase font-medium">
-                                  <Terminal size={10} /> 输入
+                                  <Terminal size={10} /> {t('chat.input')}
                                 </div>
                                 <code className="block text-[10px] text-slate-600 bg-white px-2 py-1.5 rounded border border-slate-100 font-mono">
                                   {JSON.stringify(tool.args, null, 2)}
@@ -977,7 +980,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                                     ) : (
                                       <CheckSquare size={10} className="text-green-500" />
                                     )}
-                                    输出
+                                    {t('chat.output')}
                                   </div>
                                   <code className="block text-[10px] text-slate-600 bg-white px-2 py-1.5 rounded border border-slate-100 font-mono max-h-32 overflow-auto">
                                     {typeof tool.result === 'string' ? tool.result : JSON.stringify(tool.result, null, 2)}

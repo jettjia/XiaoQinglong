@@ -112,7 +112,9 @@ const resources = {
         selectOther: 'Select other agents',
         switchAgent: 'Switch Agent:',
         dropFiles: 'Drop files to upload',
-        dropSubtitle: 'Images, documents, and data files supported'
+        dropSubtitle: 'Images, documents, and data files supported',
+        input: 'Input',
+        output: 'Output'
       },
       knowledge: {
         title: 'Knowledge Base',
@@ -538,7 +540,9 @@ const resources = {
         selectOther: '选择其他智能体',
         switchAgent: '切换智能体：',
         dropFiles: '拖放文件上传',
-        dropSubtitle: '支持图片、文档和数据文件'
+        dropSubtitle: '支持图片、文档和数据文件',
+        input: '输入',
+        output: '输出'
       },
       knowledge: {
         title: '知识库',
