@@ -920,25 +920,6 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                   </div>
                 )}
 
-                {/* Recall Status */}
-                {msg.recallInfo && (
-                  <div className="w-full max-w-2xl mb-2">
-                    <div className="flex items-center gap-2 text-[10px] text-slate-400">
-                      {msg.recallInfo.status === 'running' ? (
-                        <>
-                          <div className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse" />
-                          <span>正在召回知识...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Check size={10} className="text-green-500" />
-                          <span>已召回 {msg.recallInfo.count || 0} 条相关知识</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                )}
-
                 {/* Tool Calls */}
                 {msg.toolCalls && msg.toolCalls.length > 0 && (
                   <div className="w-full max-w-2xl space-y-2 mb-2">
