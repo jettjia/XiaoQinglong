@@ -18,7 +18,6 @@ import (
 	agentSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/agent"
 	chatSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/chat"
 	memoryEntity "github.com/jettjia/xiaoqinglong/agent-frame/domain/entity/memory"
-	kbSvc "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/knowledge_base"
 	memorySvc "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/memory"
 	"github.com/jettjia/xiaoqinglong/agent-frame/pkg/logger"
 )
@@ -47,17 +46,15 @@ type Handler struct {
 	agentSvc  *agentSvc.SysAgentService
 	chatSvc   *chatSvc.ChatMessageService
 	memorySvc *memorySvc.AgentMemorySvc
-	kbSvc     *kbSvc.KnowledgeRetrievalSvc
 }
 
 // NewHandler NewHandler
 func NewHandler() *Handler {
 	return &Handler{
-		runnerURL: "http://localhost:18080", // runner服务地址
+		runnerURL: "http://localhost:18080", // 默认runner服务地址
 		agentSvc:  agentSvc.NewSysAgentService(),
 		chatSvc:   chatSvc.NewChatMessageService(),
 		memorySvc: memorySvc.NewAgentMemorySvc(),
-		kbSvc:     kbSvc.NewKnowledgeRetrievalSvc(),
 	}
 }
 
@@ -91,6 +88,12 @@ func (h *Handler) Run(c *gin.Context) {
 		}
 	}
 
+	// 获取 runner endpoint（默认 http://localhost:18080）
+	runnerURL := "http://localhost:18080"
+	if endpoint, ok := agentConfig["endpoint"].(string); ok && endpoint != "" {
+		runnerURL = endpoint
+	}
+
 	// 3. 构建runner请求
 	runnerReq := make(map[string]any)
 
@@ -110,9 +113,11 @@ func (h *Handler) Run(c *gin.Context) {
 	if options, ok := agentConfig["options"].(map[string]any); ok && len(options) > 0 {
 		runnerReq["options"] = options
 	}
-	// 注意：不要把 config_json 中的 knowledge 传给 runner，
-	// 因为 agent-frame 已经把召回结果注入到 messages 的 system message 中了
-	// 如果传入无效的 placeholder（如 id: "kc"），会导致 runner 尝试调用不存在的 skill
+	// 传递 knowledge_bases 配置给 runner，供运行时检索使用
+	// Runner 会使用 retrieve_knowledge 工具在需要时主动检索知识库
+	if knowledgeBases, ok := agentConfig["knowledge_bases"].([]any); ok && len(knowledgeBases) > 0 {
+		runnerReq["knowledge_bases"] = knowledgeBases
+	}
 	if mcps, ok := agentConfig["mcps"].([]any); ok && len(mcps) > 0 {
 		runnerReq["mcps"] = mcps
 	}
@@ -146,19 +151,10 @@ func (h *Handler) Run(c *gin.Context) {
 		}
 	}
 
-	// 6. 加载知识库上下文
-	var knowledgeContext []map[string]any
-	if chatReq.AgentID != "" {
-		knowledgeContext, err = h.loadKnowledgeContext(c.Request.Context(), chatReq.AgentID, chatReq.Input, agentConfig, agentRsp)
-		if err != nil {
-			logger.GetRunnerLogger().WithError(err).Error("[Runner Proxy] Failed to load knowledge context")
-		}
-	}
-
-	// 构建messages数组：知识上下文 + 记忆上下文 + 历史消息 + 当前输入
-	// 注意：文件内容由 Runner 自动提取并注入，不需要在 agent-frame 注入
+	// 6. 构建messages数组：记忆上下文 + 历史消息 + 当前输入
+	// 注意：知识库检索由 Runner 在运行时通过 retrieve_knowledge 工具自动完成
+	//       不再需要在 agent-frame 层注入知识上下文
 	messages := make([]map[string]any, 0)
-	messages = append(messages, knowledgeContext...)
 	messages = append(messages, memoryContext...)
 	messages = append(messages, historicalMessages...)
 
@@ -200,7 +196,7 @@ func (h *Handler) Run(c *gin.Context) {
 	log.Info("============================")
 
 	// 5. 转发请求到runner
-	req, err := http.NewRequest("POST", h.runnerURL+"/run", bytes.NewReader(runnerBody))
+	req, err := http.NewRequest("POST", runnerURL+"/run", bytes.NewReader(runnerBody))
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to create request"})
 		return
@@ -231,14 +227,8 @@ func (h *Handler) Run(c *gin.Context) {
 		c.Header("Connection", "keep-alive")
 		c.Header("Access-Control-Allow-Origin", "*")
 
-		// 先发送召回完成事件
-		if len(knowledgeContext) > 0 {
-			recallMsg := fmt.Sprintf("event: recall_complete\ndata: {\"count\": %d, \"message\": \"知识召回完成\"}\n\n", len(knowledgeContext))
-			c.Writer.Write([]byte(recallMsg))
-			c.Writer.Flush()
-		}
-
 		// 直接将 SSE 数据流式转发给客户端
+		// 注意：知识库检索由 Runner 在运行时通过 retrieve_knowledge 工具完成
 		c.Status(resp.StatusCode)
 		buf := make([]byte, 4096)
 		for {
@@ -514,129 +504,6 @@ func extractKeywords(text string) []string {
 	}
 
 	return words
-}
-
-// loadKnowledgeContext 加载知识库上下文
-func (h *Handler) loadKnowledgeContext(ctx context.Context, agentId, query string, agentConfig map[string]any, agentResp *agentDto.FindSysAgentRsp) ([]map[string]any, error) {
-	var kbConfigs []kbSvc.RetrievalConfig
-	topK := 3 // 默认 topK
-
-	// 1. 先从 config_json.knowledge 解析（兼容 kb_id 和 id 两种字段名）
-	knowledgeConfig, ok := agentConfig["knowledge"]
-	if ok {
-		switch v := knowledgeConfig.(type) {
-		case []any:
-			for _, item := range v {
-				if kbMap, ok := item.(map[string]any); ok {
-					cfg := kbSvc.RetrievalConfig{}
-					// 优先使用 kb_id，如果不存在则使用 id
-					if kbId, ok := kbMap["kb_id"].(string); ok {
-						cfg.KbId = kbId
-					} else if kbId, ok := kbMap["id"].(string); ok {
-						cfg.KbId = kbId
-					}
-					if tk, ok := kbMap["top_k"].(float64); ok {
-						cfg.TopK = int(tk)
-						topK = cfg.TopK
-					}
-					if cfg.KbId != "" && cfg.KbId != "kc" { // 跳过占位符 "kc"
-						kbConfigs = append(kbConfigs, cfg)
-					}
-				}
-			}
-		case map[string]any:
-			cfg := kbSvc.RetrievalConfig{}
-			if kbId, ok := v["kb_id"].(string); ok {
-				cfg.KbId = kbId
-			} else if kbId, ok := v["id"].(string); ok {
-				cfg.KbId = kbId
-			}
-			if tk, ok := v["top_k"].(float64); ok {
-				cfg.TopK = int(tk)
-				topK = cfg.TopK
-			}
-			if cfg.KbId != "" && cfg.KbId != "kc" {
-				kbConfigs = append(kbConfigs, cfg)
-			}
-		}
-	}
-
-	// 2. 如果 kbConfigs 为空，尝试从 agentResp.Config 的 selectedKBs 加载
-	if len(kbConfigs) == 0 && agentResp != nil && agentResp.Config != "" {
-		logger.GetRunnerLogger().Infof("[loadKnowledgeContext] kbConfigs empty, trying selectedKBs from Config, Config length: %d", len(agentResp.Config))
-		var agentFullConfig map[string]any
-		if err := json.Unmarshal([]byte(agentResp.Config), &agentFullConfig); err == nil {
-			// 获取 topK
-			if tk, ok := agentFullConfig["topK"].(float64); ok {
-				topK = int(tk)
-			}
-			// 获取 selectedKBs
-			if selectedKBs, ok := agentFullConfig["selectedKBs"].([]any); ok {
-				logger.GetRunnerLogger().Infof("[loadKnowledgeContext] found selectedKBs, count: %d", len(selectedKBs))
-				for _, kb := range selectedKBs {
-					if kbId, ok := kb.(string); ok && kbId != "" {
-						kbConfigs = append(kbConfigs, kbSvc.RetrievalConfig{
-							KbId: kbId,
-							TopK: topK,
-						})
-					}
-				}
-			} else {
-				logger.GetRunnerLogger().Infof("[loadKnowledgeContext] selectedKBs not found in Config or not an array, keys: %v", getMapKeys(agentFullConfig))
-			}
-		} else {
-			logger.GetRunnerLogger().Infof("[loadKnowledgeContext] failed to parse Config JSON: %v", err)
-		}
-	}
-
-	if len(kbConfigs) == 0 {
-		logger.GetRunnerLogger().Infof("[loadKnowledgeContext] kbConfigs still empty after all attempts")
-		return nil, nil
-	}
-
-	// 从知识库召回
-	logger.GetRunnerLogger().Infof("[loadKnowledgeContext] Starting recall, kbIds: %v, query: %s", getKbIds(kbConfigs), query)
-	results, err := h.kbSvc.RecallFromKnowledgeBases(ctx, kbConfigs, query)
-	if err != nil {
-		logger.GetRunnerLogger().WithError(err).Errorf("[loadKnowledgeContext] recall failed, kbIds: %v", getKbIds(kbConfigs))
-		return nil, err
-	}
-
-	if len(results) == 0 {
-		logger.GetRunnerLogger().Infof("[loadKnowledgeContext] recall returned 0 results for kbIds: %v, query: %s", getKbIds(kbConfigs), query)
-		return nil, nil
-	}
-
-	logger.GetRunnerLogger().Infof("[loadKnowledgeContext] recall SUCCESS, got %d results", len(results))
-
-	// 构建知识上下文消息
-	formattedContext := h.kbSvc.FormatKnowledgeContext(results)
-	result := []map[string]any{
-		{
-			"role":    "system",
-			"content": formattedContext,
-		},
-	}
-
-	return result, nil
-}
-
-// getKbIds 辅助函数，获取 kbIds 列表用于日志
-func getKbIds(configs []kbSvc.RetrievalConfig) []string {
-	ids := make([]string, len(configs))
-	for i, c := range configs {
-		ids[i] = c.KbId
-	}
-	return ids
-}
-
-// getMapKeys 辅助函数，获取 map 的 key 列表用于日志
-func getMapKeys(m map[string]any) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	return keys
 }
 
 // Upload 文件上传
