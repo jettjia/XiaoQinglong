@@ -22,6 +22,7 @@ import (
 	"github.com/jettjia/XiaoQinglong/runner/contextcompressor/compactors"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 	"github.com/jettjia/XiaoQinglong/runner/plugins"
+	"github.com/jettjia/XiaoQinglong/runner/prompt"
 	"github.com/jettjia/XiaoQinglong/runner/subagent"
 	"github.com/jettjia/XiaoQinglong/runner/types"
 )
@@ -647,59 +648,17 @@ func (d *Dispatcher) createInternalAgent(ctx context.Context, cfg types.Internal
 }
 
 func (d *Dispatcher) buildSystemPrompt() string {
-	prompt := d.request.Prompt
-
-	// 添加 skills 上下文（懒加载模式：只显示 name + 描述，完整内容通过 load_skill 工具按需获取）
-	if len(d.request.Skills) > 0 {
-		prompt += "\n\n## 可用技能\n"
-		for _, skill := range d.request.Skills {
-			desc := skill.Description
-			if desc == "" {
-				desc = "无描述"
-			}
-			// 限制描述长度，参考 Claude Code 的 MAX_LISTING_DESC_CHARS = 250
-			if len([]rune(desc)) > 249 {
-				desc = string([]rune(desc)[:248]) + "…"
-			}
-			prompt += fmt.Sprintf("- %s: %s\n", skill.Name, desc)
-		}
-		prompt += "\n（完整技能说明请使用 load_skill 工具获取）\n"
-	}
-
-	// 添加 context 变量
-	if len(d.request.Context) > 0 {
-		prompt += "\n\n## 上下文信息\n"
-		for k, v := range d.request.Context {
-			prompt += fmt.Sprintf("- %s: %v\n", k, v)
+	// 收集所有启用的工具名称
+	var enabledTools []string
+	for _, t := range d.tools {
+		info, _ := t.Info(context.Background())
+		if info != nil {
+			enabledTools = append(enabledTools, info.Name)
 		}
 	}
 
-	// 添加 A2A agents 信息
-	if len(d.request.A2A) > 0 {
-		prompt += "\n\n## 可用外部 Agent\n"
-		for _, a2a := range d.request.A2A {
-			prompt += fmt.Sprintf("- %s: %s\n", a2a.Name, a2a.Endpoint)
-		}
-	}
-
-	// 添加内部 agents 信息
-	if len(d.request.InternalAgents) > 0 {
-		prompt += "\n\n## 可用内部 Agent\n"
-		for _, ia := range d.request.InternalAgents {
-			prompt += fmt.Sprintf("- %s (%s): %s\n", ia.Name, ia.ID, ia.Prompt)
-		}
-	}
-
-	// 添加上传文件信息（让 Agent 知道有文件上传，文件内容通过 parse_file 工具获取）
-	if len(d.request.Files) > 0 {
-		prompt += "\n\n## 用户上传的文件\n"
-		prompt += "用户上传了以下文件，文件名和路径如下，请根据需要调用 parse_file 工具获取内容：\n"
-		for _, f := range d.request.Files {
-			prompt += fmt.Sprintf("- %s (Path: %s)\n", f.Name, f.VirtualPath)
-		}
-	}
-
-	return prompt
+	// 使用结构化 Prompt 构建器
+	return prompt.BuildDefaultPrompt(d.request, enabledTools)
 }
 
 // buildMessagesWithRewrite builds messages and optionally rewrites the last user query
