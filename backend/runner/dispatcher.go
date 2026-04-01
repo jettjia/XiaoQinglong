@@ -22,6 +22,37 @@ import (
 	"github.com/jettjia/XiaoQinglong/runner/subagent"
 )
 
+// contextKey 用于在 context 中传递数据
+type contextKey string
+
+const eventsChanKey contextKey = "eventsChan"
+const toolArgsMapKey contextKey = "toolArgsMap"
+
+// toolArgsMap 用于保存 tool_call_id -> arguments 的映射
+type toolArgsMapType map[string]string
+
+// withEventsChan 将 eventsChan 添加到 context 中
+func withEventsChan(ctx context.Context, ch chan StreamEvent) context.Context {
+	return context.WithValue(ctx, eventsChanKey, ch)
+}
+
+// getEventsChan 从 context 中获取 eventsChan
+func getEventsChan(ctx context.Context) chan StreamEvent {
+	ch, _ := ctx.Value(eventsChanKey).(chan StreamEvent)
+	return ch
+}
+
+// withToolArgsMap 将 toolArgsMap 添加到 context 中
+func withToolArgsMap(ctx context.Context, m toolArgsMapType) context.Context {
+	return context.WithValue(ctx, toolArgsMapKey, m)
+}
+
+// getToolArgsMap 从 context 中获取 toolArgsMap
+func getToolArgsMap(ctx context.Context) toolArgsMapType {
+	m, _ := ctx.Value(toolArgsMapKey).(toolArgsMapType)
+	return m
+}
+
 // ========== Dispatch Result ==========
 
 type DispatchResult struct {
@@ -57,6 +88,45 @@ type ToolCallMetadata struct {
 	LatencyMs int64
 	Success   bool
 	Error     string
+}
+
+// toolCallEventsMiddleware 工具调用中间件，用于发送 tool_call 事件
+func toolCallEventsMiddleware() *compose.ToolMiddleware {
+	return &compose.ToolMiddleware{
+		Invokable: func(next compose.InvokableToolEndpoint) compose.InvokableToolEndpoint {
+			return func(ctx context.Context, input *compose.ToolInput) (*compose.ToolOutput, error) {
+				logger.Infof("[ToolMiddleware] tool=%s, callID=%s, arguments=%s", input.Name, input.CallID, input.Arguments)
+
+				// 保存 callID -> arguments 到 map
+				toolArgsMap := getToolArgsMap(ctx)
+				if toolArgsMap != nil && input.CallID != "" {
+					toolArgsMap[input.CallID] = input.Arguments
+					logger.Infof("[ToolMiddleware] Saved arguments for callID=%s", input.CallID)
+				}
+
+				// 发送 tool_call 事件
+				eventsChan := getEventsChan(ctx)
+				if eventsChan != nil {
+					logger.Infof("[ToolMiddleware] Sending tool_call event for tool=%s", input.Name)
+					eventsChan <- StreamEvent{
+						Type: "tool_call",
+						Data: map[string]any{
+							"agent":      "main_agent",
+							"tool":       input.Name,
+							"tool_call_id": input.CallID,
+							"arguments": input.Arguments,
+						},
+					}
+					logger.Infof("[ToolMiddleware] tool_call event sent")
+				} else {
+					logger.Warnf("[ToolMiddleware] eventsChan is nil!")
+				}
+
+				// 执行实际的工具调用
+				return next(ctx, input)
+			}
+		},
+	}
 }
 
 // ========== Dispatcher ==========
@@ -962,7 +1032,7 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
 				Tools: d.tools,
-				// 不再使用 middleware，直接使用 InvokableApprovableTool wrapper 进行审批
+				ToolCallMiddlewares: []compose.ToolMiddleware{*toolCallEventsMiddleware()},
 			},
 		},
 	}
@@ -1390,11 +1460,17 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 			ToolsConfig: adk.ToolsConfig{
 				ToolsNodeConfig: compose.ToolsNodeConfig{
 					Tools: d.tools,
+					ToolCallMiddlewares: []compose.ToolMiddleware{*toolCallEventsMiddleware()},
 				},
 			},
 		}
 
-		mainAgent, err := adk.NewChatModelAgent(ctx, agentConfig)
+		// 将 eventsChan 和 toolArgsMap 添加到 context 中，供中间件使用
+		ctxWithChan := withEventsChan(ctx, eventsChan)
+		toolArgsMap := make(toolArgsMapType)
+		ctxWithChan = withToolArgsMap(ctxWithChan, toolArgsMap)
+
+		mainAgent, err := adk.NewChatModelAgent(ctxWithChan, agentConfig)
 		if err != nil {
 			eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": fmt.Sprintf("create agent failed: %v", err)}}
 			return
@@ -1410,7 +1486,7 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 		runner := adk.NewRunner(ctx, runnerConfig)
 
 		// 10. 运行 Agent 并发送流式事件
-		events := runner.Run(ctx, messages, adk.WithCheckPointID(checkpointID))
+		events := runner.Run(ctxWithChan, messages, adk.WithCheckPointID(checkpointID))
 
 		eventsChan <- StreamEvent{Type: "meta", Data: map[string]any{"checkpoint_id": checkpointID}}
 
@@ -1418,8 +1494,11 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 		var totalPromptTokens int
 		var totalCompletionTokens int
 		var toolCallsCount int
-		// 保存 tool_call_id 到 arguments 的映射，用于在 tool 返回时获取输入参数
-		toolCallArgsMap := make(map[string]string)
+		// 从 context 获取 toolArgsMap
+		toolArgsMap = getToolArgsMap(ctxWithChan)
+		if toolArgsMap == nil {
+			toolArgsMap = make(toolArgsMapType)
+		}
 		for {
 			event, ok := events.Next()
 			if !ok {
@@ -1446,7 +1525,7 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 					toolCallsCount += len(mo.Message.ToolCalls)
 					for _, tc := range mo.Message.ToolCalls {
 						// 保存 arguments 到 map
-						toolCallArgsMap[tc.ID] = tc.Function.Arguments
+						toolArgsMap[tc.ID] = tc.Function.Arguments
 						eventsChan <- StreamEvent{
 							Type: "tool_call",
 							Data: map[string]any{
@@ -1472,7 +1551,7 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 						content = "(无输出)"
 					}
 					// 获取对应的 arguments
-					args := toolCallArgsMap[mo.Message.ToolCallID]
+					args := toolArgsMap[mo.Message.ToolCallID]
 					eventsChan <- StreamEvent{
 						Type: "tool",
 						Data: map[string]any{
@@ -1507,7 +1586,7 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 									content = "(无输出)"
 								}
 								// 获取对应的 arguments
-								args := toolCallArgsMap[chunk.ToolCallID]
+								args := toolArgsMap[chunk.ToolCallID]
 								eventsChan <- StreamEvent{
 									Type: "tool",
 									Data: map[string]any{
