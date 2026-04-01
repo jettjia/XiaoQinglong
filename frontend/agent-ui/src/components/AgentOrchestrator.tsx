@@ -235,15 +235,15 @@ export function AgentOrchestrator() {
             risk_level: s.riskLevel || 'medium',
           }));
 
-        // 转换 knowledge
-        const knowledge = backendKBs
+        // 转换 knowledge（知识库配置，供运行时检索使用）
+        const knowledgeBases = backendKBs
           .filter(kb => agentConfig.selectedKBs.includes(kb.ulid || kb.id))
           .map(kb => ({
-            id: kb.name,
+            id: kb.ulid || kb.id,
             name: kb.name,
-            content: kb.description || '',
-            score: 0.9,
-            metadata: {},
+            retrieval_url: kb.retrievalUrl || kb.retrieval_url || '',
+            token: kb.token || '',
+            top_k: agentConfig.topK,
           }));
 
         return {
@@ -300,7 +300,7 @@ export function AgentOrchestrator() {
             skills_dir: 'skills',
             variables: {},
           },
-          knowledge,
+          knowledge_bases: knowledgeBases,
           sub_agents: subAgents,
         };
       };
