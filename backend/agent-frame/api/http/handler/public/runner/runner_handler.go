@@ -91,8 +91,12 @@ func (h *Handler) Run(c *gin.Context) {
 	// 获取 runner endpoint（默认 http://localhost:18080）
 	runnerURL := "http://localhost:18080"
 	if endpoint, ok := agentConfig["endpoint"].(string); ok && endpoint != "" {
-		runnerURL = endpoint
+		// 去掉末尾的 /run 如果有的话
+		runnerURL = strings.TrimSuffix(endpoint, "/run")
+		runnerURL = strings.TrimSuffix(runnerURL, "/")
 	}
+
+	logger.GetRunnerLogger().Infof("[Runner Proxy] Runner URL: %s", runnerURL)
 
 	// 3. 构建runner请求
 	runnerReq := make(map[string]any)
@@ -196,7 +200,8 @@ func (h *Handler) Run(c *gin.Context) {
 	log.Info("============================")
 
 	// 5. 转发请求到runner
-	req, err := http.NewRequest("POST", runnerURL+"/run", bytes.NewReader(runnerBody))
+	runURL := runnerURL + "/run"
+	req, err := http.NewRequest("POST", runURL, bytes.NewReader(runnerBody))
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to create request"})
 		return
