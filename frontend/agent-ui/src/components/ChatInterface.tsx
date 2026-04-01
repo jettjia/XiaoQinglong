@@ -89,6 +89,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
   const abortControllerRef = React.useRef<AbortController | null>(null);
   const pollingRef = React.useRef<NodeJS.Timeout | null>(null);
   const checkpointIdRef = React.useRef<string | null>(null);
+  const userInitiatedStopRef = React.useRef(false);
 
   // Load agents from backend
   React.useEffect(() => {
@@ -263,6 +264,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
     filesRef.current = [];
     setIsLoading(true);
     checkpointIdRef.current = null;
+    userInitiatedStopRef.current = false;
     abortControllerRef.current = new AbortController();
 
     try {
@@ -479,9 +481,14 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
 
                   if (currentEventType === 'error') {
                     console.error('Stream error:', data.error);
-                    // 将错误信息添加到消息内容中显示给用户
-                    const errorMsg = `\n\n⚠️ 执行错误: ${data.error}\n`;
-                    accumulatedContent += errorMsg;
+                    // 如果是用户主动取消，不显示后端的错误信息
+                    if (userInitiatedStopRef.current) {
+                      const cancelMsg = `\n\n已停止生成。\n`;
+                      accumulatedContent += cancelMsg;
+                    } else {
+                      const errorMsg = `\n\n⚠️ 执行错误: ${data.error}\n`;
+                      accumulatedContent += errorMsg;
+                    }
                     updateMessage({ content: accumulatedContent });
                   }
                 } catch (e) {
@@ -544,8 +551,14 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
 
                   if (currentEventType === 'error') {
                     console.error('Stream error:', data.error);
-                    const errorMsg = `\n\n⚠️ 执行错误: ${data.error}\n`;
-                    accumulatedContent += errorMsg;
+                    // 如果是用户主动取消，不显示后端的错误信息
+                    if (userInitiatedStopRef.current) {
+                      const cancelMsg = `\n\n已停止生成。\n`;
+                      accumulatedContent += cancelMsg;
+                    } else {
+                      const errorMsg = `\n\n⚠️ 执行错误: ${data.error}\n`;
+                      accumulatedContent += errorMsg;
+                    }
                     updateMessage({ content: accumulatedContent });
                   }
                 } catch (e) {
@@ -631,7 +644,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
         console.error('Failed to save assistant message:', err);
       }
     } catch (error: any) {
-      if (error.name === 'AbortError') {
+      if (error.name === 'AbortError' || userInitiatedStopRef.current) {
         console.log("Generation stopped by user");
         return;
       }
@@ -651,6 +664,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
 
   const stopGeneration = () => {
     console.log('[Stop] stopGeneration called, checkpointId:', checkpointIdRef.current, 'sessionId:', activeConversationId);
+    userInitiatedStopRef.current = true;
     // 直接发送 stop 请求到后端（使用 session_id 来停止）
     void chatApi.stopAgent(checkpointIdRef.current || '', activeConversationId || '').then(() => {
       console.log('[Stop] Backend stop API success');
