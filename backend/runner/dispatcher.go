@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cloudwego/eino-ext/components/model/openai"
@@ -17,8 +18,9 @@ import (
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"github.com/google/uuid"
+	"github.com/jettjia/XiaoQinglong/runner/contextcompressor"
+	"github.com/jettjia/XiaoQinglong/runner/contextcompressor/compactors"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
-	"github.com/jettjia/XiaoQinglong/runner/retriever"
 	"github.com/jettjia/XiaoQinglong/runner/subagent"
 )
 
@@ -111,10 +113,10 @@ func toolCallEventsMiddleware() *compose.ToolMiddleware {
 					eventsChan <- StreamEvent{
 						Type: "tool_call",
 						Data: map[string]any{
-							"agent":      "main_agent",
-							"tool":       input.Name,
+							"agent":        "main_agent",
+							"tool":         input.Name,
 							"tool_call_id": input.CallID,
-							"arguments": input.Arguments,
+							"arguments":    input.Arguments,
 						},
 					}
 					logger.Infof("[ToolMiddleware] tool_call event sent")
@@ -130,6 +132,17 @@ func toolCallEventsMiddleware() *compose.ToolMiddleware {
 }
 
 // ========== Dispatcher ==========
+
+// CompactionRequest 压缩请求
+type CompactionRequest struct {
+	Messages []contextcompressor.Message
+}
+
+// CompactionResponse 压缩响应
+type CompactionResponse struct {
+	Result *contextcompressor.CompactionResult
+	Error  error
+}
 
 type Dispatcher struct {
 	request *RunRequest
@@ -150,13 +163,25 @@ type Dispatcher struct {
 
 	// 文件上传相关
 	uploadsBaseDir string // uploads 目录的宿主机路径
+
+	// 上下文压缩器
+	compactService    *contextcompressor.IntegrationService
+	compactChan       chan CompactionRequest  // 发送压缩请求
+	compactDoneChan   chan CompactionResponse // 接收压缩结果
+	pendingCompact    *CompactionResponse     // 待应用的压缩结果
+	compactedMessages []adk.Message           // 压缩后的消息（用于替换）
+	compactMu         sync.Mutex              // 保护 pendingCompact
 }
 
 func NewDispatcher(req *RunRequest) *Dispatcher {
-	return &Dispatcher{
+	d := &Dispatcher{
 		request:     req,
 		toolConfigs: make(map[string]ToolConfig),
 	}
+	// 初始化压缩通道
+	d.compactChan = make(chan CompactionRequest, 1)
+	d.compactDoneChan = make(chan CompactionResponse, 1)
+	return d
 }
 
 func (d *Dispatcher) Run(ctx context.Context) (*DispatchResult, error) {
@@ -167,6 +192,9 @@ func (d *Dispatcher) Run(ctx context.Context) (*DispatchResult, error) {
 	if err := d.initModels(ctx); err != nil {
 		return nil, fmt.Errorf("init models failed: %w", err)
 	}
+
+	// 1.1 初始化上下文压缩器
+	d.initCompactService(ctx)
 
 	// 2. 初始化工具 (HTTP tools)
 	if err := d.initTools(ctx); err != nil {
@@ -249,53 +277,50 @@ func (d *Dispatcher) setUploadsBaseDir() {
 	d.uploadsBaseDir = "./data/uploads"
 }
 
-func (d *Dispatcher) initModels(ctx context.Context) error {
-	d.models = make(map[string]model.ToolCallingChatModel)
-	d.modelsByRole = make(map[ModelRole]model.ToolCallingChatModel)
-
-	for key, cfg := range d.request.Models {
-		cm, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
-			APIKey:  cfg.APIKey,
-			Model:   cfg.Name,
-			BaseURL: cfg.APIBase,
-		})
-		if err != nil {
-			return fmt.Errorf("create model %s failed: %w", key, err)
-		}
-		d.models[key] = cm
-
-		// 设置 by role
-		switch ModelRole(key) {
-		case ModelRoleDefault:
-			d.defaultModel = cm
-			d.defaultModelName = cfg.Name
-			d.modelsByRole[ModelRoleDefault] = cm
-		case ModelRoleRewrite:
-			d.modelsByRole[ModelRoleRewrite] = cm
-		case ModelRoleSkill:
-			d.modelsByRole[ModelRoleSkill] = cm
-		case ModelRoleSummarize:
-			d.modelsByRole[ModelRoleSummarize] = cm
-		default:
-			// 如果 key 不是已知的 role，也添加到 byRole map
-			d.modelsByRole[ModelRole(key)] = cm
-		}
-	}
-
-	// 如果没有配置 default，使用第一个模型
-	if d.defaultModel == nil && len(d.models) > 0 {
-		for key, cm := range d.models {
-			d.defaultModel = cm
-			d.defaultModelName = d.request.Models[key].Name
-			break
-		}
-	}
-
+// initCompactService 初始化上下文压缩服务
+func (d *Dispatcher) initCompactService(ctx context.Context) {
+	// 检查是否启用上下文压缩
+	// 可以通过 request.Options 中的某个字段控制，这里默认启用
 	if d.defaultModel == nil {
-		return fmt.Errorf("no default model configured")
+		logger.Infof("[Dispatcher] initCompactService: no default model, skipping")
+		return
 	}
 
-	return nil
+	// 创建 ChatModel 代理
+	chatModelProxy := &contextcompressor.ChatModelProxy{
+		GenerateFunc: func(ctx context.Context, messages []compactors.Message) (string, error) {
+			// 转换消息格式
+			var chatMessages []*schema.Message
+			for _, m := range messages {
+				switch m.Type {
+				case "user":
+					chatMessages = append(chatMessages, schema.UserMessage(m.GetLastText()))
+				case "assistant":
+					chatMessages = append(chatMessages, schema.AssistantMessage(m.GetLastText(), nil))
+				case "system":
+					chatMessages = append(chatMessages, schema.SystemMessage(m.GetLastText()))
+				}
+			}
+
+			// 调用模型
+			resp, err := d.defaultModel.Generate(ctx, chatMessages)
+			if err != nil {
+				return "", err
+			}
+			return resp.Content, nil
+		},
+	}
+
+	// 创建 tokenizer
+	tokenizer := contextcompressor.NewDefaultTokenizerImpl(4.0)
+
+	// 创建压缩器
+	compactor := contextcompressor.NewCompactor(chatModelProxy, tokenizer)
+
+	// 创建集成服务
+	d.compactService = contextcompressor.NewIntegrationService(compactor)
+
+	logger.Infof("[Dispatcher] initCompactService: enabled with model=%s", d.defaultModelName)
 }
 
 // shouldWrapForApproval 判断工具是否需要包装审批
@@ -380,244 +405,6 @@ func (d *Dispatcher) buildApprovalToolMiddleware() compose.InvokableToolMiddlewa
 	return newApprovalToolMiddleware(riskLevels).Wrap
 }
 
-func (d *Dispatcher) initTools(ctx context.Context) error {
-	for _, tc := range d.request.Tools {
-		// 存储工具配置以便在中断时查找
-		d.toolConfigs[tc.Name] = tc
-		switch tc.Type {
-		case "http":
-			httpTool := NewHTTPTool(tc)
-			// 根据 risk_level 判断是否需要包装审批
-			wrapped := d.wrapToolWithApproval(httpTool, tc.Name, "http", tc.RiskLevel)
-			d.tools = append(d.tools, wrapped)
-		}
-	}
-	return nil
-}
-
-// initKnowledgeRetriever 初始化知识检索器（作为工具供 Agent 调用）
-func (d *Dispatcher) initKnowledgeRetriever(ctx context.Context) error {
-	// 如果没有配置知识库，则跳过
-	if len(d.request.KnowledgeBases) == 0 {
-		logger.Infof("[Dispatcher] initKnowledgeRetriever: no knowledge bases configured")
-		return nil
-	}
-
-	// 创建检索工具
-	retrievalTool := retriever.CreateRetrievalTool(d.request.KnowledgeBases)
-	d.tools = append(d.tools, retrievalTool)
-
-	logger.Infof("[Dispatcher] initKnowledgeRetriever: added retrieval tool with %d knowledge bases", len(d.request.KnowledgeBases))
-	return nil
-}
-
-// initFileRetrieval 初始化文件检索工具（作为工具供 Agent 调用）
-func (d *Dispatcher) initFileRetrieval(ctx context.Context) error {
-	// 如果没有上传文件或 uploadsBaseDir，则跳过
-	if d.uploadsBaseDir == "" {
-		logger.Infof("[Dispatcher] initFileRetrieval: no uploads base dir configured")
-		return nil
-	}
-
-	// 创建文件检索工具
-	fileRetrievalTool := retriever.CreateFileRetrievalTool(d.uploadsBaseDir)
-	d.tools = append(d.tools, fileRetrievalTool)
-
-	logger.Infof("[Dispatcher] initFileRetrieval: added file retrieval tool")
-	return nil
-}
-
-func (d *Dispatcher) initA2A(ctx context.Context) error {
-	d.a2aRunners = make(map[string]*adk.Runner)
-
-	for _, cfg := range d.request.A2A {
-		client, err := NewA2AClient(ctx, cfg)
-		if err != nil {
-			logger.Infof("[Dispatcher] initA2A: failed to create client for %s: %v", cfg.Name, err)
-			continue
-		}
-
-		runner, err := client.CreateA2ARunner(ctx, d.defaultModel)
-		if err != nil {
-			logger.Infof("[Dispatcher] initA2A: failed to create runner for %s: %v", cfg.Name, err)
-			continue
-		}
-
-		d.a2aRunners[cfg.Name] = runner
-		logger.Infof("[Dispatcher] initA2A: registered agent %s", cfg.Name)
-	}
-
-	// 如果有 A2A agents，创建 A2A tool 并添加到 tools
-	if len(d.a2aRunners) > 0 {
-		clients := make(map[string]*A2AClient)
-		for name, runner := range d.a2aRunners {
-			_ = runner // runner 已存储
-			// 创建 client 引用
-			for _, cfg := range d.request.A2A {
-				if cfg.Name == name {
-					client, _ := NewA2AClient(ctx, cfg)
-					if client != nil {
-						clients[name] = client
-					}
-				}
-			}
-		}
-		if len(clients) > 0 {
-			// 重置计数器并使用带计数限制的 A2A tool
-			d.a2aCallCount = 0
-			maxA2ACalls := 0
-			if d.request.Options != nil {
-				maxA2ACalls = d.request.Options.MaxA2ACalls
-			}
-			a2aTool := NewA2AToolWithCounter(clients, &d.a2aCallCount, maxA2ACalls)
-			// 设置 trace context
-			if d.request.Context != nil {
-				traceCtx := make(map[string]string)
-				if v, ok := d.request.Context["trace_id"].(string); ok {
-					traceCtx["trace_id"] = v
-				}
-				if v, ok := d.request.Context["parent_span_id"].(string); ok {
-					traceCtx["parent_span_id"] = v
-				}
-				if len(traceCtx) > 0 {
-					a2aTool.SetTraceContext(traceCtx)
-					logger.Infof("[Dispatcher] A2A trace context set: %v", traceCtx)
-				}
-			}
-
-			// 获取 A2A risk level（使用配置中的 risk_level，默认 medium）
-			a2aRiskLevel := "medium"
-			if len(d.request.A2A) > 0 && d.request.A2A[0].RiskLevel != "" {
-				a2aRiskLevel = d.request.A2A[0].RiskLevel
-			}
-
-			// 根据 risk_level 判断是否需要包装审批
-			wrappedA2ATool := d.wrapToolWithApproval(a2aTool, "a2a", "a2a", a2aRiskLevel)
-			d.tools = append(d.tools, wrappedA2ATool)
-		}
-	}
-
-	logger.Infof("[Dispatcher] initA2A: %d agents initialized", len(d.a2aRunners))
-	return nil
-}
-
-func (d *Dispatcher) initInternalAgents(ctx context.Context) error {
-	d.internalAgents = make(map[string]adk.Agent)
-
-	for _, cfg := range d.request.InternalAgents {
-		agent, err := d.createInternalAgent(ctx, cfg)
-		if err != nil {
-			logger.Infof("[Dispatcher] initInternalAgents: failed to create agent %s: %v", cfg.Name, err)
-			continue
-		}
-
-		d.internalAgents[cfg.ID] = agent
-		logger.Infof("[Dispatcher] initInternalAgents: registered agent %s (%s)", cfg.Name, cfg.ID)
-	}
-
-	logger.Infof("[Dispatcher] initInternalAgents: %d agents initialized", len(d.internalAgents))
-	return nil
-}
-
-// initSubAgents 初始化 Sub-Agent 管理器
-func (d *Dispatcher) initSubAgents(ctx context.Context) error {
-	if len(d.request.SubAgents) == 0 {
-		logger.Infof("[Dispatcher] initSubAgents: no sub-agents configured")
-		return nil
-	}
-
-	// 创建 Sub-Agent 管理器
-	d.subAgentManager = subagent.NewSubAgentManager(d.defaultModel)
-
-	// 注册 Sub-Agent 配置
-	d.subAgentManager.RegisterConfigs(d.request.SubAgents)
-
-	// 创建 spawn 工具（异步并行执行）
-	spawnTool := subagent.NewSpawnTool(d.subAgentManager)
-	d.tools = append(d.tools, spawnTool)
-
-	// 创建 collect_task 工具（获取异步任务结果）
-	collectTool := subagent.NewCollectTaskTool(d.subAgentManager)
-	d.tools = append(d.tools, collectTool)
-
-	// 创建 list_tasks 工具（列出所有任务）
-	listTasksTool := subagent.NewListTasksTool(d.subAgentManager)
-	d.tools = append(d.tools, listTasksTool)
-
-	// 创建 cancel_task 工具（取消任务）
-	cancelTool := subagent.NewCancelTaskTool(d.subAgentManager)
-	d.tools = append(d.tools, cancelTool)
-
-	// 创建 Delegate 工具（同步执行，保持向后兼容）
-	delegateTool := subagent.NewDelegateTool(d.subAgentManager)
-	d.tools = append(d.tools, delegateTool)
-
-	logger.Infof("[Dispatcher] initSubAgents: %d sub-agents registered, spawn/collect/list/cancel/delegate tools added", len(d.request.SubAgents))
-	return nil
-}
-
-// initMCPs 初始化 MCP 工具
-func (d *Dispatcher) initMCPs(ctx context.Context) error {
-	if len(d.request.MCPs) == 0 {
-		return nil
-	}
-
-	for _, mcpCfg := range d.request.MCPs {
-		logger.Infof("[Dispatcher] initMCP: name=%s, transport=%s", mcpCfg.Name, mcpCfg.Transport)
-
-		switch mcpCfg.Transport {
-		case "http":
-			// HTTP 模式：通过 HTTP API 加载 tools
-			if mcpCfg.Endpoint == "" {
-				logger.Infof("[Dispatcher] initMCP: %s has empty endpoint, skipping", mcpCfg.Name)
-				continue
-			}
-			loader := NewMCPToolLoader(mcpCfg.Endpoint, mcpCfg.Headers)
-			tools, err := loader.LoadTools(ctx)
-			if err != nil {
-				logger.Infof("[Dispatcher] initMCP: failed to load tools for %s: %v", mcpCfg.Name, err)
-				continue
-			}
-			for _, t := range tools {
-				// HTTP MCP tools 需要包装审批
-				if invokableTool, ok := t.(tool.InvokableTool); ok {
-					wrapped := d.wrapToolWithApproval(invokableTool, mcpCfg.Name, "mcp", mcpCfg.RiskLevel)
-					d.tools = append(d.tools, wrapped)
-				} else {
-					d.tools = append(d.tools, t)
-				}
-			}
-			logger.Infof("[Dispatcher] initMCP: %s loaded %d tools", mcpCfg.Name, len(tools))
-
-		case "stdio":
-			// stdio 模式：启动本地进程
-			if mcpCfg.Command == "" {
-				logger.Infof("[Dispatcher] initMCP: %s has empty command, skipping", mcpCfg.Name)
-				continue
-			}
-			client, err := NewMCPStdioClient(mcpCfg.Command, mcpCfg.Args, mcpCfg.Env)
-			if err != nil {
-				logger.Infof("[Dispatcher] initMCP: failed to create stdio client for %s: %v", mcpCfg.Name, err)
-				continue
-			}
-			// 创建 stdio MCP tool 并添加
-			mcpTool := &mcpStdioTool{
-				name:   mcpCfg.Name,
-				client: client,
-			}
-			// 根据 risk_level 判断是否需要包装审批
-			wrapped := d.wrapToolWithApproval(mcpTool, mcpCfg.Name, "mcp", mcpCfg.RiskLevel)
-			d.tools = append(d.tools, wrapped)
-			logger.Infof("[Dispatcher] initMCP: %s (stdio) initialized", mcpCfg.Name)
-
-		default:
-			logger.Infof("[Dispatcher] initMCP: unknown transport %s for %s, skipping", mcpCfg.Transport, mcpCfg.Name)
-		}
-	}
-
-	return nil
-}
-
 // mcpStdioTool stdio 模式的 MCP tool
 type mcpStdioTool struct {
 	name   string
@@ -644,111 +431,6 @@ func (t *mcpStdioTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 	delete(args, "name")
 
 	return t.client.CallTool(ctx, name, args)
-}
-
-// initSkills 初始化 skill runner
-func (d *Dispatcher) initSkills(ctx context.Context) error {
-	// 构建 skillsDir
-	skillsDir := "skills"
-	if d.request.Context != nil {
-		if dir, ok := d.request.Context["skills_dir"].(string); ok && dir != "" {
-			skillsDir = dir
-		}
-	}
-
-	// 创建 skill 配置管理器
-	configMgr, err := NewSkillConfigManager(DefaultSkillConfigPath())
-	if err != nil {
-		logger.Infof("[Dispatcher] initSkills: warning - failed to load config: %v", err)
-		// 配置加载失败不影响 skill 运行，使用空配置
-		configMgr, _ = NewSkillConfigManager("")
-	}
-
-	// 创建 skill runner
-	d.skillRunner = NewSkillRunner(
-		d.request.Skills,
-		skillsDir,
-		d.request.Sandbox,
-		d.defaultModel,
-		configMgr,
-	)
-
-	// 设置 session ID（从 context 中获取）
-	if sessionID, ok := d.request.Context["session_id"].(string); ok && sessionID != "" {
-		d.skillRunner.CurrentSessionID = sessionID
-		logger.Infof("[Dispatcher] Using session_id: %s for skill execution", sessionID)
-	}
-
-	// 创建 skill tool 并添加到 tools
-	skillToolBase := d.skillRunner.BuildSkillTool()
-	if skillToolBase != nil {
-		// 检查是否需要包装审批
-		// 构建 skill name -> risk level 的映射
-		skillRiskLevels := make(map[string]string)
-		for _, s := range d.request.Skills {
-			if s.RiskLevel != "" {
-				skillRiskLevels[s.ID] = s.RiskLevel
-			}
-		}
-
-		// 如果有任何 skill 需要审批，则包装 skill tool
-		needsApproval := false
-		for _, riskLevel := range skillRiskLevels {
-			if d.shouldWrapForApproval("skill", riskLevel) {
-				needsApproval = true
-				break
-			}
-		}
-
-		if needsApproval {
-			// 类型断言获取 InvokableTool
-			if invokableTool, ok := skillToolBase.(tool.InvokableTool); ok {
-				// 创建动态风险级别获取器
-				getter := func(argumentsInJSON string) string {
-					// 解析 argumentsInJSON 提取 skill name
-					type skillInput struct {
-						Name string `json:"name"`
-					}
-					var input skillInput
-					if err := json.Unmarshal([]byte(argumentsInJSON), &input); err == nil {
-						if riskLevel, ok := skillRiskLevels[input.Name]; ok {
-							return riskLevel
-						}
-					}
-					return "medium" // 默认风险级别
-				}
-				wrappedSkillTool := NewInvokableApprovableToolWithGetter(invokableTool, "skill", "skill", "medium", getter)
-				d.tools = append(d.tools, wrappedSkillTool)
-				logger.Infof("[Dispatcher] Skill tool wrapped with dynamic approval (skill count: %d)", len(skillRiskLevels))
-			} else {
-				d.tools = append(d.tools, skillToolBase)
-			}
-		} else {
-			d.tools = append(d.tools, skillToolBase)
-		}
-	}
-
-	// 创建 load_skill tool（低风险，通常不需要审批）
-	loadSkillTool := d.skillRunner.BuildLoadSkillTool()
-	if loadSkillTool != nil {
-		d.tools = append(d.tools, loadSkillTool)
-	}
-
-	logger.Infof("[Dispatcher] initSkills: %d skills registered, config: %s",
-		len(d.request.Skills), DefaultSkillConfigPath())
-
-	// 创建技能规划器 (SkillPlanner)
-	d.skillPlanner = NewSkillPlanner(d.request.Skills, d.skillRunner, d.defaultModel)
-	logger.Infof("[Dispatcher] SkillPlanner created")
-
-	// 创建技能编排工具 (当需要多 skill 协同时使用)
-	skillOrchestratorTool := d.skillRunner.BuildSkillOrchestratorTool(d.skillPlanner)
-	if skillOrchestratorTool != nil {
-		d.tools = append(d.tools, skillOrchestratorTool)
-		logger.Infof("[Dispatcher] SkillOrchestrator tool registered")
-	}
-
-	return nil
 }
 
 // createInternalAgent 创建内部 agent
@@ -1002,6 +684,182 @@ func (d *Dispatcher) buildModelRetryConfig() *adk.ModelRetryConfig {
 	}
 }
 
+// compactionWorker 异步压缩 worker
+func (d *Dispatcher) compactionWorker(ctx context.Context) {
+	logger.Infof("[Dispatcher] compactionWorker: started")
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Infof("[Dispatcher] compactionWorker: context cancelled, exiting")
+			return
+		case req, ok := <-d.compactChan:
+			if !ok {
+				logger.Infof("[Dispatcher] compactionWorker: channel closed, exiting")
+				return
+			}
+			logger.Infof("[Dispatcher] compactionWorker: received compaction request, messages=%d", len(req.Messages))
+
+			// 执行压缩
+			result, err := d.compactService.Compact(ctx, req.Messages)
+
+			// 发送结果
+			resp := CompactionResponse{Result: result, Error: err}
+			select {
+			case d.compactDoneChan <- resp:
+				logger.Infof("[Dispatcher] compactionWorker: sent result, success=%v", err == nil)
+			case <-ctx.Done():
+				logger.Infof("[Dispatcher] compactionWorker: context cancelled while sending result")
+				return
+			}
+		}
+	}
+}
+
+// checkAndTriggerCompaction 检查并触发压缩
+func (d *Dispatcher) checkAndTriggerCompaction(messages []adk.Message) {
+	if d.compactService == nil || !d.compactService.IsEnabled() {
+		return
+	}
+
+	// 转换消息格式
+	ccMessages := d.convertToCCMessages(messages)
+
+	// 检查是否需要压缩
+	if !d.compactService.ShouldCompact(ccMessages) {
+		return
+	}
+
+	// 触发异步压缩
+	logger.Infof("[Dispatcher] checkAndTriggerCompaction: triggering async compaction, messages=%d", len(ccMessages))
+	select {
+	case d.compactChan <- CompactionRequest{Messages: ccMessages}:
+		logger.Infof("[Dispatcher] checkAndTriggerCompaction: sent compaction request")
+	default:
+		logger.Infof("[Dispatcher] checkAndTriggerCompaction: channel full, skipping")
+	}
+}
+
+// applyCompactionResult 应用压缩结果
+func (d *Dispatcher) applyCompactionResult() {
+	d.compactMu.Lock()
+	defer d.compactMu.Unlock()
+
+	if d.pendingCompact == nil {
+		return
+	}
+
+	if d.pendingCompact.Error != nil {
+		logger.Infof("[Dispatcher] applyCompactionResult: compaction failed: %v", d.pendingCompact.Error)
+		d.pendingCompact = nil
+		return
+	}
+
+	// 压缩成功
+	logger.Infof("[Dispatcher] applyCompactionResult: compaction succeeded, preTokens=%d, postTokens=%d",
+		d.pendingCompact.Result.PreCompactTokens, d.pendingCompact.Result.PostCompactTokens)
+	d.pendingCompact = nil
+}
+
+// applyCompactionResultNonBlocking 非阻塞应用压缩结果
+// checkpointID 用于日志记录
+func (d *Dispatcher) applyCompactionResultNonBlocking(messages *[]adk.Message, checkpointID string) {
+	select {
+	case resp, ok := <-d.compactDoneChan:
+		if !ok {
+			return
+		}
+		if resp.Error != nil {
+			logger.Infof("[Dispatcher] applyCompactionResultNonBlocking: compaction failed: %v", resp.Error)
+			return
+		}
+
+		// 压缩成功，转换为 adk.Message
+		compactedCC := contextcompressor.BuildPostCompactMessages(resp.Result)
+		compactedAdk := d.convertFromCCMessages(compactedCC)
+
+		logger.Infof("[Dispatcher] applyCompactionResultNonBlocking: applied compaction [checkpointID=%s], original=%d, compacted=%d",
+			checkpointID, len(*messages), len(compactedAdk))
+
+		// 替换消息
+		d.compactMu.Lock()
+		d.compactedMessages = compactedAdk
+		d.compactMu.Unlock()
+
+		// 更新传入的 messages 引用
+		*messages = compactedAdk
+
+	default:
+		// 没有结果可读
+	}
+}
+
+// hasCompactedMessages 检查是否有待应用的压缩消息
+func (d *Dispatcher) hasCompactedMessages() bool {
+	d.compactMu.Lock()
+	defer d.compactMu.Unlock()
+	return len(d.compactedMessages) > 0
+}
+
+// getCompactedMessages 获取压缩后的消息
+func (d *Dispatcher) getCompactedMessages() []adk.Message {
+	d.compactMu.Lock()
+	defer d.compactMu.Unlock()
+	return d.compactedMessages
+}
+
+// clearCompactedMessages 清除压缩消息标记
+func (d *Dispatcher) clearCompactedMessages() {
+	d.compactMu.Lock()
+	defer d.compactMu.Unlock()
+	d.compactedMessages = nil
+}
+
+// convertToCCMessages 将 adk.Message 转换为 contextcompressor.Message
+func (d *Dispatcher) convertToCCMessages(messages []adk.Message) []contextcompressor.Message {
+	result := make([]contextcompressor.Message, 0, len(messages))
+	for _, m := range messages {
+		// adk.Message = *schema.Message
+		ccMsg := contextcompressor.Message{
+			Role: string(m.Role),
+		}
+		switch m.Role {
+		case schema.User:
+			ccMsg.Type = contextcompressor.MessageTypeUser
+			ccMsg.Content = []contextcompressor.ContentBlock{{Type: "text", Text: m.Content}}
+		case schema.Assistant:
+			ccMsg.Type = contextcompressor.MessageTypeAssistant
+			ccMsg.Content = []contextcompressor.ContentBlock{{Type: "text", Text: m.Content}}
+		case schema.System:
+			ccMsg.Type = contextcompressor.MessageTypeSystem
+			ccMsg.Content = []contextcompressor.ContentBlock{{Type: "text", Text: m.Content}}
+		}
+		result = append(result, ccMsg)
+	}
+	return result
+}
+
+// convertFromCCMessages 将 contextcompressor.Message 转换回 adk.Message
+func (d *Dispatcher) convertFromCCMessages(messages []contextcompressor.Message) []adk.Message {
+	result := make([]adk.Message, 0, len(messages))
+	for _, m := range messages {
+		text := ""
+		for _, block := range m.Content {
+			if block.Type == "text" {
+				text += block.Text
+			}
+		}
+		switch m.Type {
+		case contextcompressor.MessageTypeUser:
+			result = append(result, schema.UserMessage(text))
+		case contextcompressor.MessageTypeAssistant:
+			result = append(result, schema.AssistantMessage(text, nil))
+		case contextcompressor.MessageTypeSystem:
+			result = append(result, schema.SystemMessage(text))
+		}
+	}
+	return result
+}
+
 func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*DispatchResult, error) {
 	startTime := time.Now()
 
@@ -1031,7 +889,7 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 		ModelRetryConfig: d.buildModelRetryConfig(),
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
-				Tools: d.tools,
+				Tools:               d.tools,
 				ToolCallMiddlewares: []compose.ToolMiddleware{*toolCallEventsMiddleware()},
 			},
 		},
@@ -1096,7 +954,18 @@ func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*Dis
 	}
 
 	events := runner.Run(ctx, messages, adk.WithCheckPointID(checkpointID))
+
+	// 启动异步压缩 worker
+	if d.compactService != nil && d.compactService.IsEnabled() {
+		go d.compactionWorker(ctx)
+		// 检查初始是否需要压缩
+		d.checkAndTriggerCompaction(messages)
+	}
+
 	for {
+		// 非阻塞检查压缩结果
+		d.applyCompactionResultNonBlocking(&messages, checkpointID)
+
 		event, ok := events.Next()
 		if !ok {
 			break
@@ -1459,7 +1328,7 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 			ModelRetryConfig: d.buildModelRetryConfig(),
 			ToolsConfig: adk.ToolsConfig{
 				ToolsNodeConfig: compose.ToolsNodeConfig{
-					Tools: d.tools,
+					Tools:               d.tools,
 					ToolCallMiddlewares: []compose.ToolMiddleware{*toolCallEventsMiddleware()},
 				},
 			},
@@ -1631,137 +1500,4 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 type StreamEvent struct {
 	Type string
 	Data map[string]any
-}
-
-// formatResponse 根据 response_schema 配置格式化响应
-func (d *Dispatcher) formatResponse(content string) (string, []json.RawMessage) {
-	if d.request.Options == nil || d.request.Options.ResponseSchema == nil {
-		return content, nil
-	}
-
-	rs := d.request.Options.ResponseSchema
-	logger.Infof("[Dispatcher] formatResponse: type=%s", rs.Type)
-
-	switch rs.Type {
-	case "a2ui":
-		// 使用 schema 构建 A2UI 格式
-		msgs := d.buildA2UIMessagesFromSchema(content, rs.Schema)
-		logger.Infof("[Dispatcher] formatResponse: built %d a2ui messages", len(msgs))
-		return "", msgs
-
-	case "markdown", "text":
-		// 直接返回 markdown 或文本内容
-		return content, nil
-
-	case "json":
-		// 尝试解析 content 为 JSON 并美化输出
-		var data any
-		if err := json.Unmarshal([]byte(content), &data); err == nil {
-			if prettyJSON, err := json.MarshalIndent(data, "", "  "); err == nil {
-				return string(prettyJSON), nil
-			}
-		}
-		return content, nil
-
-	case "image", "audio", "video":
-		// 多媒体格式 - 从 content 中解析 URL 或 base64
-		// content 应该是 JSON 格式: {"url": "..."} 或 {"base64": "..."}
-		var data map[string]any
-		if err := json.Unmarshal([]byte(content), &data); err == nil {
-			// 返回原始 JSON 作为 content
-			if jsonStr, err := json.Marshal(data); err == nil {
-				return string(jsonStr), nil
-			}
-		}
-		return content, nil
-
-	case "multipart":
-		// 多格式混合 - content 应该是 JSON 数组格式
-		return content, nil
-
-	default:
-		// 未知格式，返回原始内容
-		logger.Infof("[Dispatcher] formatResponse: unknown type %s, returning raw content", rs.Type)
-		return content, nil
-	}
-}
-
-// buildA2UIMessagesFromSchema 根据 response_schema 构建 A2UI 格式消息
-func (d *Dispatcher) buildA2UIMessagesFromSchema(content string, schema map[string]any) []json.RawMessage {
-	msgs := []json.RawMessage{}
-
-	// 解析 schema 获取 properties
-	properties, _ := schema["properties"].(map[string]any)
-
-	// 创建默认 surface
-	surfaceID := "default_surface"
-
-	createSurface, _ := json.Marshal(map[string]any{
-		"createSurface": map[string]any{
-			"surfaceId": surfaceID,
-			"catalogId": "standard",
-		},
-	})
-	msgs = append(msgs, createSurface)
-
-	// 构建组件列表
-	var components []map[string]any
-
-	// 处理 content 字段 - 如果 schema 中定义了 content 字段，就使用它
-	if properties != nil {
-		if _, ok := properties["content"]; ok {
-			// content 字段存在于 schema 中，添加文本组件
-			components = append(components, map[string]any{
-				"id":        "content",
-				"component": "Text",
-				"text":      map[string]any{"text": content},
-			})
-		}
-
-		// 处理 action 字段
-		if actionProp, ok := properties["action"].(map[string]any); ok {
-			if actionType, _ := actionProp["type"].(string); actionType != "" {
-				components = append(components, map[string]any{
-					"id":         "action",
-					"component":  "Action",
-					"actionType": actionType,
-				})
-			}
-		}
-
-		// 处理 card 字段
-		if cardProp, ok := properties["card"].(map[string]any); ok {
-			if cardSchema, ok := cardProp["properties"].(map[string]any); ok {
-				card := map[string]any{
-					"id":        "card",
-					"component": "Card",
-				}
-				if title, _ := cardSchema["title"].(string); title != "" {
-					card["title"] = title
-				}
-				components = append(components, card)
-			}
-		}
-	}
-
-	// 如果没有从 schema 解析到组件，使用默认文本组件
-	if len(components) == 0 {
-		components = []map[string]any{
-			{
-				"id":        "text_content",
-				"component": "Text",
-				"text":      map[string]any{"text": content},
-			},
-		}
-	}
-
-	updateComponents, _ := json.Marshal(map[string]any{
-		"updateComponents": map[string]any{
-			"surfaceId":  surfaceID,
-			"components": components,
-		},
-	})
-	msgs = append(msgs, updateComponents)
-
-	return msgs
 }
