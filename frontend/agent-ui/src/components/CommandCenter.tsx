@@ -185,7 +185,7 @@ export function CommandCenter({ onViewChange }: CommandCenterProps) {
 
       <AnimatePresence>
         {isOpen && (
-          <div className="fixed inset-0 z-50 flex items-end justify-end p-8 pointer-events-none">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-8 pb-32 pointer-events-none">
             {/* Backdrop for closing */}
             <motion.div
               initial={{ opacity: 0 }}
