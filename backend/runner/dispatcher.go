@@ -330,6 +330,7 @@ type Dispatcher struct {
 	skillPlanner     *plugins.SkillPlanner     // LLM 驱动的技能规划器
 	subAgentManager  *subagent.SubAgentManager // Sub-Agent 管理器
 	a2aCallCount     int
+	cliExt           interface{}               // CLI 扩展（cliext.CLIExtension）
 
 	// 文件上传相关
 	uploadsBaseDir string // uploads 目录的宿主机路径
@@ -418,7 +419,12 @@ func (d *Dispatcher) Run(ctx context.Context) (*DispatchResult, error) {
 		logger.Infof("[Dispatcher] Warning: init builtin tools failed: %v", err)
 	}
 
-	// 9. 构建系统 prompt
+	// 9. 初始化 CLI 扩展工具（如飞书 CLI）
+	if err := d.initCLIs(ctx); err != nil {
+		logger.Infof("[Dispatcher] Warning: init CLIs failed: %v", err)
+	}
+
+	// 10. 构建系统 prompt
 	systemPrompt := d.buildSystemPrompt()
 
 	// 7. 构建消息（如果配置了rewrite模型，则对用户query进行改写）

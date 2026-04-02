@@ -36,6 +36,16 @@ type MCPConfig struct {
 	RiskLevel string            `json:"risk_level"`
 }
 
+// CLIConfig CLI 工具配置（用于扩展第三方 CLI 如飞书 CLI）
+type CLIConfig struct {
+	Name      string `json:"name"`       // CLI 名称，如 "lark"
+	Command   string `json:"command"`    // CLI 命令，如 "lark-cli"
+	ConfigDir string `json:"config_dir"` // Token 配置目录
+	SkillsDir string `json:"skills_dir"` // Skills 文件目录
+	RiskLevel string `json:"risk_level"` // 风险级别
+	AuthType  string `json:"auth_type"`  // 授权类型：none, oauth2_device
+}
+
 // A2AAgentConfig A2A Agent 配置
 type A2AAgentConfig struct {
 	Name      string            `json:"name"`
@@ -187,6 +197,7 @@ type RunRequest struct {
 	KnowledgeBases []KnowledgeBaseConfig     `json:"knowledge_bases"` // 知识库配置（用于运行时检索）
 	Skills         []Skill                   `json:"skills"`
 	MCPs           []MCPConfig               `json:"mcps"`
+	CLIs           []CLIConfig               `json:"clis"` // CLI 工具配置（如飞书 CLI）
 	A2A            []A2AAgentConfig          `json:"a2a"`
 	Tools          []ToolConfig              `json:"tools"`
 	InternalAgents []InternalAgentConfig     `json:"internal_agents"`

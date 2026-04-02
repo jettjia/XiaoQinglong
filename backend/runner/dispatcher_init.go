@@ -10,6 +10,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
+	"github.com/jettjia/XiaoQinglong/runner/cliext"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 	"github.com/jettjia/XiaoQinglong/runner/plugins"
 	"github.com/jettjia/XiaoQinglong/runner/retriever"
@@ -567,6 +568,66 @@ func (d *Dispatcher) initBuiltinTools(ctx context.Context) error {
 	}
 
 	logger.Infof("[Dispatcher] initBuiltinTools: registered %d builtin tools", len(builtinTools))
+	return nil
+}
+
+// initCLIs 初始化 CLI 扩展工具（如飞书 CLI）
+func (d *Dispatcher) initCLIs(ctx context.Context) error {
+	if len(d.request.CLIs) == 0 {
+		logger.Infof("[Dispatcher] initCLIs: no CLI configs provided")
+		return nil
+	}
+
+	// 确定 CLI 配置目录
+	cliBaseDir := "/var/run/cliext"
+	if d.request.Context != nil {
+		if dir, ok := d.request.Context["cli_config_dir"].(string); ok && dir != "" {
+			cliBaseDir = dir
+		}
+	}
+
+	// 创建 CLI 扩展管理器
+	ext := cliext.NewCLIExtension(cliBaseDir)
+
+	// 转换并注册每个 CLI
+	for _, cliReq := range d.request.CLIs {
+		cfg := cliext.CLIConfig{
+			Name:      cliReq.Name,
+			Command:   cliReq.Command,
+			ConfigDir: cliReq.ConfigDir,
+			SkillsDir: cliReq.SkillsDir,
+			RiskLevel: cliReq.RiskLevel,
+			AuthType:  cliReq.AuthType,
+		}
+
+		if err := ext.Register(cfg); err != nil {
+			logger.Infof("[Dispatcher] initCLIs: failed to register %s: %v", cliReq.Name, err)
+			continue
+		}
+
+		// 创建 CLI 工具
+		cliTool := cliext.NewCLITool(ext, cliReq.Name)
+
+		// 根据 risk_level 判断是否需要包装审批
+		riskLevel := cliReq.RiskLevel
+		if riskLevel == "" {
+			riskLevel = "medium"
+		}
+
+		wrapped := d.wrapToolWithApproval(cliTool, "cli_"+cliReq.Name, "cli", riskLevel)
+		d.tools = append(d.tools, wrapped)
+		logger.Infof("[Dispatcher] initCLIs: registered CLI tool: %s", cliReq.Name)
+	}
+
+	// 添加 auth 工具
+	authTool := cliext.NewCLIAuthTool(ext)
+	d.tools = append(d.tools, authTool)
+	logger.Infof("[Dispatcher] initCLIs: registered cli_auth tool")
+
+	// 保存 CLI 扩展引用
+	d.cliExt = ext
+
+	logger.Infof("[Dispatcher] initCLIs: %d CLI tools registered", len(d.request.CLIs))
 	return nil
 }
 
