@@ -5,9 +5,21 @@ import (
 	"os"
 
 	"github.com/jettjia/XiaoQinglong/runner/cli/cmd"
+	"github.com/jettjia/XiaoQinglong/runner/cli/config"
+	"github.com/jettjia/XiaoQinglong/runner/cli/logger"
 )
 
 func main() {
+	// 初始化日志
+	logFilePath := ""
+	if config.IsLogFileMode() {
+		logFilePath = config.GetLogFilePath()
+	}
+	if err := logger.Init(logFilePath, config.IsDebugMode()); err != nil {
+		fmt.Fprintf(os.Stderr, "Init logger failed: %v\n", err)
+	}
+	defer logger.Close()
+
 	if len(os.Args) < 2 {
 		printUsage()
 		os.Exit(1)
@@ -46,6 +58,7 @@ func main() {
 	}
 
 	if err != nil {
+		logger.Error("Command error: %v", err)
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -70,6 +83,10 @@ Environment Variables:
   RUNNER_MODEL_DEFAULT_MAXTOKENS=... Max tokens
   RUNNER_MODEL_SKILL_NAME=...   Skill model name
   RUNNER_DEFAULT_MODEL=default  Default model role
+
+  RUNNER_DEBUG=false            Enable debug mode (print logs to console)
+  RUNNER_LOG_FILE=true          Enable log file (default: true)
+  RUNNER_LOG_FILE_PATH=cli.log Log file path
 
 Examples:
   export RUNNER_MODEL_DEFAULT_NAME=gpt-4o

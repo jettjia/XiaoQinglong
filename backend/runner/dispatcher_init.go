@@ -420,56 +420,67 @@ func (d *Dispatcher) initSkills(ctx context.Context) error {
 	// 创建 skill tool 并添加到 tools
 	skillToolBase := d.skillRunner.BuildSkillTool()
 	if skillToolBase != nil {
-		// 检查是否需要包装审批
-		// 构建 skill name -> risk level 的映射
-		skillRiskLevels := make(map[string]string)
-		for _, s := range d.request.Skills {
-			if s.RiskLevel != "" {
-				skillRiskLevels[s.ID] = s.RiskLevel
-			}
-		}
-
-		// 如果有任何 skill 需要审批，则包装 skill tool
-		needsApproval := false
-		for _, riskLevel := range skillRiskLevels {
-			if d.shouldWrapForApproval("skill", riskLevel) {
-				needsApproval = true
-				break
-			}
-		}
-
-		if needsApproval {
-			// 类型断言获取 InvokableTool
-			if invokableTool, ok := skillToolBase.(tool.InvokableTool); ok {
-				// 创建动态风险级别获取器
-				getter := func(argumentsInJSON string) string {
-					// 解析 argumentsInJSON 提取 skill name
-					type skillInput struct {
-						Name string `json:"name"`
-					}
-					var input skillInput
-					if err := json.Unmarshal([]byte(argumentsInJSON), &input); err == nil {
-						if riskLevel, ok := skillRiskLevels[input.Name]; ok {
-							return riskLevel
-						}
-					}
-					return "medium" // 默认风险级别
+		// 检查 skill tool 是否有可用的 skills（Info 返回 nil 表示没有 skills）
+		info, _ := skillToolBase.Info(ctx)
+		if info == nil {
+			logger.Infof("[Dispatcher] initSkills: no skills available, skipping skill tool registration")
+		} else {
+			logger.Infof("[Dispatcher] initSkills: registering skill tool with %d skills", len(d.request.Skills))
+			// 检查是否需要包装审批
+			// 构建 skill name -> risk level 的映射
+			skillRiskLevels := make(map[string]string)
+			for _, s := range d.request.Skills {
+				if s.RiskLevel != "" {
+					skillRiskLevels[s.ID] = s.RiskLevel
 				}
-				wrappedSkillTool := NewInvokableApprovableToolWithGetter(invokableTool, "skill", "skill", "medium", getter)
-				d.tools = append(d.tools, wrappedSkillTool)
-				logger.Infof("[Dispatcher] Skill tool wrapped with dynamic approval (skill count: %d)", len(skillRiskLevels))
+			}
+
+			// 如果有任何 skill 需要审批，则包装 skill tool
+			needsApproval := false
+			for _, riskLevel := range skillRiskLevels {
+				if d.shouldWrapForApproval("skill", riskLevel) {
+					needsApproval = true
+					break
+				}
+			}
+
+			if needsApproval {
+				// 类型断言获取 InvokableTool
+				if invokableTool, ok := skillToolBase.(tool.InvokableTool); ok {
+					// 创建动态风险级别获取器
+					getter := func(argumentsInJSON string) string {
+						// 解析 argumentsInJSON 提取 skill name
+						type skillInput struct {
+							Name string `json:"name"`
+						}
+						var input skillInput
+						if err := json.Unmarshal([]byte(argumentsInJSON), &input); err == nil {
+							if riskLevel, ok := skillRiskLevels[input.Name]; ok {
+								return riskLevel
+							}
+						}
+						return "medium" // 默认风险级别
+					}
+					wrappedSkillTool := NewInvokableApprovableToolWithGetter(invokableTool, "skill", "skill", "medium", getter)
+					d.tools = append(d.tools, wrappedSkillTool)
+					logger.Infof("[Dispatcher] Skill tool wrapped with dynamic approval (skill count: %d)", len(skillRiskLevels))
+				} else {
+					d.tools = append(d.tools, skillToolBase)
+				}
 			} else {
 				d.tools = append(d.tools, skillToolBase)
 			}
-		} else {
-			d.tools = append(d.tools, skillToolBase)
 		}
 	}
 
 	// 创建 load_skill tool（低风险，通常不需要审批）
 	loadSkillTool := d.skillRunner.BuildLoadSkillTool()
 	if loadSkillTool != nil {
-		d.tools = append(d.tools, loadSkillTool)
+		// 检查是否有可用的 skills（Info 返回 nil 表示没有 skills）
+		info, _ := loadSkillTool.Info(ctx)
+		if info != nil {
+			d.tools = append(d.tools, loadSkillTool)
+		}
 	}
 
 	logger.Infof("[Dispatcher] initSkills: %d skills registered, config: %s",
@@ -482,8 +493,14 @@ func (d *Dispatcher) initSkills(ctx context.Context) error {
 	// 创建技能编排工具 (当需要多 skill 协同时使用)
 	skillOrchestratorTool := d.skillRunner.BuildSkillOrchestratorTool(d.skillPlanner)
 	if skillOrchestratorTool != nil {
-		d.tools = append(d.tools, skillOrchestratorTool)
-		logger.Infof("[Dispatcher] SkillOrchestrator tool registered")
+		// 检查是否有可用的 skills（Info 返回 nil 表示没有 skills）
+		info, _ := skillOrchestratorTool.Info(ctx)
+		if info == nil {
+			logger.Infof("[Dispatcher] initSkills: no skills available, skipping orchestrate_skills tool registration")
+		} else {
+			d.tools = append(d.tools, skillOrchestratorTool)
+			logger.Infof("[Dispatcher] SkillOrchestrator tool registered")
+		}
 	}
 
 	return nil

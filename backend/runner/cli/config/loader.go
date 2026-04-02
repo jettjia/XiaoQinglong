@@ -105,6 +105,29 @@ func GetDefaultModel() string {
 	return getEnv(fmt.Sprintf("%s_DEFAULT_MODEL", EnvPrefix))
 }
 
+// IsDebugMode 是否开启调试模式（输出日志到控制台）
+func IsDebugMode() bool {
+	return getEnv(fmt.Sprintf("%s_DEBUG", EnvPrefix)) == "true"
+}
+
+// IsLogFileMode 是否开启日志文件模式
+func IsLogFileMode() bool {
+	val := getEnv(fmt.Sprintf("%s_LOG_FILE", EnvPrefix))
+	if val == "" {
+		return true // 默认开启
+	}
+	return val == "true"
+}
+
+// GetLogFilePath 获取日志文件路径
+func GetLogFilePath() string {
+	path := getEnv(fmt.Sprintf("%s_LOG_FILE_PATH", EnvPrefix))
+	if path == "" {
+		return "cli.log"
+	}
+	return path
+}
+
 // getEnv 获取环境变量并展开 ${ENV_VAR} 格式
 func getEnv(key string) string {
 	val := os.Getenv(key)
@@ -155,7 +178,10 @@ func ShowConfig(req *types.RunRequest) string {
 	b.WriteString("=== Runner CLI Configuration ===\n\n")
 	b.WriteString(fmt.Sprintf("Mode: %s\n", GetMode()))
 	b.WriteString(fmt.Sprintf("HTTP Endpoint: %s\n", GetEndpoint()))
-	b.WriteString(fmt.Sprintf("Default Model: %s\n\n", GetDefaultModel()))
+	b.WriteString(fmt.Sprintf("Default Model: %s\n", GetDefaultModel()))
+	b.WriteString(fmt.Sprintf("Debug Mode: %v\n", IsDebugMode()))
+	b.WriteString(fmt.Sprintf("Log File Mode: %v\n", IsLogFileMode()))
+	b.WriteString(fmt.Sprintf("Log File Path: %s\n\n", GetLogFilePath()))
 	b.WriteString("Models:\n")
 	for role, cfg := range req.Models {
 		b.WriteString(fmt.Sprintf("  [%s]\n", role))

@@ -9,6 +9,7 @@ import (
 
 	"github.com/jettjia/XiaoQinglong/runner/cli/client"
 	"github.com/jettjia/XiaoQinglong/runner/cli/config"
+	"github.com/jettjia/XiaoQinglong/runner/cli/logger"
 	"github.com/jettjia/XiaoQinglong/runner/types"
 )
 
@@ -73,6 +74,7 @@ func (r *REPL) Run(ctx context.Context) error {
 
 		// 发送请求
 		if err := r.runStream(ctx, input); err != nil {
+			logger.Error("Run error: %v", err)
 			fmt.Fprintf(r.stdout, "Error: %v\n", err)
 			r.stdout.Flush()
 		}
@@ -95,6 +97,8 @@ func (r *REPL) runStream(ctx context.Context, prompt string) error {
 		CheckPointID: r.checkpoint,
 	}
 
+	logger.Info("Sending request: prompt=%s, messages_count=%d", prompt, len(r.messages))
+
 	events, err := r.runner.RunStream(ctx, req)
 	if err != nil {
 		return err
@@ -113,6 +117,7 @@ func (r *REPL) runStream(ctx context.Context, prompt string) error {
 		case "tool_call":
 			if tool, ok := event.Data["tool"].(string); ok {
 				fmt.Fprintf(r.stdout, "\n[Calling tool: %s]\n", tool)
+				logger.Debug("Tool call: %s", tool)
 			}
 		case "tool":
 			tool := ""
@@ -130,19 +135,26 @@ func (r *REPL) runStream(ctx context.Context, prompt string) error {
 				outputStr = outputStr[:200] + "..."
 			}
 			fmt.Fprintf(r.stdout, "[Tool %s returned: %s]\n", tool, outputStr)
+			logger.Debug("Tool result: %s = %s", tool, outputStr)
 		case "interrupted":
 			if id, ok := event.Data["interrupt_id"].(string); ok {
 				r.checkpoint = id
 				fmt.Fprintf(r.stdout, "\n[Interrupted. Checkpoint: %s]\n", r.checkpoint)
+				logger.Info("Interrupted, checkpoint=%s", r.checkpoint)
 				r.stdout.Flush()
 			}
 			return nil
 		case "error":
-			errMsg := event.Data["error"].(string)
+			errMsg := ""
+			if e, ok := event.Data["error"].(string); ok {
+				errMsg = e
+			}
+			logger.Error("Error event: %s", errMsg)
 			fmt.Fprintf(r.stdout, "\n[Error: %s]\n", errMsg)
 			return fmt.Errorf(errMsg)
 		case "done":
 			r.checkpoint = ""
+			logger.Info("Done, response_length=%d", assistantMsg.Len())
 			fmt.Println()
 		}
 		r.stdout.Flush()
@@ -169,6 +181,7 @@ func (r *REPL) handleCommand(input string) bool {
 	case "/clear":
 		r.messages = nil
 		fmt.Println("Conversation cleared.")
+		logger.Info("Conversation cleared")
 		return true
 	case "/history":
 		for i, m := range r.messages {

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/jettjia/XiaoQinglong/runner/cli/logger"
 	"github.com/jettjia/XiaoQinglong/runner/types"
 )
 
@@ -44,6 +45,7 @@ func (h *HTTPRunner) RunStream(ctx context.Context, req *types.RunRequest) (<-ch
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
+	logger.Debug("HTTP Request body: %s", string(body))
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, h.endpoint+"/run", strings.NewReader(string(body)))
 	if err != nil {
@@ -74,7 +76,7 @@ func (h *HTTPRunner) RunStream(ctx context.Context, req *types.RunRequest) (<-ch
 				line, err := reader.ReadString('\n')
 				if err != nil {
 					if err != io.EOF {
-						fmt.Printf("[SSE Error] read error: %v\n", err)
+						logger.Error("SSE read error: %v", err)
 					}
 					return
 				}
@@ -92,7 +94,7 @@ func (h *HTTPRunner) RunStream(ctx context.Context, req *types.RunRequest) (<-ch
 			dataLine, err := reader.ReadString('\n')
 			if err != nil {
 				if err != io.EOF {
-					fmt.Printf("[SSE Error] read error: %v\n", err)
+					logger.Error("SSE read error: %v", err)
 				}
 				return
 			}
@@ -104,10 +106,11 @@ func (h *HTTPRunner) RunStream(ctx context.Context, req *types.RunRequest) (<-ch
 			// 解析 JSON
 			var data map[string]any
 			if err := json.Unmarshal([]byte(dataLine), &data); err != nil {
-				fmt.Printf("[SSE Error] failed to unmarshal: %v, data: %s\n", err, dataLine)
+				logger.Error("SSE unmarshal error: %v, data: %s", err, dataLine)
 				continue
 			}
 
+			logger.Debug("SSE event: type=%s, data=%v", eventType, data)
 			eventsChan <- StreamEvent{
 				Type: eventType,
 				Data: data,

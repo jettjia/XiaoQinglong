@@ -688,6 +688,11 @@ func (t *skillTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 		skillNames = append(skillNames, name)
 	}
 
+	// 如果没有注册任何 skill，不注册 run_skill 工具
+	if len(skillNames) == 0 {
+		return nil, nil
+	}
+
 	params := schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 		"name": {
 			Type:     schema.String,
@@ -755,6 +760,11 @@ func (t *loadSkillTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 		skillNames = append(skillNames, name)
 	}
 
+	// 如果没有注册任何 skill，不注册 load_skill 工具
+	if len(skillNames) == 0 {
+		return nil, nil
+	}
+
 	return &schema.ToolInfo{
 		Name: "load_skill",
 		Desc: "按需加载 skill 的完整内容，用于查看 skill 详细说明和用法",
@@ -809,6 +819,11 @@ func (t *skillOrchestratorTool) Info(ctx context.Context) (*schema.ToolInfo, err
 	var skillNames []string
 	for name := range t.runner.skills {
 		skillNames = append(skillNames, name)
+	}
+
+	// 如果没有注册任何 skill，不注册 orchestrate_skills 工具
+	if len(skillNames) == 0 {
+		return nil, nil
 	}
 
 	params := schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
