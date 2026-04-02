@@ -304,6 +304,15 @@ type ApprovalResult struct {
 	DisapproveReason *string
 }
 
+// MemoryEntry 记忆条目（用于返回给 agent-frame 保存）
+type MemoryEntry struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Type        string `json:"type"` // user, feedback, project, reference
+	Content     string `json:"content"`
+	Importance  int    `json:"importance"`
+}
+
 // RunResponse 运行响应
 type RunResponse struct {
 	Content          string            `json:"content,omitempty"`
@@ -315,4 +324,5 @@ type RunResponse struct {
 	A2UIMessages     []json.RawMessage `json:"a2ui_messages,omitempty"`
 	PendingApprovals []PendingApproval `json:"pending_approvals,omitempty"`
 	CheckPointID     string            `json:"checkpoint_id,omitempty"`
+	Memories         []MemoryEntry     `json:"memories,omitempty"` // 提取的记忆，供 agent-frame 保存
 }

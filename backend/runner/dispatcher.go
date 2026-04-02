@@ -246,6 +246,7 @@ type DispatchResult struct {
 	Metadata         *ResultMetadata
 	PendingApprovals []types.PendingApproval
 	CheckPointID     string
+	Memories         []types.MemoryEntry // 提取的记忆，供 agent-frame 保存
 }
 
 type ResultMetadata struct {
@@ -674,7 +675,102 @@ func (d *Dispatcher) buildSystemPrompt() string {
 	}
 
 	// 使用结构化 Prompt 构建器
-	return prompt.BuildDefaultPrompt(d.request, enabledTools)
+	basePrompt := prompt.BuildDefaultPrompt(d.request, enabledTools)
+
+	// 尝试加载记忆 section（从 Context 中获取 memory service）
+	memorySection := d.loadMemorySection()
+	if memorySection != "" {
+		return basePrompt + "\n\n" + memorySection
+	}
+
+	return basePrompt
+}
+
+// loadMemorySection 从 Context 中获取 memory service 并加载记忆 section
+func (d *Dispatcher) loadMemorySection() string {
+	// 从 context 中获取 memory service
+	// Context 中存储的是 agent-frame 的 memory service
+	memorySvcInterface := d.request.Context["memory_svc"]
+	if memorySvcInterface == nil {
+		return ""
+	}
+
+	// 获取 agent_id 和 user_id（这些也应该在 context 中）
+	agentId := ""
+	userId := ""
+	if v, ok := d.request.Context["agent_id"].(string); ok {
+		agentId = v
+	}
+	if v, ok := d.request.Context["user_id"].(string); ok {
+		userId = v
+	}
+	if agentId == "" || userId == "" {
+		return ""
+	}
+
+	// 动态调用 memory service（避免直接依赖 agent-frame）
+	// 这里使用反射来避免循环依赖
+	return d.extractMemorySectionFromService(memorySvcInterface, agentId, userId)
+}
+
+// extractMemorySectionFromService 从 memory service 提取记忆 section
+func (d *Dispatcher) extractMemorySectionFromService(svc interface{}, agentId, userId string) string {
+	// 使用 type assertion 来调用 memory service 的方法
+	// 这避免了 runner 对 agent-frame 的直接 import
+
+	// 获取 GetMemoryIndex 方法
+	type memoryIndexGetter interface {
+		GetMemoryIndex(ctx context.Context, agentId, userId string) (interface{}, error)
+	}
+
+	// 获取 FindByAgentAndUser 方法
+	type memoryFinder interface {
+		FindByAgentAndUser(ctx context.Context, agentId, userId string) (interface{}, error)
+	}
+
+	// 尝试获取 memory index
+	if getter, ok := svc.(memoryIndexGetter); ok {
+		indices, err := getter.GetMemoryIndex(context.Background(), agentId, userId)
+		if err != nil || indices == nil {
+			return ""
+		}
+
+		// 将 indices 转换为 []string（hook lines）
+		indexLines := d.convertMemoryIndexToLines(indices)
+		return prompt.GetMemorySection(indexLines)
+	}
+
+	return ""
+}
+
+// convertMemoryIndexToLines 将 memory index 转换为 hook line 列表
+func (d *Dispatcher) convertMemoryIndexToLines(indices interface{}) []string {
+	// indices 是 []interface{} 或具体的 slice 类型
+	// 反射提取每个元素的 hook_line 字段
+
+	lines := make([]string, 0, 200)
+
+	// 假设 indices 是 []map[string]interface{} 或类似结构
+	// 由于是动态调用，我们做简单的类型检查
+
+	switch v := indices.(type) {
+	case []interface{}:
+		for _, item := range v {
+			if m, ok := item.(map[string]interface{}); ok {
+				if hookLine, ok := m["hook_line"].(string); ok {
+					lines = append(lines, hookLine)
+				}
+			}
+		}
+	case []map[string]interface{}:
+		for _, m := range v {
+			if hookLine, ok := m["hook_line"].(string); ok {
+				lines = append(lines, hookLine)
+			}
+		}
+	}
+
+	return lines
 }
 
 // buildMessagesWithRewrite builds messages and optionally rewrites the last user query

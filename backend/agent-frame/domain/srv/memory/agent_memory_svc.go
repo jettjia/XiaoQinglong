@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	entity "github.com/jettjia/xiaoqinglong/agent-frame/domain/entity/memory"
+	po "github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/memory"
 	repo "github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/repo/memory"
 )
 
@@ -154,4 +155,24 @@ func extractSimpleEntities(text string) []string {
 // DeleteUserMemories 删除用户的所有记忆
 func (s *AgentMemorySvc) DeleteUserMemories(ctx context.Context, userId string) error {
 	return s.memoryRepo.DeleteByUser(ctx, userId)
+}
+
+// FindMemoriesByType 按类型查询记忆
+func (s *AgentMemorySvc) FindMemoriesByType(ctx context.Context, agentId, userId, memoryType string) ([]*entity.AgentMemory, error) {
+	return s.memoryRepo.FindByType(ctx, agentId, userId, memoryType)
+}
+
+// CreateMemoryWithIndex 创建记忆并更新索引
+func (s *AgentMemorySvc) CreateMemoryWithIndex(ctx context.Context, memory *entity.AgentMemory) error {
+	return s.memoryRepo.CreateWithIndex(ctx, memory)
+}
+
+// DeleteMemoryWithIndex 删除记忆并删除索引
+func (s *AgentMemorySvc) DeleteMemoryWithIndex(ctx context.Context, ulid string) error {
+	return s.memoryRepo.DeleteWithIndex(ctx, ulid)
+}
+
+// GetMemoryIndex 获取记忆索引（用于构建 prompt）
+func (s *AgentMemorySvc) GetMemoryIndex(ctx context.Context, agentId, userId string) ([]*po.MemoryIndex, error) {
+	return s.memoryRepo.GetMemoryIndex(ctx, agentId, userId)
 }

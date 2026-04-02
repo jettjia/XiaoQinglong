@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -17,18 +16,9 @@ import (
 	chatDto "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/chat"
 	agentSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/agent"
 	chatSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/chat"
-	memoryEntity "github.com/jettjia/xiaoqinglong/agent-frame/domain/entity/memory"
 	memorySvc "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/memory"
 	"github.com/jettjia/xiaoqinglong/agent-frame/pkg/logger"
 )
-
-// FileInfo 文件信息
-type FileInfo struct {
-	Name        string `json:"name"`
-	VirtualPath string `json:"virtual_path"`
-	Size        int64  `json:"size"`
-	Type        string `json:"type"`
-}
 
 // ChatRunReq 前端聊天请求
 type ChatRunReq struct {
@@ -181,6 +171,7 @@ func (h *Handler) Run(c *gin.Context) {
 		"channel_id":  "web",
 		"agent_id":    chatReq.AgentID,
 		"uploads_dir": uploadsDir,
+		"memory_svc":  h.memorySvc, // 传递 memory service 给 runner
 	}
 
 	// 5. 序列化runner请求
@@ -267,6 +258,21 @@ func (h *Handler) Run(c *gin.Context) {
 	log.Infof("Status: %d", resp.StatusCode)
 	log.Infof("Response Body:\n%s", string(respBody))
 	log.Info("============================")
+
+	// 6. 非测试模式下，保存 runner 返回的记忆
+	if !chatReq.IsTest && chatReq.SessionID != "" {
+		var respData map[string]any
+		if err := json.Unmarshal(respBody, &respData); err == nil {
+			if memoriesRaw, ok := respData["memories"].([]any); ok && len(memoriesRaw) > 0 {
+				// 异步保存记忆（不阻塞响应）
+				go func() {
+					if err := h.saveMemoriesFromRunner(c.Request.Context(), chatReq.AgentID, chatReq.UserID, chatReq.SessionID, memoriesRaw); err != nil {
+						logger.GetRunnerLogger().WithError(err).Error("Failed to save memories from runner")
+					}
+				}()
+			}
+		}
+	}
 
 	// 返回响应
 	c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), respBody)
@@ -471,167 +477,13 @@ func buildSlidingWindowMessages(msgs []*chatDto.ChatMessageRsp, maxRounds int) [
 	return result
 }
 
-// loadMemoryContext 加载长期记忆上下文
-func (h *Handler) loadMemoryContext(ctx context.Context, agentId, userId, query string, agentConfig map[string]any) ([]map[string]any, error) {
-	// 检查是否启用长期记忆
-	enableMemory := false
-	maxMemoryCount := 5
-
-	if memConfig, ok := agentConfig["long_term_memory"].(map[string]any); ok {
-		if enabled, ok := memConfig["enabled"].(bool); ok {
-			enableMemory = enabled
-		}
-		if count, ok := memConfig["max_count"].(float64); ok {
-			maxMemoryCount = int(count)
-		}
+// getStringFromMap 安全地从 map 获取 string
+func getStringFromMap(m map[string]any, key string, defaultVal ...string) string {
+	if v, ok := m[key].(string); ok {
+		return v
 	}
-
-	if !enableMemory {
-		return nil, nil
+	if len(defaultVal) > 0 {
+		return defaultVal[0]
 	}
-
-	// 获取相关记忆
-	memories, err := h.memorySvc.GetRelevantMemories(ctx, agentId, userId, query, maxMemoryCount)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(memories) == 0 {
-		return nil, nil
-	}
-
-	// 构建记忆上下文消息
-	result := make([]map[string]any, 0, len(memories))
-	for _, m := range memories {
-		result = append(result, map[string]any{
-			"role":    "system",
-			"content": "[记忆] " + m.Content,
-		})
-	}
-
-	return result, nil
-}
-
-// saveMemoryContext 保存对话产生的记忆
-func (h *Handler) saveMemoryContext(ctx context.Context, agentId, userId, sessionId, userInput, assistantOutput string) error {
-	// 检查是否启用长期记忆
-	// 这里简单处理，实际应该由runner在返回结果中携带要保存的记忆
-	// 目前通过简单分词提取关键词作为记忆
-
-	// 提取关键词作为记忆
-	words := extractKeywords(userInput + " " + assistantOutput)
-
-	for _, word := range words {
-		if len(word) < 2 {
-			continue
-		}
-		memory := &memoryEntity.AgentMemory{
-			AgentId:    agentId,
-			UserId:     userId,
-			SessionId:  sessionId,
-			MemoryType: "entity",
-			Content:    word,
-			Keywords:   word,
-			Importance: 1,
-		}
-		h.memorySvc.CreateMemory(ctx, memory)
-	}
-
-	return nil
-}
-
-// extractKeywords 简单提取关键词
-func extractKeywords(text string) []string {
-	var words []string
-	var current []rune
-
-	for _, r := range text {
-		if r == ' ' || r == ',' || r == '.' || r == '，' || r == '。' || r == '\n' || r == '\t' || r == '！' || r == '？' || r == '?' || r == '!' {
-			if len(current) > 0 {
-				words = append(words, string(current))
-				current = nil
-			}
-		} else {
-			current = append(current, r)
-		}
-	}
-
-	if len(current) > 0 {
-		words = append(words, string(current))
-	}
-
-	return words
-}
-
-// Upload 文件上传
-func (h *Handler) Upload(c *gin.Context) {
-	// 1. 获取 session_id
-	sessionID := c.PostForm("session_id")
-	if sessionID == "" {
-		c.JSON(400, gin.H{"error": "session_id is required"})
-		return
-	}
-
-	// 2. 获取上传目录
-	uploadDir := os.Getenv("APP_DATA")
-	if uploadDir == "" {
-		uploadDir = "/tmp/xiaoqinglong/data"
-	}
-	uploadDir = filepath.Join(uploadDir, "uploads", sessionID)
-
-	// 3. 创建上传目录
-	if err := os.MkdirAll(uploadDir, 0755); err != nil {
-		c.JSON(500, gin.H{"error": "failed to create upload directory: " + err.Error()})
-		return
-	}
-
-	// 4. 获取文件
-	form, err := c.MultipartForm()
-	if err != nil {
-		c.JSON(400, gin.H{"error": "failed to parse multipart form: " + err.Error()})
-		return
-	}
-
-	fileHeaders := form.File["files"]
-	if len(fileHeaders) == 0 {
-		c.JSON(400, gin.H{"error": "no files provided"})
-		return
-	}
-
-	// 5. 保存文件
-	var uploadedFiles []map[string]any
-	for _, fh := range fileHeaders {
-		dst := filepath.Join(uploadDir, fh.Filename)
-		src, err := fh.Open()
-		if err != nil {
-			c.JSON(500, gin.H{"error": "failed to open uploaded file: " + err.Error()})
-			return
-		}
-		out, err := os.Create(dst)
-		if err != nil {
-			src.Close()
-			c.JSON(500, gin.H{"error": "failed to create destination file: " + err.Error()})
-			return
-		}
-		if _, err := io.Copy(out, src); err != nil {
-			src.Close()
-			out.Close()
-			c.JSON(500, gin.H{"error": "failed to save file: " + err.Error()})
-			return
-		}
-		src.Close()
-		out.Close()
-
-		uploadedFiles = append(uploadedFiles, map[string]any{
-			"name":         fh.Filename,
-			"size":         fh.Size,
-			"type":         fh.Header.Get("Content-Type"),
-			"virtual_path": fmt.Sprintf("/mnt/uploads/%s/%s", sessionID, fh.Filename),
-		})
-	}
-
-	c.JSON(200, gin.H{
-		"files": uploadedFiles,
-		"count": len(uploadedFiles),
-	})
+	return ""
 }

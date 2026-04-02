@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jettjia/XiaoQinglong/runner/memory"
 	"github.com/jettjia/XiaoQinglong/runner/types"
 )
 
@@ -53,6 +54,32 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Run failed: %v", err), http.StatusInternalServerError)
 		return
+	}
+
+	// 异步提取记忆（不阻塞响应）
+	if len(req.Messages) >= 2 {
+		extractor := memory.NewMemoryExtractor(memory.GetModelConfigForMemory(req.Models))
+		if extractor != nil {
+			// 获取最后一条 user 和 assistant 的内容
+			var userInput, assistantOutput string
+			for i := len(req.Messages) - 1; i >= 0; i-- {
+				if req.Messages[i].Role == "user" && userInput == "" {
+					userInput = req.Messages[i].Content
+				}
+				if req.Messages[i].Role == "assistant" && assistantOutput == "" {
+					assistantOutput = req.Messages[i].Content
+				}
+				if userInput != "" && assistantOutput != "" {
+					break
+				}
+			}
+			if userInput != "" && assistantOutput != "" {
+				extractor.ExtractMemoriesAsync(r.Context(), userInput, assistantOutput, func(memories []types.MemoryEntry) {
+					log.Printf("[Memory] Extracted %d memories from conversation", len(memories))
+					resp.Memories = memories
+				})
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

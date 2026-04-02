@@ -4,6 +4,7 @@ import (
 	"context"
 
 	entity "github.com/jettjia/xiaoqinglong/agent-frame/domain/entity/memory"
+	po "github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/memory"
 )
 
 // IAgentMemoryRepo 智能体记忆仓库接口
@@ -20,4 +21,12 @@ type IAgentMemoryRepo interface {
 	FindRecent(ctx context.Context, agentId, userId string, limit int) ([]*entity.AgentMemory, error)
 	// 删除用户的所有记忆
 	DeleteByUser(ctx context.Context, userId string) error
+	// 按类型查询记忆
+	FindByType(ctx context.Context, agentId, userId, memoryType string) ([]*entity.AgentMemory, error)
+	// 保存记忆并更新索引（原子操作）
+	CreateWithIndex(ctx context.Context, memory *entity.AgentMemory) error
+	// 删除记忆并删除索引
+	DeleteWithIndex(ctx context.Context, ulid string) error
+	// 获取记忆索引（用于构建 prompt）
+	GetMemoryIndex(ctx context.Context, agentId, userId string) ([]*po.MemoryIndex, error)
 }

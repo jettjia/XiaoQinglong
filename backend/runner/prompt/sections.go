@@ -28,6 +28,7 @@ const (
 	FilesSection          SectionType = "files"
 	A2AAgentsSection      SectionType = "a2a_agents"
 	InternalAgentsSection SectionType = "internal_agents"
+	MemorySection         SectionType = "memory"
 )
 
 // PromptSection represents a single section in the prompt
@@ -223,6 +224,83 @@ func GetInternalAgentsSection(agents []types.InternalAgentConfig) string {
 
 	for _, agent := range agents {
 		lines = append(lines, fmt.Sprintf("- %s (%s): %s", agent.Name, agent.ID, agent.Prompt))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// GetMemorySection returns the memory section for the prompt
+// memories 是记忆内容列表，index 是索引列表（用于展示）
+func GetMemorySection(indexLines []string) string {
+	if len(indexLines) == 0 {
+		return ""
+	}
+
+	const MAX_INDEX_LINES = 200
+
+	var lines []string
+	lines = append(lines, "# Memory")
+	lines = append(lines, "")
+	lines = append(lines, "You have a persistent, file-based memory system at a database. Future conversations can have a complete picture of who the user is, how they'd like to collaborate with you, what behaviors to avoid or repeat, and the context behind the work the user gives you.")
+	lines = append(lines, "")
+	lines = append(lines, "If the user explicitly asks you to remember something, save it immediately as whichever type fits best. If they ask you to forget something, find and remove the relevant entry.")
+	lines = append(lines, "")
+	lines = append(lines, "## Types of memory")
+	lines = append(lines, "")
+	lines = append(lines, "There are several discrete types of memory that you can store in your memory system:")
+	lines = append(lines, "")
+	lines = append(lines, "<types>")
+	lines = append(lines, "<type>")
+	lines = append(lines, "    <name>user</name>")
+	lines = append(lines, "    <description>Contain information about the user's role, goals, responsibilities, and knowledge. Great user memories help you tailor your future behavior to the user's preferences and perspective.</description>")
+	lines = append(lines, "    <when_to_save>When you learn any details about the user's role, preferences, responsibilities, or knowledge</when_to_save>")
+	lines = append(lines, "    <how_to_use>When your work should be informed by the user's profile or perspective.</how_to_use>")
+	lines = append(lines, "</type>")
+	lines = append(lines, "<type>")
+	lines = append(lines, "    <name>feedback</name>")
+	lines = append(lines, "    <description>Guidance the user has given you about how to approach work — both what to avoid and what to keep doing. These are a very important type of memory to read and write as they allow you to remain coherent and responsive to the way you should approach work in the project.</description>")
+	lines = append(lines, "    <when_to_save>Any time the user corrects your approach (\"no not that\", \"don't\", \"stop doing X\") OR confirms a non-obvious approach worked (\"yes exactly\", \"perfect, keep doing that\").</when_to_save>")
+	lines = append(lines, "    <how_to_use>Let these memories guide your behavior so that the user does not need to offer the same guidance twice.</how_to_use>")
+	lines = append(lines, "</type>")
+	lines = append(lines, "<type>")
+	lines = append(lines, "    <name>project</name>")
+	lines = append(lines, "    <description>Information that you learn about ongoing work, goals, initiatives, bugs, or incidents within the project that is not otherwise derivable from the code or git history.</description>")
+	lines = append(lines, "    <when_to_save>When you learn who is doing what, why, or by when. Always convert relative dates to absolute dates when saving.</when_to_save>")
+	lines = append(lines, "    <how_to_use>Use these memories to more fully understand the details and nuance behind the user's request.</how_to_use>")
+	lines = append(lines, "</type>")
+	lines = append(lines, "<type>")
+	lines = append(lines, "    <name>reference</name>")
+	lines = append(lines, "    <description>Stores pointers to where information can be found in external systems. These memories allow you to remember where to look to find up-to-date information outside of the project directory.</description>")
+	lines = append(lines, "    <when_to_save>When you learn about resources in external systems and their purpose.</when_to_save>")
+	lines = append(lines, "    <how_to_use>When the user references an external system or information that may be in an external system.</how_to_use>")
+	lines = append(lines, "</type>")
+	lines = append(lines, "</types>")
+	lines = append(lines, "")
+	lines = append(lines, "## What NOT to save in memory")
+	lines = append(lines, "")
+	lines = append(lines, "- Code patterns, conventions, architecture, file paths, or project structure — these can be derived from reading the current project state.")
+	lines = append(lines, "- Git history, recent changes, or who-changed-what — `git log` / `git blame` are authoritative.")
+	lines = append(lines, "- Debugging solutions or fix recipes — the fix is in the code; the commit message has the context.")
+	lines = append(lines, "- Anything already documented in CLAUDE.md files.")
+	lines = append(lines, "- Ephemeral task details: in-progress work, temporary state, current conversation context.")
+	lines = append(lines, "")
+	lines = append(lines, "## Memory and other forms of persistence")
+	lines = append(lines, "Memory is one of several persistence mechanisms available to you as you assist the user in a given conversation. The distinction is often that memory can be recalled in future conversations and should not be used for persisting information that is only useful within the scope of the current conversation.")
+	lines = append(lines, "- When to use or update a plan instead of memory: If you are about to start a non-trivial implementation task and you would like to reach alignment with the user on your approach you should use a Plan rather than saving this information to memory.")
+	lines = append(lines, "- When to use or update tasks instead of memory: When you need to break your work in current conversation into discrete steps or keep track of your progress use tasks instead of saving to memory.")
+	lines = append(lines, "")
+
+	// 添加索引
+	lines = append(lines, "## MEMORY.md")
+	lines = append(lines, "")
+
+	// 截断到 MAX_INDEX_LINES
+	if len(indexLines) > MAX_INDEX_LINES {
+		indexLines = indexLines[:MAX_INDEX_LINES]
+	}
+
+	for _, line := range indexLines {
+		lines = append(lines, line)
 	}
 
 	return strings.Join(lines, "\n")

@@ -16,10 +16,13 @@ type AgentMemory struct {
 	AgentId      string `gorm:"column:agent_id;type:varchar(128);comment:Agent ID;" json:"agent_id"`
 	UserId       string `gorm:"column:user_id;type:varchar(128);comment:用户ID;" json:"user_id"`
 	SessionId    string `gorm:"column:session_id;type:varchar(128);comment:会话ID;" json:"session_id"`
-	MemoryType   string `gorm:"column:memory_type;type:varchar(50);comment:记忆类型:summary|entity|preference|fact;" json:"memory_type"`
+	MemoryType   string `gorm:"column:memory_type;type:varchar(50);comment:记忆类型:user|feedback|project|reference;" json:"memory_type"`
+	Name         string `gorm:"column:name;type:varchar(255);comment:记忆名称;" json:"name"`
+	Description  string `gorm:"column:description;type:varchar(500);comment:一句话描述;" json:"description"`
 	Content      string `gorm:"column:content;type:text;comment:记忆内容;" json:"content"`
 	Keywords     string `gorm:"column:keywords;type:text;comment:关键词，用于检索;" json:"keywords"`
 	Importance   int    `gorm:"column:importance;type:int;default:1;comment:重要性评分;" json:"importance"`
+	Source       string `gorm:"column:source;type:varchar(50);comment:来源:private/team;" json:"source"`
 	SourceMsgId  string `gorm:"column:source_msg_id;type:varchar(128);comment:来源消息ID;" json:"source_msg_id"`
 	ExpiresAt    int64  `gorm:"column:expires_at;type:bigint;comment:过期时间，0表示不过期;" json:"expires_at"`
 }
