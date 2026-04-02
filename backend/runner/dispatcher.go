@@ -413,7 +413,12 @@ func (d *Dispatcher) Run(ctx context.Context) (*DispatchResult, error) {
 		logger.Infof("[Dispatcher] Warning: init loop cron failed: %v", err)
 	}
 
-	// 8. 构建系统 prompt
+	// 8. 初始化内置工具（Glob, Grep, FileRead, FileEdit, FileWrite, Bash, WebFetch, WebSearch, Sleep, Task*, Todo*, PlanMode, AskUserQuestion）
+	if err := d.initBuiltinTools(ctx); err != nil {
+		logger.Infof("[Dispatcher] Warning: init builtin tools failed: %v", err)
+	}
+
+	// 9. 构建系统 prompt
 	systemPrompt := d.buildSystemPrompt()
 
 	// 7. 构建消息（如果配置了rewrite模型，则对用户query进行改写）

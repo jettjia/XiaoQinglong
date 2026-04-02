@@ -9,11 +9,13 @@ import (
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
+	"github.com/cloudwego/eino/schema"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 	"github.com/jettjia/XiaoQinglong/runner/plugins"
 	"github.com/jettjia/XiaoQinglong/runner/retriever"
 	"github.com/jettjia/XiaoQinglong/runner/cron"
 	"github.com/jettjia/XiaoQinglong/runner/subagent"
+	"github.com/jettjia/XiaoQinglong/runner/tools"
 	"github.com/jettjia/XiaoQinglong/runner/types"
 )
 
@@ -514,6 +516,57 @@ func (d *Dispatcher) initLoopCron(ctx context.Context) error {
 	scheduler.Start()
 	logger.Infof("[Dispatcher] Cron scheduler started")
 
+	return nil
+}
+
+// initBuiltinTools 初始化内置工具（Glob, Grep, FileRead, FileEdit, FileWrite, Bash, WebFetch, WebSearch, Sleep, Task*, Todo*, PlanMode, AskUserQuestion）
+func (d *Dispatcher) initBuiltinTools(ctx context.Context) error {
+	// 获取工作目录
+	workingDir := "."
+	if d.request.Context != nil {
+		if dir, ok := d.request.Context["project_dir"].(string); ok && dir != "" {
+			workingDir = dir
+		}
+	}
+
+	// 创建内置工具
+	builtinTools := []interface {
+		Info(ctx context.Context) (*schema.ToolInfo, error)
+		InvokableRun(ctx context.Context, input string, opts ...tool.Option) (string, error)
+	}{
+		tools.NewGlobTool(workingDir),
+		tools.NewGrepTool(workingDir),
+		tools.NewFileReadTool(workingDir),
+		tools.NewFileEditTool(workingDir),
+		tools.NewFileWriteTool(workingDir),
+		tools.NewBashTool(workingDir),
+		tools.NewSleepTool(),
+		tools.NewWebFetchTool(),
+		tools.NewWebSearchTool(),
+		tools.NewTaskCreateTool(workingDir),
+		tools.NewTaskGetTool(workingDir),
+		tools.NewTaskListTool(workingDir),
+		tools.NewTaskUpdateTool(workingDir),
+		tools.NewTodoWriteTool(workingDir),
+		tools.NewEnterPlanModeTool(),
+		tools.NewExitPlanModeTool(),
+		tools.NewAskUserQuestionTool(),
+	}
+
+	// 注册工具，使用默认风险级别（低风险工具默认不需要审批）
+	for _, t := range builtinTools {
+		info, err := t.Info(ctx)
+		if err != nil {
+			logger.Warnf("[Dispatcher] initBuiltinTools: failed to get tool info: %v", err)
+			continue
+		}
+
+		// 包装工具并添加到列表
+		wrapped := d.wrapToolWithApproval(t, info.Name, "builtin", "low")
+		d.tools = append(d.tools, wrapped)
+	}
+
+	logger.Infof("[Dispatcher] initBuiltinTools: registered %d builtin tools", len(builtinTools))
 	return nil
 }
 
