@@ -114,6 +114,9 @@ func (d *Dispatcher) initKnowledgeRetriever(ctx context.Context) error {
 	retrievalTool := retriever.CreateRetrievalTool(kbs)
 	d.tools = append(d.tools, retrievalTool)
 
+	// 保存 knowledgeRetriever 引用，用于自动 RAG
+	d.knowledgeRetriever = retriever.NewKnowledgeRetriever(kbs)
+
 	logger.Infof("[Dispatcher] initKnowledgeRetriever: added retrieval tool with %d knowledge bases", len(d.request.KnowledgeBases))
 	return nil
 }

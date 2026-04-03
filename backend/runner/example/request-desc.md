@@ -173,17 +173,21 @@
         "trace_id": "uuid-123-456",
         "parent_span_id": "span-789"
     },
-    "knowledge": [
+    "knowledge_bases": [
         {
-            "id": "product_info",
-            "name": "产品信息",
-            "content": "我们的产品分为三个系列：基础版、专业版、企业版。基础版免费，专业版99元/月，企业版299元/月。",
-            "score": 0.95,
-             "metadata": {
-                "source": "internal_wiki",
-                "url": "http://wiki.company.com/products",
-                "last_updated": "2024-01-01"
-            }
+            "id": "kb-001",
+            "name": "产品知识库",
+            "retrieval_url": "http://localhost:28083/retrieve",
+            "token": "",
+            "top_k": 5
+        }
+    ],
+    "files": [
+        {
+            "name": "pgsql.md",
+            "virtual_path": "./pgsql.md",
+            "size": 1024,
+            "type": "md"
         }
     ]
 }

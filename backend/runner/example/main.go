@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -20,7 +22,7 @@ type RunRequest struct {
 	Models         map[string]ModelConfig `json:"models"`
 	Messages       []Message              `json:"messages"`
 	Context        map[string]any         `json:"context"`
-	KnowledgeBases []KnowledgeBaseConfig   `json:"knowledge_bases"`
+	KnowledgeBases []KnowledgeBaseConfig  `json:"knowledge_bases"`
 	Skills         []Skill                `json:"skills"`
 	MCPs           []MCPConfig            `json:"mcps"`
 	A2A            []A2AAgentConfig       `json:"a2a"`
@@ -28,6 +30,8 @@ type RunRequest struct {
 	InternalAgents []InternalAgentConfig  `json:"internal_agents"`
 	Options        *RunOptions            `json:"options"`
 	Sandbox        *SandboxConfig         `json:"sandbox"`
+	SubAgents      []SubAgentConfig       `json:"sub_agents"`
+	Files          []FileConfig           `json:"files"`
 }
 
 type KnowledgeBaseConfig struct {
@@ -36,6 +40,26 @@ type KnowledgeBaseConfig struct {
 	RetrievalURL string `json:"retrieval_url"`
 	Token        string `json:"token"`
 	TopK         int    `json:"top_k"`
+}
+
+type SubAgentConfig struct {
+	ID            string       `json:"id"`
+	Name          string       `json:"name"`
+	Description   string       `json:"description"`
+	Prompt        string       `json:"prompt"`
+	Model         *ModelConfig `json:"model,omitempty"`
+	Tools         []string     `json:"tools,omitempty"`
+	Skills        []string     `json:"skills,omitempty"`
+	MCPs          []string     `json:"mcps,omitempty"`
+	MaxIterations int          `json:"max_iterations"`
+	TimeoutMs     int          `json:"timeout_ms"`
+}
+
+type FileConfig struct {
+	Name        string `json:"name"`
+	VirtualPath string `json:"virtual_path"`
+	Size        int64  `json:"size"`
+	Type        string `json:"type"`
 }
 
 type Message struct {
@@ -68,10 +92,10 @@ type Skill struct {
 type MCPConfig struct {
 	Name      string            `json:"name"`
 	Transport string            `json:"transport"` // "stdio" 或 "http"
-	Command   string            `json:"command"`    // stdio 模式: 启动命令
+	Command   string            `json:"command"`   // stdio 模式: 启动命令
 	Args      []string          `json:"args"`      // stdio 模式: 命令参数
 	Env       map[string]string `json:"env"`       // stdio 模式: 环境变量
-	Endpoint  string            `json:"endpoint"`   // http 模式: MCP 服务地址
+	Endpoint  string            `json:"endpoint"`  // http 模式: MCP 服务地址
 	Headers   map[string]string `json:"headers"`   // http 模式: 请求头
 	RiskLevel string            `json:"risk_level"`
 }
@@ -101,21 +125,21 @@ type InternalAgentConfig struct {
 }
 
 type RunOptions struct {
-	Temperature     float64               `json:"temperature"`
-	MaxTokens       int                   `json:"max_tokens"`
-	Stream          bool                  `json:"stream"`
-	TopP            float64               `json:"top_p"`
-	Stop            []string              `json:"stop"`
-	TimeoutMs       int                   `json:"timeout_ms"`
-	MaxIterations   int                   `json:"max_iterations"`
-	MaxToolCalls    int                   `json:"max_tool_calls"`
-	MaxA2ACalls     int                   `json:"max_a2a_calls"`
-	MaxTotalTokens  int                   `json:"max_total_tokens"`
-	Retry           *RetryConfig          `json:"retry"`
-	ResponseSchema  *ResponseSchemaConfig `json:"response_schema"`
-	Routing         *RoutingConfig        `json:"routing"`
-	ApprovalPolicy  *ApprovalPolicy      `json:"approval_policy"`
-	CheckPointID   string               `json:"checkpoint_id"`
+	Temperature    float64               `json:"temperature"`
+	MaxTokens      int                   `json:"max_tokens"`
+	Stream         bool                  `json:"stream"`
+	TopP           float64               `json:"top_p"`
+	Stop           []string              `json:"stop"`
+	TimeoutMs      int                   `json:"timeout_ms"`
+	MaxIterations  int                   `json:"max_iterations"`
+	MaxToolCalls   int                   `json:"max_tool_calls"`
+	MaxA2ACalls    int                   `json:"max_a2a_calls"`
+	MaxTotalTokens int                   `json:"max_total_tokens"`
+	Retry          *RetryConfig          `json:"retry"`
+	ResponseSchema *ResponseSchemaConfig `json:"response_schema"`
+	Routing        *RoutingConfig        `json:"routing"`
+	ApprovalPolicy *ApprovalPolicy       `json:"approval_policy"`
+	CheckPointID   string                `json:"checkpoint_id"`
 }
 
 type RetryConfig struct {
@@ -133,9 +157,9 @@ type RoutingConfig struct {
 }
 
 type ApprovalPolicy struct {
-	Enabled        bool     `json:"enabled"`
-	RiskThreshold  string   `json:"risk_threshold"`
-	AutoApprove    []string `json:"auto_approve"`
+	Enabled       bool     `json:"enabled"`
+	RiskThreshold string   `json:"risk_threshold"`
+	AutoApprove   []string `json:"auto_approve"`
 }
 
 type ResponseSchemaConfig struct {
@@ -163,24 +187,24 @@ type SandboxLimits struct {
 }
 
 type RunResponse struct {
-	Content          string             `json:"content,omitempty"`
-	ToolCalls        []ToolCall         `json:"tool_calls,omitempty"`
-	A2AResults      []A2AResult        `json:"a2a_results,omitempty"`
-	TokensUsed       int                `json:"tokens_used,omitempty"`
-	FinishReason     string             `json:"finish_reason"`
-	Metadata         ResponseMetadata   `json:"metadata"`
-	A2UIMessages     []json.RawMessage  `json:"a2ui_messages,omitempty"`
-	PendingApprovals []PendingApproval  `json:"pending_approvals,omitempty"`
-	CheckPointID     string             `json:"checkpoint_id,omitempty"`
+	Content          string            `json:"content,omitempty"`
+	ToolCalls        []ToolCall        `json:"tool_calls,omitempty"`
+	A2AResults       []A2AResult       `json:"a2a_results,omitempty"`
+	TokensUsed       int               `json:"tokens_used,omitempty"`
+	FinishReason     string            `json:"finish_reason"`
+	Metadata         ResponseMetadata  `json:"metadata"`
+	A2UIMessages     []json.RawMessage `json:"a2ui_messages,omitempty"`
+	PendingApprovals []PendingApproval `json:"pending_approvals,omitempty"`
+	CheckPointID     string            `json:"checkpoint_id,omitempty"`
 }
 
 type PendingApproval struct {
-	InterruptID    string `json:"interrupt_id"`
-	ToolName       string `json:"tool_name"`
-	ToolType       string `json:"tool_type"`
-	ArgumentsJSON   string `json:"arguments_json"`
-	RiskLevel      string `json:"risk_level"`
-	Description    string `json:"description"`
+	InterruptID   string `json:"interrupt_id"`
+	ToolName      string `json:"tool_name"`
+	ToolType      string `json:"tool_type"`
+	ArgumentsJSON string `json:"arguments_json"`
+	RiskLevel     string `json:"risk_level"`
+	Description   string `json:"description"`
 }
 
 type ToolCall struct {
@@ -197,17 +221,17 @@ type A2AResult struct {
 }
 
 type ResponseMetadata struct {
-	Model              string             `json:"model"`
-	LatencyMs          int64              `json:"latency_ms"`
-	TokensUsed         int                `json:"tokens_used,omitempty"`
-	PromptTokens       int                `json:"prompt_tokens,omitempty"`
-	CompletionTokens   int                `json:"completion_tokens,omitempty"`
-	ToolCallsCount     int                `json:"tool_calls_count,omitempty"`
-	A2ACallsCount      int                `json:"a2a_calls_count,omitempty"`
-	SkillCallsCount    int                `json:"skill_calls_count,omitempty"`
-	Iterations         int                `json:"iterations,omitempty"`
-	ToolCallsDetail    []ToolCallMetadata `json:"tool_calls_detail,omitempty"`
-	Error              string             `json:"error,omitempty"`
+	Model            string             `json:"model"`
+	LatencyMs        int64              `json:"latency_ms"`
+	TokensUsed       int                `json:"tokens_used,omitempty"`
+	PromptTokens     int                `json:"prompt_tokens,omitempty"`
+	CompletionTokens int                `json:"completion_tokens,omitempty"`
+	ToolCallsCount   int                `json:"tool_calls_count,omitempty"`
+	A2ACallsCount    int                `json:"a2a_calls_count,omitempty"`
+	SkillCallsCount  int                `json:"skill_calls_count,omitempty"`
+	Iterations       int                `json:"iterations,omitempty"`
+	ToolCallsDetail  []ToolCallMetadata `json:"tool_calls_detail,omitempty"`
+	Error            string             `json:"error,omitempty"`
 }
 
 type ToolCallMetadata struct {
@@ -222,22 +246,24 @@ type ToolCallMetadata struct {
 // ========== 测试配置（简化版，用于加载 JSON 文件）==========
 
 type TestConfig struct {
-	Endpoint      string                 `json:"endpoint"`
-	Models        map[string]ModelConfig `json:"models"`
-	SystemPrompt string                 `json:"system_prompt"`
-	UserMessage   string                 `json:"user_message"`
-	Tools         []ToolConfig          `json:"tools"`
-	A2A           []A2AAgentConfig      `json:"a2a"`
-	MCPs          []MCPConfig           `json:"mcps"`
-	Skills        []Skill               `json:"skills"`
-	Sandbox       *SandboxConfig        `json:"sandbox"`
-	Options       *RunOptions           `json:"options"`
-	KnowledgeBases []KnowledgeBaseConfig `json:"knowledge_bases"`
-	Context       map[string]any       `json:"context"`
+	Endpoint       string                 `json:"endpoint"`
+	Models         map[string]ModelConfig `json:"models"`
+	SystemPrompt   string                 `json:"system_prompt"`
+	UserMessage    string                 `json:"user_message"`
+	Tools          []ToolConfig           `json:"tools"`
+	A2A            []A2AAgentConfig       `json:"a2a"`
+	MCPs           []MCPConfig            `json:"mcps"`
+	Skills         []Skill                `json:"skills"`
+	Sandbox        *SandboxConfig         `json:"sandbox"`
+	Options        *RunOptions            `json:"options"`
+	KnowledgeBases []KnowledgeBaseConfig  `json:"knowledge_bases"`
+	Context        map[string]any         `json:"context"`
+	SubAgents      []SubAgentConfig       `json:"sub_agents"`
+	Files          []FileConfig           `json:"files"`
 }
 
 func main() {
-	configPath := "test-all.json"
+	configPath := "./testdata/test-01-kb.json"
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]
 	}
@@ -257,17 +283,19 @@ func main() {
 
 	// 构建请求
 	req := RunRequest{
-		Prompt:        config.SystemPrompt,
-		Models:        models,
-		Messages:      []Message{{Role: "user", Content: config.UserMessage}},
-		Skills:        config.Skills,
-		Tools:         config.Tools,
-		A2A:           config.A2A,
-		MCPs:          config.MCPs,
-		Sandbox:       config.Sandbox,
-		Options:       config.Options,
+		Prompt:         config.SystemPrompt,
+		Models:         models,
+		Messages:       []Message{{Role: "user", Content: config.UserMessage}},
+		Skills:         config.Skills,
+		Tools:          config.Tools,
+		A2A:            config.A2A,
+		MCPs:           config.MCPs,
+		Sandbox:        config.Sandbox,
+		Options:        config.Options,
 		KnowledgeBases: config.KnowledgeBases,
-		Context:       config.Context,
+		Context:        config.Context,
+		SubAgents:      config.SubAgents,
+		Files:          config.Files,
 	}
 
 	// 发送请求
@@ -297,6 +325,18 @@ func main() {
 	for _, s := range config.Skills {
 		log.Printf("  - %s (risk_level=%s)", s.ID, s.RiskLevel)
 	}
+	log.Printf("Knowledge Bases: %d", len(config.KnowledgeBases))
+	for _, kb := range config.KnowledgeBases {
+		log.Printf("  - %s (top_k=%d)", kb.Name, kb.TopK)
+	}
+	log.Printf("Sub Agents: %d", len(config.SubAgents))
+	for _, sub := range config.SubAgents {
+		log.Printf("  - %s (%s)", sub.Name, sub.Description)
+	}
+	log.Printf("Files: %d", len(config.Files))
+	for _, f := range config.Files {
+		log.Printf("  - %s (path=%s, size=%d)", f.Name, f.VirtualPath, f.Size)
+	}
 	if config.Options != nil && config.Options.ApprovalPolicy != nil {
 		log.Printf("ApprovalPolicy: enabled=%v, threshold=%s", config.Options.ApprovalPolicy.Enabled, config.Options.ApprovalPolicy.RiskThreshold)
 	}
@@ -319,111 +359,125 @@ func main() {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Fatalf("读取响应失败: %v", err)
-	}
-
-	elapsed := time.Since(start)
-
 	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
 		log.Printf("响应状态码: %d", resp.StatusCode)
 		log.Printf("响应内容: %s", string(body))
 		log.Fatalf("请求失败")
 	}
 
+	// 检查是否流式响应
+	isStream := config.Options != nil && config.Options.Stream
+
 	var result RunResponse
-	if err := json.Unmarshal(body, &result); err != nil {
-		log.Fatalf("解析响应失败: %v", err)
-	}
-
-	log.Println()
-	log.Println("========== 执行结果 ==========")
-	log.Printf("耗时: %v", elapsed)
-	log.Printf("Finish Reason: %s", result.FinishReason)
-	if result.CheckPointID != "" {
-		log.Printf("CheckPointID: %s", result.CheckPointID)
-	}
-
-	if result.Content != "" {
-		log.Println()
-		log.Println("----------- Content -----------")
-		fmt.Println(result.Content)
-	}
-
-	if len(result.ToolCalls) > 0 {
-		log.Println()
-		log.Println("----------- Tool Calls -----------")
-		for i, tc := range result.ToolCalls {
-			log.Printf("%d. Tool: %s", i+1, tc.Tool)
-			if input, ok := tc.Input.(string); ok {
-				log.Printf("   Input: %s", truncateString(input, 200))
-			} else {
-				log.Printf("   Input: %+v", tc.Input)
+	if isStream {
+		// 流式输出模式
+		log.Println("========== 流式响应 ==========")
+		reader := bufio.NewReader(resp.Body)
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				log.Printf("读取响应失败: %v", err)
+				break
 			}
-			if tc.Output != nil {
-				if output, ok := tc.Output.(string); ok {
-					log.Printf("   Output: %s", truncateString(output, 200))
-				} else {
-					log.Printf("   Output: %+v", tc.Output)
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+
+			// 解析 SSE 事件格式
+			if strings.HasPrefix(line, "event:") {
+				eventType := strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+				// 读取下一行 data
+				dataLine, err := reader.ReadString('\n')
+				if err != nil {
+					break
+				}
+				dataLine = strings.TrimSpace(dataLine)
+				if dataLine == "" || strings.HasPrefix(dataLine, "event:") {
+					continue
+				}
+
+				var data map[string]any
+				if err := json.Unmarshal([]byte(dataLine), &data); err != nil {
+					continue
+				}
+
+				// 根据事件类型处理
+				switch eventType {
+				case "delta":
+					if text, ok := data["text"].(string); ok {
+						fmt.Print(text)
+					}
+				case "tool":
+					toolName, _ := data["tool"].(string)
+					output, _ := json.Marshal(data["output"])
+					fmt.Printf("\n[Tool: %s] %s\n", toolName, string(output))
+				case "tool_call":
+					toolName, _ := data["tool"].(string)
+					fmt.Printf("\n[Tool Call: %s]\n", toolName)
+				case "tool_result":
+					toolName, _ := data["tool"].(string)
+					output, _ := json.Marshal(data["output"])
+					fmt.Printf("[Tool Result: %s] %s\n", toolName, string(output))
+				case "done":
+					fmt.Println("\n========== 流式响应结束 ==========")
+				case "error":
+					errorMsg, _ := data["error"].(string)
+					log.Printf("流式错误: %s", errorMsg)
+				}
+				continue
+			}
+
+			// 非 SSE 格式，直接尝试解析为 JSON
+			if strings.HasPrefix(line, "{") {
+				var data map[string]any
+				if err := json.Unmarshal([]byte(line), &data); err == nil {
+					// 检查是否是完成事件
+					if finishReason, ok := data["finish_reason"].(string); ok {
+						result.FinishReason = finishReason
+						if content, ok := data["content"].(string); ok {
+							result.Content = content
+						}
+						if metadata, ok := data["metadata"].(map[string]any); ok {
+							result.Metadata.LatencyMs, _ = metadata["latency_ms"].(int64)
+						}
+						break
+					}
 				}
 			}
 		}
-	}
+	} else {
+		// 非流式输出模式
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Fatalf("读取响应失败: %v", err)
+		}
 
-	if len(result.A2AResults) > 0 {
+		if err := json.Unmarshal(body, &result); err != nil {
+			log.Fatalf("解析响应失败: %v", err)
+		}
+
+		elapsed := time.Since(start)
+
 		log.Println()
-		log.Println("----------- A2A Results -----------")
-		for i, ar := range result.A2AResults {
-			log.Printf("%d. Agent: %s, Status: %s", i+1, ar.AgentName, ar.Status)
-			if ar.Error != "" {
-				log.Printf("   Error: %s", ar.Error)
-			}
+		log.Println("========== 执行结果 ==========")
+		log.Printf("耗时: %v", elapsed)
+		log.Printf("Finish Reason: %s", result.FinishReason)
+
+		if result.Content != "" {
+			log.Println()
+			log.Println("----------- Content -----------")
+			fmt.Println(result.Content)
 		}
 	}
 
-	if len(result.PendingApprovals) > 0 {
-		log.Println()
-		log.Println("----------- Pending Approvals -----------")
-		for i, pa := range result.PendingApprovals {
-			log.Printf("%d. Tool: %s (%s), Risk: %s, InterruptID: %s", i+1, pa.ToolName, pa.ToolType, pa.RiskLevel, pa.InterruptID)
-			log.Printf("   Arguments: %s", truncateString(pa.ArgumentsJSON, 200))
-		}
-	}
-
-	if result.Metadata.Model != "" {
-		log.Println()
-		log.Println("----------- Metadata -----------")
-		log.Printf("Model: %s", result.Metadata.Model)
-		log.Printf("Latency: %dms", result.Metadata.LatencyMs)
-		if result.Metadata.PromptTokens > 0 {
-			log.Printf("Prompt Tokens: %d", result.Metadata.PromptTokens)
-		}
-		if result.Metadata.CompletionTokens > 0 {
-			log.Printf("Completion Tokens: %d", result.Metadata.CompletionTokens)
-		}
-		if result.Metadata.ToolCallsCount > 0 {
-			log.Printf("Tool Calls Count: %d", result.Metadata.ToolCallsCount)
-		}
-		if result.Metadata.A2ACallsCount > 0 {
-			log.Printf("A2A Calls Count: %d", result.Metadata.A2ACallsCount)
-		}
-		if result.Metadata.Iterations > 0 {
-			log.Printf("Iterations: %d", result.Metadata.Iterations)
-		}
-		if result.Metadata.Error != "" {
-			log.Printf("Error: %s", result.Metadata.Error)
-		}
-	}
-
-	if len(result.A2UIMessages) > 0 {
-		log.Println()
-		log.Println("----------- A2UI Messages -----------")
-		a2uiJSON, _ := json.MarshalIndent(result.A2UIMessages, "", "  ")
-		log.Printf("%s", string(a2uiJSON))
-	}
-
+	elapsed := time.Since(start)
 	log.Println()
+	log.Printf("总耗时: %v", elapsed)
 	log.Println("========== 执行完成 ==========")
 }
 

@@ -23,6 +23,7 @@ import (
 	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 	"github.com/jettjia/XiaoQinglong/runner/plugins"
 	"github.com/jettjia/XiaoQinglong/runner/prompt"
+	"github.com/jettjia/XiaoQinglong/runner/retriever"
 	"github.com/jettjia/XiaoQinglong/runner/subagent"
 	"github.com/jettjia/XiaoQinglong/runner/types"
 )
@@ -342,6 +343,9 @@ type Dispatcher struct {
 	compactDoneChan chan CompactionResponse // 接收压缩结果
 	pendingCompact  *CompactionResponse     // 待应用的压缩结果
 	compactMu       sync.Mutex              // 保护 pendingCompact
+
+	// 知识检索器
+	knowledgeRetriever *retriever.KnowledgeRetriever
 }
 
 func NewDispatcher(req *types.RunRequest) *Dispatcher {
@@ -359,82 +363,26 @@ func (d *Dispatcher) Run(ctx context.Context) (*DispatchResult, error) {
 	// 0. 设置 uploadsBaseDir
 	d.setUploadsBaseDir()
 
-	// 1. 初始化模型
+	// 1. 初始化模型（必须串行，模型是其他组件的依赖）
 	if err := d.initModels(ctx); err != nil {
 		return nil, fmt.Errorf("init models failed: %w", err)
 	}
 
-	// 1.1 初始化上下文压缩器
-	d.initCompactService(ctx)
-
-	// 2. 初始化工具 (HTTP tools)
-	if err := d.initTools(ctx); err != nil {
-		return nil, fmt.Errorf("init tools failed: %w", err)
+	// 2. 并行初始化其他组件（在 initModels 之后）
+	if fatal, _ := d.initParallel(ctx); fatal != nil {
+		return nil, fatal
 	}
 
-	// 2.1 初始化知识检索器（作为工具供 Agent 调用）
-	if err := d.initKnowledgeRetriever(ctx); err != nil {
-		logger.Infof("[Dispatcher] Warning: init knowledge retriever failed: %v", err)
-		// 知识检索器初始化失败不影响主流程
-	}
-
-	// 2.2 初始化文件检索工具（作为工具供 Agent 调用）
-	if err := d.initFileRetrieval(ctx); err != nil {
-		logger.Infof("[Dispatcher] Warning: init file retrieval failed: %v", err)
-		// 文件检索初始化失败不影响主流程
-	}
-
-	// 3. 初始化 A2A agents
-	if err := d.initA2A(ctx); err != nil {
-		return nil, fmt.Errorf("init a2a failed: %w", err)
-	}
-
-	// 4. 初始化内部 agents
-	if err := d.initInternalAgents(ctx); err != nil {
-		return nil, fmt.Errorf("init internal agents failed: %w", err)
-	}
-
-	// 5. 初始化 Sub-Agents
-	if err := d.initSubAgents(ctx); err != nil {
-		logger.Infof("[Dispatcher] Warning: init sub-agents failed: %v", err)
-		// Sub-Agent 初始化失败不影响主流程，继续执行
-	}
-
-	// 6. 初始化 MCP
-	if err := d.initMCPs(ctx); err != nil {
-		logger.Infof("[Dispatcher] Warning: init mcps failed: %v", err)
-	}
-
-	// 6. 初始化 skill runner
-	if err := d.initSkills(ctx); err != nil {
-		return nil, fmt.Errorf("init skills failed: %w", err)
-	}
-
-	// 7. 初始化 /loop 定时任务工具
-	if err := d.initLoopCron(ctx); err != nil {
-		logger.Infof("[Dispatcher] Warning: init loop cron failed: %v", err)
-	}
-
-	// 8. 初始化内置工具（Glob, Grep, FileRead, FileEdit, FileWrite, Bash, WebFetch, WebSearch, Sleep, Task*, Todo*, PlanMode, AskUserQuestion）
-	if err := d.initBuiltinTools(ctx); err != nil {
-		logger.Infof("[Dispatcher] Warning: init builtin tools failed: %v", err)
-	}
-
-	// 9. 初始化 CLI 扩展工具（如飞书 CLI）
-	if err := d.initCLIs(ctx); err != nil {
-		logger.Infof("[Dispatcher] Warning: init CLIs failed: %v", err)
-	}
-
-	// 10. 构建系统 prompt
+	// 3. 构建系统 prompt
 	systemPrompt := d.buildSystemPrompt()
 
-	// 7. 构建消息（如果配置了rewrite模型，则对用户query进行改写）
+	// 4. 构建消息（如果配置了rewrite模型，则对用户query进行改写）
 	messages, err := d.buildMessagesWithRewrite(ctx, systemPrompt)
 	if err != nil {
 		return nil, fmt.Errorf("build messages failed: %w", err)
 	}
 
-	// 8. 创建 Agent 并运行
+	// 5. 创建 Agent 并运行
 	return d.runAgent(ctx, messages)
 }
 
@@ -777,6 +725,29 @@ func (d *Dispatcher) convertMemoryIndexToLines(indices interface{}) []string {
 func (d *Dispatcher) buildMessagesWithRewrite(ctx context.Context, systemPrompt string) ([]adk.Message, error) {
 	messages := d.buildMessages(systemPrompt)
 
+	// 提取用户 query（用于知识召回）
+	userQuery := d.extractUserQuery(messages)
+	logger.Infof("[Dispatcher] buildMessagesWithRewrite: knowledgeRetriever=%v, userQuery=%s", d.knowledgeRetriever != nil, userQuery)
+
+	// 执行知识库召回（如果有配置）
+	kbSection := ""
+	if d.knowledgeRetriever != nil && userQuery != "" {
+		kbSection = d.retrieveKnowledge(ctx, userQuery)
+		if kbSection != "" {
+			systemPrompt = systemPrompt + "\n\n" + kbSection
+			// 更新 system message
+			for i := range messages {
+				if messages[i].Role == "system" {
+					messages[i].Content = systemPrompt
+					break
+				}
+			}
+			logger.Infof("[Dispatcher] knowledge retrieved: %d chars added to system prompt", len(kbSection))
+		} else {
+			logger.Infof("[Dispatcher] knowledge retrieved: no docs found")
+		}
+	}
+
 	// 检查是否需要rewrite：如果有rewrite模型且最后一条是user message
 	routingCfg := d.getRoutingConfig()
 	if routingCfg != nil && d.modelsByRole[ModelRoleRewrite] != nil {
@@ -801,6 +772,49 @@ func (d *Dispatcher) buildMessagesWithRewrite(ctx context.Context, systemPrompt 
 	}
 
 	return messages, nil
+}
+
+// extractUserQuery 提取最后一条用户消息作为 query
+func (d *Dispatcher) extractUserQuery(messages []adk.Message) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "user" {
+			return messages[i].Content
+		}
+		if messages[i].Role == "system" || messages[i].Role == "assistant" {
+			break
+		}
+	}
+	return ""
+}
+
+// retrieveKnowledge 从知识库检索相关内容
+func (d *Dispatcher) retrieveKnowledge(ctx context.Context, query string) string {
+	logger.Infof("[Dispatcher] retrieveKnowledge: calling retrieve for query=%s", query)
+	docs, err := d.knowledgeRetriever.Retrieve(ctx, query)
+	if err != nil {
+		logger.Warnf("[Dispatcher] retrieveKnowledge failed: %v", err)
+		return ""
+	}
+
+	logger.Infof("[Dispatcher] retrieveKnowledge: got %d docs", len(docs))
+	if len(docs) == 0 {
+		return ""
+	}
+
+	// 格式化成 section
+	var lines []string
+	lines = append(lines, "# Knowledge Base")
+	lines = append(lines, "Use the following information from knowledge base to answer questions:")
+	lines = append(lines, "")
+	for i, doc := range docs {
+		lines = append(lines, fmt.Sprintf("## [%d] %s", i+1, doc.MetaData["title"]))
+		lines = append(lines, fmt.Sprintf("Source: %s (score: %.2f)", doc.MetaData["kb_name"], doc.MetaData["score"]))
+		lines = append(lines, "")
+		lines = append(lines, doc.Content)
+		lines = append(lines, "")
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func (d *Dispatcher) buildMessages(systemPrompt string) []adk.Message {
