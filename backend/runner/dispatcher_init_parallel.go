@@ -109,6 +109,7 @@ func (d *Dispatcher) initParallel(ctx context.Context) (fatal error, warning err
 
 		safeCall("a2a", d.initA2A)
 		safeCall("internal", d.initInternalAgents)
+		logger.Infof("[Dispatcher] About to call initSubAgents, SubAgents count in request = %d", len(d.request.SubAgents))
 		safeCall("subAgent", d.initSubAgents)
 
 		wg.Wait()

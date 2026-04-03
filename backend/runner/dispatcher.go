@@ -1519,6 +1519,11 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 			return
 		}
 
+		// 6.1 初始化 SubAgents
+		if err := d.initSubAgents(ctx); err != nil {
+			logger.Infof("[Dispatcher] RunStream: warning - init sub-agents failed: %v", err)
+		}
+
 		// 7. 构建消息
 		systemPrompt := d.buildSystemPrompt()
 		messages, err := d.buildMessagesWithRewrite(ctx, systemPrompt)
