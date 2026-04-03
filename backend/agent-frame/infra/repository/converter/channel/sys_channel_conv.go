@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/jinzhu/copier"
@@ -15,6 +16,11 @@ func E2PSysChannelAdd(en *entity.SysChannel) *po.SysChannel {
 	po.CreatedAt = time.Now().UnixNano()
 	if err := copier.Copy(&po, &en); err != nil {
 		panic(any(err))
+	}
+	// Config 序列化成 JSON 字符串
+	if en.Config != nil {
+		configBytes, _ := json.Marshal(en.Config)
+		po.Config = string(configBytes)
 	}
 
 	return &po
@@ -34,6 +40,11 @@ func E2PSysChannelUpdate(en *entity.SysChannel) *po.SysChannel {
 	if err := copier.Copy(&po, &en); err != nil {
 		panic(any(err))
 	}
+	// Config 序列化成 JSON 字符串
+	if en.Config != nil {
+		configBytes, _ := json.Marshal(en.Config)
+		po.Config = string(configBytes)
+	}
 
 	po.UpdatedAt = time.Now().UnixNano()
 	return &po
@@ -44,6 +55,10 @@ func P2ESysChannel(p *po.SysChannel) *entity.SysChannel {
 	var en entity.SysChannel
 	if err := copier.Copy(&en, &p); err != nil {
 		panic(any(err))
+	}
+	// Config 从 JSON 字符串反序列化
+	if p.Config != "" {
+		json.Unmarshal([]byte(p.Config), &en.Config)
 	}
 
 	return &en

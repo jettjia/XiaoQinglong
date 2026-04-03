@@ -3,10 +3,13 @@ package boot
 import (
 	"context"
 	"log"
+	"os"
 
 	dtoChannel "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/channel"
 	"github.com/jettjia/xiaoqinglong/agent-frame/application/service/channel"
 	srvChannel "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/channel"
+	publicChannel "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/channel"
+	feishu "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/channel/feishu"
 )
 
 // initDefaultChannels 初始化默认渠道
@@ -57,6 +60,29 @@ func initDefaultChannels() error {
 			return err
 		}
 		log.Printf("[Init] Created channel: %s (%s)", ch.name, ch.code)
+	}
+
+	return nil
+}
+
+// StartChannelWsConnections 启动渠道的WebSocket连接
+func StartChannelWsConnections() error {
+	ctx := context.Background()
+
+	feishuMode := os.Getenv("FEISHU_MODE")
+	if feishuMode == "websocket" {
+		log.Println("[Init] Starting Feishu WebSocket connection")
+
+		wsManager := feishu.GetWsManager()
+		err := wsManager.StartFeishuWs(ctx, func(channelCtx *publicChannel.MessageContext) error {
+			log.Printf("[Feishu WS] Received message from user=%s, chat=%s",
+				channelCtx.UserID, channelCtx.SessionID)
+			return nil
+		})
+		if err != nil {
+			log.Printf("[Init] Failed to start Feishu WS: %v", err)
+			return err
+		}
 	}
 
 	return nil

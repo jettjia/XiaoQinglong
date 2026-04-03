@@ -8,13 +8,14 @@ import (
 type (
 	// CreateSysChannelReq 创建请求对象
 	CreateSysChannelReq struct {
-		CreatedBy   string `json:"created_by"`
-		Name        string `json:"name" validate:"required"`
-		Code        string `json:"code" validate:"required"`
-		Description string `json:"description"`
-		Icon        string `json:"icon"`
-		Enabled     bool   `json:"enabled"`
-		Sort        int    `json:"sort"`
+		CreatedBy   string         `json:"created_by"`
+		Name        string         `json:"name" validate:"required"`
+		Code        string         `json:"code" validate:"required"`
+		Description string         `json:"description"`
+		Icon        string         `json:"icon"`
+		Enabled     bool           `json:"enabled"`
+		Sort        int            `json:"sort"`
+		Config      map[string]any `json:"config"` // 渠道配置
 	}
 
 	// DelSysChannelReq 删除请求对象
@@ -24,14 +25,15 @@ type (
 
 	// UpdateSysChannelReq 修改请求对象
 	UpdateSysChannelReq struct {
-		Ulid        string `validate:"required" uri:"ulid" json:"ulid"`
-		UpdatedBy   string `json:"updated_by"`
-		Name        string `json:"name"`
-		Code        string `json:"code"`
-		Description string `json:"description"`
-		Icon        string `json:"icon"`
-		Enabled     *bool  `json:"enabled"`
-		Sort        *int  `json:"sort"`
+		Ulid        string         `validate:"required" uri:"ulid" json:"ulid"`
+		UpdatedBy   string         `json:"updated_by"`
+		Name        string         `json:"name"`
+		Code        string         `json:"code"`
+		Description string         `json:"description"`
+		Icon        string         `json:"icon"`
+		Enabled     *bool          `json:"enabled"`
+		Sort        *int           `json:"sort"`
+		Config      map[string]any `json:"config"` // 渠道配置
 	}
 
 	// FindSysChannelByIdReq 查询请求对象
@@ -61,17 +63,18 @@ type (
 
 	// FindSysChannelRsp 查询返回对象
 	FindSysChannelRsp struct {
-		Ulid        string `json:"ulid"`
-		CreatedAt   int64  `json:"created_at"`
-		UpdatedAt   int64  `json:"updated_at"`
-		CreatedBy   string `json:"created_by"`
-		UpdatedBy   string `json:"updated_by"`
-		Name        string `json:"name"`
-		Code        string `json:"code"`
-		Description string `json:"description"`
-		Icon        string `json:"icon"`
-		Enabled     bool   `json:"enabled"`
-		Sort        int    `json:"sort"`
+		Ulid        string         `json:"ulid"`
+		CreatedAt   int64          `json:"created_at"`
+		UpdatedAt   int64          `json:"updated_at"`
+		CreatedBy   string         `json:"created_by"`
+		UpdatedBy   string         `json:"updated_by"`
+		Name        string         `json:"name"`
+		Code        string         `json:"code"`
+		Description string         `json:"description"`
+		Icon        string         `json:"icon"`
+		Enabled     bool           `json:"enabled"`
+		Sort        int            `json:"sort"`
+		Config      map[string]any `json:"config"` // 渠道配置
 	}
 
 	// FindSysChannelPageRsp 列表查询返回对象

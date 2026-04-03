@@ -14,6 +14,9 @@ import (
 	handRunner "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/runner"
 	handJob "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/job"
 	handDashboard "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/dashboard"
+
+	channelDispatcher "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/channel"
+	feishuHandler "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/channel/feishu"
 )
 
 func SetPublicRouter(Router *gin.RouterGroup) {
@@ -109,6 +112,18 @@ func SetPublicRouter(Router *gin.RouterGroup) {
 		ChannelRouter.GET("/:ulid", handChannel.FindSysChannelById)      // 查询ByID
 		ChannelRouter.POST("/all", handChannel.FindSysChannelAll)         // 查询所有
 		ChannelRouter.POST("/page", handChannel.FindSysChannelPage)      // 分页查询
+	}
+
+	// channel callback (飞书、微信等渠道回调)
+	dispatcherSvc := channelDispatcher.NewChannelDispatcher()
+	feishuHdlr := feishuHandler.NewHandler()
+	feishuOut := feishuHandler.NewOutboundHandler()
+	dispatcherSvc.RegisterInboundHandler("feishu", feishuHdlr)
+	dispatcherSvc.RegisterOutboundHandler("feishu", feishuOut)
+
+	CallbackRouter := Router.Group("/callback")
+	{
+		CallbackRouter.POST("/:channel", dispatcherSvc.HandleCallback()) // 渠道回调
 	}
 
 	// chat

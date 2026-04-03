@@ -90,3 +90,15 @@ func (s *SysChannelService) FindSysChannelPage(ctx context.Context, req *dto.Fin
 
 	return &rsp, nil
 }
+
+func (s *SysChannelService) FindSysChannelByCode(ctx context.Context, code string) (*dto.FindSysChannelRsp, error) {
+	en, err := s.sysChannelSrv.FindByCode(ctx, code)
+	if err != nil {
+		return nil, err
+	}
+	if en == nil {
+		return nil, nil
+	}
+
+	return s.sysChannelDto.E2DFindSysChannelRsp(en), nil
+}

@@ -18,6 +18,7 @@ type SysChannel struct {
 	Icon        string `gorm:"column:icon;type:varchar(50);comment:图标;" json:"icon"`
 	Enabled     bool   `gorm:"column:enabled;type:boolean;default:true;comment:是否启用;" json:"enabled"`
 	Sort        int    `gorm:"column:sort;type:int;default:0;comment:排序;" json:"sort"`
+	Config      string `gorm:"column:config;type:text;comment:渠道配置;serializer:json" json:"config"` // JSON 配置
 }
 
 func (po *SysChannel) BeforeCreate(tx *gorm.DB) (err error) {
