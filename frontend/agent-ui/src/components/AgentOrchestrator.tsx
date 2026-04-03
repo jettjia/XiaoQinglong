@@ -1669,10 +1669,10 @@ export function AgentOrchestrator({ editingAgent, onSaved }: AgentOrchestratorPr
                     <option value="text">{t('orchestrator.responseTypes.text')}</option>
                     <option value="markdown">{t('orchestrator.responseTypes.markdown')}</option>
                     <option value="a2ui">{t('orchestrator.responseTypes.a2ui')}</option>
-                    <option value="audio">{t('orchestrator.responseTypes.audio')}</option>
-                    <option value="image">{t('orchestrator.responseTypes.image')}</option>
-                    <option value="video">{t('orchestrator.responseTypes.video')}</option>
-                    <option value="mixed">{t('orchestrator.responseTypes.mixed')}</option>
+                    {/* <option value="audio">{t('orchestrator.responseTypes.audio')}</option> */}
+                    {/* <option value="image">{t('orchestrator.responseTypes.image')}</option> */}
+                    {/* <option value="video">{t('orchestrator.responseTypes.video')}</option> */}
+                    {/* <option value="mixed">{t('orchestrator.responseTypes.mixed')}</option> */}
                   </select>
                 </div>
                 <div className="space-y-2">
