@@ -2,7 +2,7 @@ package contextcompressor
 
 // Token 阈值常量
 const (
-	AutoCompactBufferTokens     = 13_000
+	AutoCompactBufferTokens      = 13_000
 	WarningThresholdBufferTokens = 20_000
 	ErrorThresholdBufferTokens   = 20_000
 	ManualCompactBufferTokens    = 3_000
@@ -13,13 +13,13 @@ var ContextWindowSizes = map[string]int{
 	"claude-sonnet-4-20250514":   200_000,
 	"claude-opus-4-20250514":     200_000,
 	"claude-3-5-sonnet-20241022": 200_000,
-	"claude-3-5-haiku-20241022": 200_000,
-	"claude-3-opus-20240229":    200_000,
-	"claude-3-sonnet-20240229":  200_000,
-	"claude-3-haiku-20240307":   200_000,
-	"gpt-4o":                    128_000,
-	"gpt-4-turbo":               128_000,
-	"gpt-3.5-turbo":             16_385,
+	"claude-3-5-haiku-20241022":  200_000,
+	"claude-3-opus-20240229":     200_000,
+	"claude-3-sonnet-20240229":   200_000,
+	"claude-3-haiku-20240307":    200_000,
+	"gpt-4o":                     128_000,
+	"gpt-4-turbo":                128_000,
+	"gpt-3.5-turbo":              16_385,
 }
 
 // GetContextWindowSize 获取模型的上下文窗口大小

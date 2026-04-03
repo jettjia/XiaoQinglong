@@ -91,6 +91,7 @@ type Config struct {
 	Model               string
 	MaxOutputTokens     int
 	CompactBufferTokens int
+	CustomThreshold     int
 	CustomInstructions  string
 	SuppressFollowUp    bool
 }

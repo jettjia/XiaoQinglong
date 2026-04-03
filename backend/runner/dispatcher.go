@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"strings"
 	"sync"
@@ -360,18 +361,26 @@ func NewDispatcher(req *types.RunRequest) *Dispatcher {
 }
 
 func (d *Dispatcher) Run(ctx context.Context) (*DispatchResult, error) {
+	// 调试
+	fmt.Println(">>>>>> [Dispatcher] Run: STARTING NOW fmt.Println")
+	log.Println(">>>>>> [Dispatcher] Run: STARTING NOW log.Println")
+	logger.Infof(">>>>>> [Dispatcher] Run: STARTING NOW logger.Infof")
 	// 0. 设置 uploadsBaseDir
 	d.setUploadsBaseDir()
 
 	// 1. 初始化模型（必须串行，模型是其他组件的依赖）
+	logger.Infof("[Dispatcher] Run: calling initModels")
 	if err := d.initModels(ctx); err != nil {
 		return nil, fmt.Errorf("init models failed: %w", err)
 	}
+	logger.Infof("[Dispatcher] Run: initModels completed, calling initParallel")
 
 	// 2. 并行初始化其他组件（在 initModels 之后）
+	logger.Infof("[Dispatcher] Run: about to call initParallel")
 	if fatal, _ := d.initParallel(ctx); fatal != nil {
 		return nil, fatal
 	}
+	logger.Infof("[Dispatcher] Run: initParallel completed")
 
 	// 3. 构建系统 prompt
 	systemPrompt := d.buildSystemPrompt()
@@ -449,7 +458,13 @@ func (d *Dispatcher) initCompactService(ctx context.Context) {
 	tokenizer := contextcompressor.NewDefaultTokenizerImpl(4.0)
 
 	// 创建压缩器
-	compactor := contextcompressor.NewCompactor(chatModelProxy, tokenizer)
+	opts := []contextcompressor.Option{}
+	// 如果用户配置了 max_total_tokens，使用它作为压缩阈值
+	if d.request.Options != nil && d.request.Options.MaxTotalTokens > 0 {
+		opts = append(opts, contextcompressor.WithCustomThreshold(d.request.Options.MaxTotalTokens))
+		logger.Infof("[Dispatcher] initCompactService: using custom threshold=%d from max_total_tokens", d.request.Options.MaxTotalTokens)
+	}
+	compactor := contextcompressor.NewCompactor(chatModelProxy, tokenizer, opts...)
 
 	// 创建集成服务
 	d.compactService = contextcompressor.NewIntegrationService(compactor)
@@ -1481,6 +1496,9 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 			return
 		}
 
+		// 1.5 初始化压缩服务
+		d.initCompactService(ctx)
+
 		// 2. 初始化工具
 		if err := d.initTools(ctx); err != nil {
 			eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": fmt.Sprintf("init tools failed: %v", err)}}
@@ -1579,6 +1597,12 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 		events := runner.Run(ctxWithChan, messages, adk.WithCheckPointID(checkpointID))
 
 		eventsChan <- StreamEvent{Type: "meta", Data: map[string]any{"checkpoint_id": checkpointID}}
+
+		// 10.5 启动异步压缩 worker
+		if d.compactService != nil && d.compactService.IsEnabled() {
+			go d.compactionWorker(ctx)
+			d.checkAndTriggerCompaction(messages)
+		}
 
 		var out strings.Builder
 		var totalPromptTokens int

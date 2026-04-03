@@ -52,7 +52,7 @@
         "max_iterations": 10,
         "max_tool_calls": 20,
         "max_a2a_calls": 5,
-        "max_total_tokens": 50000,
+        "max_total_tokens": 500,
         "stream": true,
         "retry": {
             "max_attempts": 3,
@@ -99,13 +99,13 @@
         "trace_id": "trace-abc123",
         "parent_span_id": "span-xyz789"
     },
-    "knowledge_bases": [],
-    "files": [
+    "knowledge_bases": [
         {
-            "name": "pgsql.md",
-            "virtual_path": "./pgsql.md",
-            "size": 1024,
-            "type": "md"
+            "id": "kb-001",
+            "name": "休假政策知识库",
+            "retrieval_url": "http://localhost:28083/retrieve",
+            "token": "",
+            "top_k": 5
         }
     ]
 }

@@ -19,6 +19,9 @@ import (
 // - fatalError: 导致必须终止的错误（如 initModels 失败）
 // - warningError: 仅记录警告的错误（如 initKnowledgeRetriever 失败）
 func (d *Dispatcher) initParallel(ctx context.Context) (fatal error, warning error) {
+	// Phase 0: 调试日志
+	logger.Infof("[Dispatcher] initParallel: defaultModel=%v, defaultModelName=%s", d.defaultModel != nil, d.defaultModelName)
+
 	// Phase 1: 初始化上下文压缩服务（如果配置了）
 	d.initCompactService(ctx)
 

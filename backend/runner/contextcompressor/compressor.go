@@ -55,6 +55,7 @@ func NewCompactor(chatModel compactors.ChatModel, tokenizer Tokenizer, opts ...O
 		Model:               cfg.Model,
 		MaxOutputTokens:     cfg.MaxOutputTokens,
 		CompactBufferTokens: cfg.CompactBufferTokens,
+		CustomThreshold:     cfg.CustomThreshold,
 		CustomInstructions:  cfg.CustomInstructions,
 		SuppressFollowUp:    cfg.SuppressFollowUp,
 	}

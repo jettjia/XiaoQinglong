@@ -21,6 +21,7 @@ import (
 )
 
 func (d *Dispatcher) initModels(ctx context.Context) error {
+	logger.Infof("[Dispatcher] initModels: starting")
 	d.models = make(map[string]model.ToolCallingChatModel)
 	d.modelsByRole = make(map[ModelRole]model.ToolCallingChatModel)
 

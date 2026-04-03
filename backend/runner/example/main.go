@@ -263,7 +263,7 @@ type TestConfig struct {
 }
 
 func main() {
-	configPath := "./testdata/test-06-approval.json"
+	configPath := "./testdata/test-07-compact.json"
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]
 	}
@@ -356,190 +356,225 @@ func main() {
 		log.Printf("Sandbox Limits: cpu=%s, memory=%s", config.Sandbox.Limits.CPU, config.Sandbox.Limits.Memory)
 	}
 
-	start := time.Now()
+	// ========== 多轮对话循环 ==========
+	reader := bufio.NewReader(os.Stdin)
 
-	httpReq, err := http.NewRequestWithContext(context.Background(), "POST", config.Endpoint, bytes.NewReader(reqBytes))
-	if err != nil {
-		log.Fatalf("创建请求失败: %v", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
+	// 第一轮对话，使用初始 user_message
+	currentMessages := []Message{{Role: "user", Content: config.UserMessage}}
 
-	client := &http.Client{Timeout: 300 * time.Second}
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		log.Fatalf("发送请求失败: %v", err)
-	}
-	defer resp.Body.Close()
+	for {
+		fmt.Println()
+		fmt.Println("========== 对话回合 ==========")
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		log.Printf("响应状态码: %d", resp.StatusCode)
-		log.Printf("响应内容: %s", string(body))
-		log.Fatalf("请求失败")
-	}
+		// 如果是流式模式
+		isStream := config.Options != nil && config.Options.Stream
 
-	// 检查是否流式响应
-	isStream := config.Options != nil && config.Options.Stream
+		// 更新请求中的 messages
+		req.Messages = currentMessages
+		reqBytes, _ := json.Marshal(req)
 
-	var result RunResponse
-	if isStream {
-		// 流式输出模式
-		log.Println("========== 流式响应 ==========")
-		reader := bufio.NewReader(resp.Body)
-		for {
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				if err == io.EOF {
-					break
-				}
-				log.Printf("读取响应失败: %v", err)
-				break
-			}
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
-			}
+		start := time.Now()
 
-			// 解析 SSE 事件格式
-			if strings.HasPrefix(line, "event:") {
-				eventType := strings.TrimSpace(strings.TrimPrefix(line, "event:"))
-				// 读取下一行 data
-				dataLine, err := reader.ReadString('\n')
+		httpReq, err := http.NewRequestWithContext(context.Background(), "POST", config.Endpoint, bytes.NewReader(reqBytes))
+		if err != nil {
+			log.Fatalf("创建请求失败: %v", err)
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+
+		client := &http.Client{Timeout: 300 * time.Second}
+		resp, err := client.Do(httpReq)
+		if err != nil {
+			log.Fatalf("发送请求失败: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			log.Printf("响应状态码: %d", resp.StatusCode)
+			log.Printf("响应内容: %s", string(body))
+			log.Fatalf("请求失败")
+		}
+
+		var assistantContent string
+
+		if isStream {
+			// 流式输出模式
+			log.Println("========== 流式响应 ==========")
+			respReader := bufio.NewReader(resp.Body)
+			for {
+				line, err := respReader.ReadString('\n')
 				if err != nil {
+					if err == io.EOF {
+						break
+					}
+					log.Printf("读取响应失败: %v", err)
 					break
 				}
-				dataLine = strings.TrimSpace(dataLine)
-				if dataLine == "" || strings.HasPrefix(dataLine, "event:") {
+				line = strings.TrimSpace(line)
+				if line == "" {
 					continue
 				}
 
-				var data map[string]any
-				if err := json.Unmarshal([]byte(dataLine), &data); err != nil {
-					continue
-				}
+				// 解析 SSE 事件格式
+				if strings.HasPrefix(line, "event:") {
+					eventType := strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+					// 读取下一行 data
+					dataLine, err := respReader.ReadString('\n')
+					if err != nil {
+						break
+					}
+					dataLine = strings.TrimSpace(dataLine)
+					if dataLine == "" || strings.HasPrefix(dataLine, "event:") {
+						continue
+					}
 
-				// 根据事件类型处理
-				switch eventType {
-				case "delta":
-					if text, ok := data["text"].(string); ok {
-						fmt.Print(text)
+					var data map[string]any
+					if err := json.Unmarshal([]byte(dataLine), &data); err != nil {
+						continue
 					}
-				case "tool":
-					toolName, _ := data["tool"].(string)
-					output, _ := json.Marshal(data["output"])
-					fmt.Printf("\n[Tool: %s] %s\n", toolName, string(output))
-				case "tool_call":
-					toolName, _ := data["tool"].(string)
-					fmt.Printf("\n[Tool Call: %s]\n", toolName)
-				case "tool_result":
-					toolName, _ := data["tool"].(string)
-					output, _ := json.Marshal(data["output"])
-					fmt.Printf("[Tool Result: %s] %s\n", toolName, string(output))
-				case "interrupted":
-					checkpointID, _ := data["checkpoint_id"].(string)
-					var toolName, riskLevel string
-					fmt.Printf("\n⚠️ 执行被中断")
-					if checkpointID != "" {
-						fmt.Printf(", checkpoint_id=%s", checkpointID)
-					}
-					// 从 Info 中提取关键信息
-					if infoData, ok := data["data"].(map[string]any); ok {
-						if info, ok := infoData["Info"].(map[string]any); ok {
-							if contexts, ok := info["InterruptContexts"].([]any); ok && len(contexts) > 0 {
-								if ctx0, ok := contexts[0].(map[string]any); ok {
-									if ctxInfo, ok := ctx0["Info"].(map[string]any); ok {
-										if tn, ok := ctxInfo["tool_name"].(string); ok {
-											toolName = tn
-											fmt.Printf(", tool=%s", toolName)
-										}
-										if rl, ok := ctxInfo["risk_level"].(string); ok {
-											riskLevel = rl
-											fmt.Printf(", risk=%s", riskLevel)
+
+					// 根据事件类型处理
+					switch eventType {
+					case "delta":
+						if text, ok := data["text"].(string); ok {
+							fmt.Print(text)
+							assistantContent += text
+						}
+					case "tool":
+						toolName, _ := data["tool"].(string)
+						output, _ := json.Marshal(data["output"])
+						fmt.Printf("\n[Tool: %s] %s\n", toolName, string(output))
+					case "tool_call":
+						toolName, _ := data["tool"].(string)
+						fmt.Printf("\n[Tool Call: %s]\n", toolName)
+					case "tool_result":
+						toolName, _ := data["tool"].(string)
+						output, _ := json.Marshal(data["output"])
+						fmt.Printf("[Tool Result: %s] %s\n", toolName, string(output))
+					case "interrupted":
+						checkpointID, _ := data["checkpoint_id"].(string)
+						var toolName, riskLevel string
+						fmt.Printf("\n⚠️ 执行被中断")
+						if checkpointID != "" {
+							fmt.Printf(", checkpoint_id=%s", checkpointID)
+						}
+						// 从 Info 中提取关键信息
+						if infoData, ok := data["data"].(map[string]any); ok {
+							if info, ok := infoData["Info"].(map[string]any); ok {
+								if contexts, ok := info["InterruptContexts"].([]any); ok && len(contexts) > 0 {
+									if ctx0, ok := contexts[0].(map[string]any); ok {
+										if ctxInfo, ok := ctx0["Info"].(map[string]any); ok {
+											if tn, ok := ctxInfo["tool_name"].(string); ok {
+												toolName = tn
+												fmt.Printf(", tool=%s", toolName)
+											}
+											if rl, ok := ctxInfo["risk_level"].(string); ok {
+												riskLevel = rl
+												fmt.Printf(", risk=%s", riskLevel)
+											}
 										}
 									}
 								}
 							}
 						}
-					}
-					fmt.Println()
+						fmt.Println()
 
-					// 询问用户确认/取消
-					fmt.Print("是否确认执行该操作? (y 确认 / n 取消): ")
-					reader := bufio.NewReader(os.Stdin)
-					input, _ := reader.ReadString('\n')
-					input = strings.TrimSpace(strings.ToLower(input))
+						// 询问用户确认/取消
+						fmt.Print("是否确认执行该操作? (y 确认 / n 取消): ")
+						input, _ := reader.ReadString('\n')
+						input = strings.TrimSpace(strings.ToLower(input))
 
-					if input == "y" || input == "yes" {
-						// 调用 resume 接口继续执行
-						fmt.Println("正在确认执行...")
-						approved := handleResume(config.Endpoint, checkpointID, toolName, riskLevel, true)
-						if approved {
-							fmt.Println("✅ 已确认，执行继续")
+						if input == "y" || input == "yes" {
+							// 调用 resume 接口继续执行
+							fmt.Println("正在确认执行...")
+							approved := handleResume(config.Endpoint, checkpointID, toolName, riskLevel, true)
+							if approved {
+								fmt.Println("✅ 已确认，执行继续")
+							} else {
+								fmt.Println("❌ 确认失败")
+							}
 						} else {
-							fmt.Println("❌ 确认失败")
+							// 取消执行
+							fmt.Println("❌ 已取消执行")
 						}
-						return
-					} else {
-						// 取消执行
-						fmt.Println("❌ 已取消执行")
-						return
-					}
-				case "done":
-					fmt.Println("\n========== 流式响应结束 ==========")
-				case "error":
-					errorMsg, _ := data["error"].(string)
-					log.Printf("流式错误: %s", errorMsg)
-				}
-				continue
-			}
-
-			// 非 SSE 格式，直接尝试解析为 JSON
-			if strings.HasPrefix(line, "{") {
-				var data map[string]any
-				if err := json.Unmarshal([]byte(line), &data); err == nil {
-					// 检查是否是完成事件
-					if finishReason, ok := data["finish_reason"].(string); ok {
-						result.FinishReason = finishReason
-						if content, ok := data["content"].(string); ok {
-							result.Content = content
-						}
-						if metadata, ok := data["metadata"].(map[string]any); ok {
-							result.Metadata.LatencyMs, _ = metadata["latency_ms"].(int64)
-						}
+						// 中断后不结束，继续等待下一轮输入
 						break
+					case "done":
+						fmt.Println("\n========== 流式响应结束 ==========")
+					case "error":
+						errorMsg, _ := data["error"].(string)
+						log.Printf("流式错误: %s", errorMsg)
+					}
+					continue
+				}
+
+				// 非 SSE 格式，直接尝试解析为 JSON
+				if strings.HasPrefix(line, "{") {
+					var data map[string]any
+					if err := json.Unmarshal([]byte(line), &data); err == nil {
+						// 检查是否是完成事件
+						if finishReason, ok := data["finish_reason"].(string); ok {
+							if content, ok := data["content"].(string); ok {
+								assistantContent = content
+							}
+							log.Printf("Finish Reason: %s", finishReason)
+							break
+						}
 					}
 				}
 			}
-		}
-	} else {
-		// 非流式输出模式
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			log.Fatalf("读取响应失败: %v", err)
-		}
+		} else {
+			// 非流式输出模式
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				log.Fatalf("读取响应失败: %v", err)
+			}
 
-		if err := json.Unmarshal(body, &result); err != nil {
-			log.Fatalf("解析响应失败: %v", err)
+			var result RunResponse
+			if err := json.Unmarshal(body, &result); err != nil {
+				log.Fatalf("解析响应失败: %v", err)
+			}
+
+			elapsed := time.Since(start)
+
+			log.Println()
+			log.Println("========== 执行结果 ==========")
+			log.Printf("耗时: %v", elapsed)
+			log.Printf("Finish Reason: %s", result.FinishReason)
+
+			if result.Content != "" {
+				log.Println()
+				log.Println("----------- Content -----------")
+				fmt.Println(result.Content)
+				assistantContent = result.Content
+			}
 		}
 
 		elapsed := time.Since(start)
+		log.Printf("本轮耗时: %v", elapsed)
 
-		log.Println()
-		log.Println("========== 执行结果 ==========")
-		log.Printf("耗时: %v", elapsed)
-		log.Printf("Finish Reason: %s", result.FinishReason)
-
-		if result.Content != "" {
-			log.Println()
-			log.Println("----------- Content -----------")
-			fmt.Println(result.Content)
+		// 将 assistant 回复加入消息历史
+		if assistantContent != "" {
+			currentMessages = append(currentMessages, Message{Role: "assistant", Content: assistantContent})
 		}
-	}
 
-	elapsed := time.Since(start)
-	log.Println()
-	log.Printf("总耗时: %v", elapsed)
-	log.Println("========== 执行完成 ==========")
+		// 询问用户下一轮输入
+		fmt.Println()
+		fmt.Print("请输入下一轮对话 (输入 'quit' 退出): ")
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(input)
+
+		if input == "" {
+			continue
+		}
+		if strings.ToLower(input) == "quit" || strings.ToLower(input) == "q" || strings.ToLower(input) == "exit" {
+			fmt.Println("========== 对话结束 ==========")
+			break
+		}
+
+		// 将用户输入加入消息历史
+		currentMessages = append(currentMessages, Message{Role: "user", Content: input})
+	}
 }
 
 func truncateString(s string, maxLen int) string {

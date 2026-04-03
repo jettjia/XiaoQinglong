@@ -98,7 +98,13 @@ func (s *IntegrationService) ShouldCompact(messages []Message) bool {
 	if !s.enabled || s.compactor == nil {
 		return false
 	}
-	threshold := GetAutoCompactThreshold(s.compactor.config.Model)
+	// 优先使用用户自定义阈值，否则使用自动计算的阈值
+	threshold := 0
+	if s.compactor.config.CustomThreshold > 0 {
+		threshold = s.compactor.config.CustomThreshold
+	} else {
+		threshold = GetAutoCompactThreshold(s.compactor.config.Model)
+	}
 	return s.compactor.ShouldCompact(messages, threshold)
 }
 

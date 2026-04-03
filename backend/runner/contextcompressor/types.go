@@ -107,6 +107,7 @@ type Config struct {
 	Model               string
 	MaxOutputTokens     int
 	CompactBufferTokens int
+	CustomThreshold     int // 用户自定义压缩阈值，会覆盖自动计算的阈值
 	CustomInstructions  string
 	SuppressFollowUp    bool
 }
@@ -127,6 +128,11 @@ func WithMaxOutputTokens(n int) Option {
 // WithCompactBufferTokens 设置压缩缓冲 token
 func WithCompactBufferTokens(n int) Option {
 	return func(c *Config) { c.CompactBufferTokens = n }
+}
+
+// WithCustomThreshold 设置自定义压缩阈值（会覆盖自动计算的阈值）
+func WithCustomThreshold(n int) Option {
+	return func(c *Config) { c.CustomThreshold = n }
 }
 
 // WithSuppressFollowUp 设置是否抑制后续问题

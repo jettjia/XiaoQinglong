@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"fmt"
 	"os"
 	"sync"
 
@@ -23,6 +24,7 @@ func IsRunnerLogEnabled() bool {
 func GetRunnerLogger() *logrus.Logger {
 	runnerLogOnce.Do(func() {
 		runnerLog = logrus.New()
+		fmt.Printf("[DEBUG] GetRunnerLogger: RUNNER_LOG=%q, IsEnabled=%v\n", os.Getenv("RUNNER_LOG"), IsRunnerLogEnabled())
 
 		if IsRunnerLogEnabled() {
 			// Open runner.log file in current directory
