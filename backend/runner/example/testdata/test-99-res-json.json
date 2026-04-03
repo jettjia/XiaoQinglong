@@ -1,10 +1,30 @@
 {
     "endpoint": "http://localhost:18080/run",
-    "model": {
-        "provider": "openai",
-        "name": "${OPENAI_MODEL}",
-        "api_key": "${OPENAI_API_KEY}",
-        "api_base": "${OPENAI_BASE_URL}"
+    "models": {
+        "default": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "rewrite": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "skill": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "summarize": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        }
     },
     "system_prompt": "你是一个智能助手，返回结构化的JSON数据。严格按照schema格式输出，不要有其他内容。",
     "user_message": "查询订单ORD-20240315-001的详情，用JSON格式返回",
@@ -60,7 +80,10 @@
                         "description": "下单时间"
                     }
                 },
-                "required": ["order_id", "status"]
+                "required": [
+                    "order_id",
+                    "status"
+                ]
             }
         }
     },

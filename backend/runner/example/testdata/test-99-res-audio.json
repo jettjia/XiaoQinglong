@@ -1,28 +1,61 @@
 {
     "endpoint": "http://localhost:18080/run",
-    "model": {
-        "provider": "openai",
-        "name": "${OPENAI_MODEL}",
-        "api_key": "${OPENAI_API_KEY}",
-        "api_base": "${OPENAI_BASE_URL}"
+    "models": {
+        "default": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "rewrite": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "skill": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "summarize": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        }
     },
-    "system_prompt": "你是一个语音合成助手，将文本转换为语音。返回音频URL或base64。",
-    "user_message": "将以下订单信息转为语音：您的订单ORD-20240315-001已发货，预计2天后送达。",
+    "system_prompt": "你是一个智能助手，可以将文本转换为语音。请用语音回复用户。",
+    "user_message": "请用语音播报：欢迎使用智能助手，当前时间是下午4点20分。",
     "tools": [],
     "a2a": [],
     "mcps": [],
     "sandbox": {
-        "enabled": false
+        "enabled": false,
+        "mode": "docker",
+        "image": "sandbox-code-interpreter:v1.0.3",
+        "workdir": "/workspace",
+        "timeout_ms": 120000,
+        "env": {
+            "PATH": "/usr/local/bin:/usr/bin:/bin"
+        }
     },
     "options": {
         "temperature": 0.7,
         "max_tokens": 2000,
         "max_iterations": 10,
-        "stream": false,
+        "stream": true,
         "response_schema": {
-            "type": "audio"
+            "type": "audio",
+            "version": "1.0",
+            "strict": true
         }
     },
     "skills": [],
-    "context": {}
+    "context": {
+        "session_id": "sess_audio_test",
+        "user_id": "user_001",
+        "channel_id": "feishu"
+    }
 }

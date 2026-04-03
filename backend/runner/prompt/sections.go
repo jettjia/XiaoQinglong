@@ -349,6 +349,72 @@ func GetResponseSchemaSection(schema *types.ResponseSchemaConfig) string {
 		lines = append(lines, "")
 		lines = append(lines, "Important: Output ONLY valid JSON that conforms to the schema above.")
 
+	case "audio":
+		lines = append(lines, "# Response Format")
+		lines = append(lines, "")
+		lines = append(lines, "You must respond in audio format. Provide either a URL or base64 encoded audio data.")
+		lines = append(lines, "")
+		lines = append(lines, "## Response Schema")
+		audioSchema := map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"url": map[string]any{
+					"type":        "string",
+					"description": "URL to the audio file (mp3, wav, etc.)",
+				},
+				"base64": map[string]any{
+					"type":        "string",
+					"description": "Base64 encoded audio data (use when no URL available)",
+				},
+				"format": map[string]any{
+					"type":        "string",
+					"description": "Audio format (mp3, wav, ogg, etc.)",
+				},
+				"duration": map[string]any{
+					"type":        "number",
+					"description": "Duration in seconds",
+				},
+			},
+		}
+		schemaJSON, err := json.MarshalIndent(audioSchema, "", "  ")
+		if err != nil {
+			return ""
+		}
+		lines = append(lines, "```json")
+		lines = append(lines, string(schemaJSON))
+		lines = append(lines, "```")
+		lines = append(lines, "")
+		lines = append(lines, "Important: Output ONLY valid JSON that conforms to the schema above.")
+
+	case "image", "video":
+		lines = append(lines, "# Response Format")
+		lines = append(lines, "")
+		lines = append(lines, fmt.Sprintf("You must respond in %s format. Provide URL or base64 encoded data.", schema.Type))
+		lines = append(lines, "")
+		lines = append(lines, "## Response Schema")
+		mediaSchema := map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"url": map[string]any{
+					"type":        "string",
+					"description": fmt.Sprintf("URL to the %s file", schema.Type),
+				},
+				"base64": map[string]any{
+					"type":        "string",
+					"description": fmt.Sprintf("Base64 encoded %s data (use when no URL available)", schema.Type),
+				},
+			},
+		}
+		schemaJSON, err := json.MarshalIndent(mediaSchema, "", "  ")
+		if err != nil {
+			return ""
+		}
+		lines = append(lines, "```json")
+		lines = append(lines, string(schemaJSON))
+		lines = append(lines, "```")
+		lines = append(lines, "")
+		lines = append(lines, "Important: Output ONLY valid JSON that conforms to the schema above.")
+
 	case "markdown", "text":
 		// markdown/text 类型不需要特殊指导，LLM 会直接输出
 		return ""

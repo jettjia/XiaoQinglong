@@ -263,7 +263,7 @@ type TestConfig struct {
 }
 
 func main() {
-	configPath := "./testdata/test-99-res-a2ui.json"
+	configPath := "./testdata/test-99-res-audio.json"
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]
 	}
