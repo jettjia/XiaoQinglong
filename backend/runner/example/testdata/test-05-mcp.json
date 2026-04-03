@@ -33,9 +33,12 @@
     "mcps": [
         {
             "name": "mock_mcp",
-            "transport": "sse",
-            "endpoint": "http://localhost:28082",
-            "headers": {},
+            "transport": "stdio",
+            "command": "/home/jett/aishu/XiaoQinglong/mock/mcp/mock_mcp",
+            "args": [
+                "--stdio"
+            ],
+            "env": {},
             "risk_level": "low"
         }
     ],

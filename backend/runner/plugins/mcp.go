@@ -451,6 +451,66 @@ func (c *MCPStdioClient) CallTool(ctx context.Context, name string, arguments ma
 	return string(buf[:n]), nil
 }
 
+// ListTools 调用 tools/list 获取 MCP 服务器上的工具列表
+func (c *MCPStdioClient) ListTools(ctx context.Context) ([]*McpToolInfo, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	req := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "tools/list",
+		"params":  map[string]any{},
+		"id":      time.Now().UnixNano(),
+	}
+
+	reqBytes, _ := json.Marshal(req)
+	_, err := c.stdin.Write(append(reqBytes, '\n'))
+	if err != nil {
+		return nil, fmt.Errorf("failed to write request: %w", err)
+	}
+
+	// 读取响应 - 使用 bufio.Reader 支持带超时读取
+	reader := bufio.NewReader(c.stdout)
+	buf := make([]byte, 8192)
+	n, err := reader.Read(buf)
+	if err != nil && err != io.EOF {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// 解析 JSON-RPC 响应
+	var rpcResp struct {
+		Result struct {
+			Tools []struct {
+				Name        string `json:"name"`
+				Description string `json:"description"`
+				InputSchema any    `json:"inputSchema"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+
+	if err := json.Unmarshal(buf[:n], &rpcResp); err != nil {
+		return nil, fmt.Errorf("failed to parse tools/list response: %w", err)
+	}
+
+	var tools []*McpToolInfo
+	for _, t := range rpcResp.Result.Tools {
+		tools = append(tools, &McpToolInfo{
+			Name:        t.Name,
+			Description: t.Description,
+			InputSchema: t.InputSchema,
+		})
+	}
+
+	return tools, nil
+}
+
+// McpToolInfo MCP 工具信息
+type McpToolInfo struct {
+	Name        string
+	Description string
+	InputSchema any
+}
+
 func (c *MCPStdioClient) Close() error {
 	if c.cmd != nil && c.cmd.Process != nil {
 		c.cmd.Process.Kill()

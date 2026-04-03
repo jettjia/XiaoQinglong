@@ -11,10 +11,10 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 	"github.com/jettjia/XiaoQinglong/runner/cliext"
+	"github.com/jettjia/XiaoQinglong/runner/cron"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 	"github.com/jettjia/XiaoQinglong/runner/plugins"
 	"github.com/jettjia/XiaoQinglong/runner/retriever"
-	"github.com/jettjia/XiaoQinglong/runner/cron"
 	"github.com/jettjia/XiaoQinglong/runner/subagent"
 	"github.com/jettjia/XiaoQinglong/runner/tools"
 	"github.com/jettjia/XiaoQinglong/runner/types"
@@ -323,15 +323,24 @@ func (d *Dispatcher) initMCPs(ctx context.Context) error {
 				logger.Infof("[Dispatcher] initMCP: failed to create stdio client for %s: %v", mcpCfg.Name, err)
 				continue
 			}
-			// 创建 stdio MCP tool 并添加
-			mcpTool := &mcpStdioTool{
-				name:   mcpCfg.Name,
-				client: client,
+
+			// 先获取工具列表
+			tools, err := client.ListTools(ctx)
+			if err != nil {
+				logger.Infof("[Dispatcher] initMCP: failed to list tools for %s: %v", mcpCfg.Name, err)
+				continue
 			}
-			// 根据 risk_level 判断是否需要包装审批
-			wrapped := d.wrapToolWithApproval(mcpTool, mcpCfg.Name, "mcp", mcpCfg.RiskLevel)
-			d.tools = append(d.tools, wrapped)
-			logger.Infof("[Dispatcher] initMCP: %s (stdio) initialized", mcpCfg.Name)
+
+			// 为每个 MCP 工具创建单独的 tool
+			for _, t := range tools {
+				mcpTool := &mcpStdioTool{
+					name:   t.Name,
+					client: client,
+				}
+				wrapped := d.wrapToolWithApproval(mcpTool, t.Name, "mcp", mcpCfg.RiskLevel)
+				d.tools = append(d.tools, wrapped)
+			}
+			logger.Infof("[Dispatcher] initMCP: %s (stdio) initialized with %d tools", mcpCfg.Name, len(tools))
 
 		default:
 			logger.Infof("[Dispatcher] initMCP: unknown transport %s for %s, skipping", mcpCfg.Transport, mcpCfg.Name)

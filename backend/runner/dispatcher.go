@@ -556,15 +556,17 @@ func (t *mcpStdioTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 }
 
 func (t *mcpStdioTool) InvokableRun(ctx context.Context, argumentsInJSON string, opt ...tool.Option) (string, error) {
+	logger.Infof("[MCP Stdio] InvokableRun: tool=%s, argumentsInJSON=%s", t.name, argumentsInJSON)
+
 	var args map[string]any
 	if err := json.Unmarshal([]byte(argumentsInJSON), &args); err != nil {
 		return "", fmt.Errorf("failed to parse arguments: %w", err)
 	}
 
-	name, _ := args["name"].(string)
-	delete(args, "name")
+	logger.Infof("[MCP Stdio] CallTool: tool=%s, args=%+v", t.name, args)
 
-	return t.client.CallTool(ctx, name, args)
+	// 工具名在 t.name，参数在 args 中
+	return t.client.CallTool(ctx, t.name, args)
 }
 
 // createInternalAgent 创建内部 agent

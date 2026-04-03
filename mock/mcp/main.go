@@ -142,6 +142,20 @@ func main() {
 		return mcp.NewToolResultText(string(raw)), nil
 	})
 
+	// 支持 --stdio 参数切换到 stdio 模式
+	for _, arg := range os.Args {
+		if arg == "--stdio" || arg == "stdio" {
+			// stdio 模式
+			stdioSrv := server.NewStdioServer(mcpServer)
+			err := stdioSrv.Listen(context.Background(), os.Stdin, os.Stdout)
+			if err != nil {
+				panic(err)
+			}
+			return
+		}
+	}
+
+	// 默认 SSE 模式
 	err := server.NewSSEServer(mcpServer).Start("localhost:28082")
 	if err != nil {
 		panic(err)
