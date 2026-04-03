@@ -1,13 +1,33 @@
 {
     "endpoint": "http://localhost:18080/run",
-    "model": {
-        "provider": "openai",
-        "name": "${OPENAI_MODEL}",
-        "api_key": "${OPENAI_API_KEY}",
-        "api_base": "${OPENAI_BASE_URL}"
+    "models": {
+        "default": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "rewrite": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "skill": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "summarize": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        }
     },
-    "system_prompt": "你是一个智能助手，擅长使用工具和技能来回答用户问题。如果需要查询订单，请使用 get_order_detail 工具。把查询到的数据，按照a2ui的格式返回给用户。",
-    "user_message": "查询订单详情，订单号是ORD-20240315-001。",
+    "system_prompt": "你是一个智能助手，擅长使用工具和技能来回答用户问题。如果需要查询商品信息，请使用 get_product_info 工具。把查询到的数据，按照a2ui的格式返回给用户。",
+    "user_message": "查询订单号12345的详情",
     "tools": [
         {
             "type": "http",
@@ -18,25 +38,10 @@
             "headers": {
                 "Content-Type": "application/json"
             },
-            "risk_level": "medium"
-        },
-        {
-            "type": "http",
-            "name": "get_product_info",
-            "description": "获取产品信息",
-            "endpoint": "http://localhost:8081/products/{product_id}",
-            "method": "GET",
-            "headers": {},
-            "risk_level": "low"
+            "risk_level": "high"
         }
     ],
-    "a2a": [
-        {
-            "name": "payment_agent",
-            "endpoint": "http://localhost:28080/a2a",
-            "headers": {}
-        }
-    ],
+    "a2a": [],
     "mcps": [],
     "sandbox": {
         "enabled": false,
@@ -87,10 +92,46 @@
                                 "type": "string"
                             },
                             "sections": {
-                                "type": "array"
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "title": {
+                                            "type": "string"
+                                        },
+                                        "fields": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "label": {
+                                                        "type": "string"
+                                                    },
+                                                    "value": {
+                                                        "type": "string"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             },
                             "actions": {
-                                "type": "array"
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "type": {
+                                            "type": "string"
+                                        },
+                                        "label": {
+                                            "type": "string"
+                                        },
+                                        "data": {
+                                            "type": "object"
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -104,17 +145,7 @@
         "user_id": "user_001",
         "channel_id": "feishu",
         "variables": {
-            "last_query_time": "2024-03-15T10:30:00Z",
-            "user_preference": "express_shipping",
-            "cart_items_count": 3
+            "last_query_time": "2024-03-15T10:30:00Z"
         }
-    },
-    "knowledge": [
-        {
-            "id": "product_info",
-            "name": "产品信息",
-            "content": "我们的产品分为三个系列：基础版、专业版、企业版。基础版免费，专业版99元/月，企业版299元/月。",
-            "score": 0.95
-        }
-    ]
+    }
 }

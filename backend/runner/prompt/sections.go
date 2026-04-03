@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -29,6 +30,7 @@ const (
 	A2AAgentsSection      SectionType = "a2a_agents"
 	InternalAgentsSection SectionType = "internal_agents"
 	MemorySection         SectionType = "memory"
+	ResponseSchemaSection SectionType = "response_schema"
 )
 
 // PromptSection represents a single section in the prompt
@@ -301,6 +303,58 @@ func GetMemorySection(indexLines []string) string {
 
 	for _, line := range indexLines {
 		lines = append(lines, line)
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// GetResponseSchemaSection returns the response schema section for structured output
+func GetResponseSchemaSection(schema *types.ResponseSchemaConfig) string {
+	if schema == nil || schema.Type == "" || schema.Schema == nil {
+		return ""
+	}
+
+	var lines []string
+
+	switch schema.Type {
+	case "a2ui":
+		lines = append(lines, "# Response Format")
+		lines = append(lines, "")
+		lines = append(lines, "You must respond in A2UI format (JSON). Follow the schema below exactly:")
+		lines = append(lines, "")
+		lines = append(lines, "## Response Schema")
+		schemaJSON, err := json.MarshalIndent(schema.Schema, "", "  ")
+		if err != nil {
+			return ""
+		}
+		lines = append(lines, "```json")
+		lines = append(lines, string(schemaJSON))
+		lines = append(lines, "```")
+		lines = append(lines, "")
+		lines = append(lines, "Important: Output ONLY valid JSON that conforms to the schema above. Do not include any other text, markdown formatting, or explanation.")
+
+	case "json":
+		lines = append(lines, "# Response Format")
+		lines = append(lines, "")
+		lines = append(lines, "You must respond in JSON format. Follow the schema below exactly:")
+		lines = append(lines, "")
+		lines = append(lines, "## Response Schema")
+		schemaJSON, err := json.MarshalIndent(schema.Schema, "", "  ")
+		if err != nil {
+			return ""
+		}
+		lines = append(lines, "```json")
+		lines = append(lines, string(schemaJSON))
+		lines = append(lines, "```")
+		lines = append(lines, "")
+		lines = append(lines, "Important: Output ONLY valid JSON that conforms to the schema above.")
+
+	case "markdown", "text":
+		// markdown/text 类型不需要特殊指导，LLM 会直接输出
+		return ""
+
+	default:
+		return ""
 	}
 
 	return strings.Join(lines, "\n")

@@ -151,6 +151,7 @@ func BuildDefaultPrompt(req *types.RunRequest, enabledTools []string) string {
 	builder.AddDynamicSection(FilesSection, GetFilesSection(req.Files))
 	builder.AddDynamicSection(A2AAgentsSection, GetA2AAgentsSection(req.A2A))
 	builder.AddDynamicSection(InternalAgentsSection, GetInternalAgentsSection(req.InternalAgents))
+	builder.AddDynamicSection(ResponseSchemaSection, GetResponseSchemaSection(req.Options.ResponseSchema))
 
 	// Build with custom prompt prepended
 	return builder.BuildWithCustomPrompt(req.Prompt)
