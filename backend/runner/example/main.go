@@ -263,7 +263,7 @@ type TestConfig struct {
 }
 
 func main() {
-	configPath := "./testdata/test-01-kb.json"
+	configPath := "./testdata/test-02-file.json"
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]
 	}

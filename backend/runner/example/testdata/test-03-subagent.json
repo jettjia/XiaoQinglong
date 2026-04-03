@@ -100,12 +100,5 @@
         "parent_span_id": "span-xyz789"
     },
     "knowledge_bases": [],
-    "files": [
-        {
-            "name": "pgsql.md",
-            "virtual_path": "./pgsql.md",
-            "size": 1024,
-            "type": "md"
-        }
-    ]
+    "files": []
 }
