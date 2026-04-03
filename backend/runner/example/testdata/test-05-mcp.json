@@ -27,19 +27,15 @@
         }
     },
     "system_prompt": "你是一个智能助手，可以调用 MCP 工具来获取天气、订单等信息。请根据用户的问题，选择合适的工具来回答。",
-    "user_message": "查询订单号12345的详情",
+    "user_message": "北京今天天气怎么样",
     "tools": [],
     "a2a": [],
     "mcps": [
         {
             "name": "mock_mcp",
             "transport": "sse",
-            "command": "go",
-            "args": [
-                "run",
-                "/home/jett/aishu/XiaoQinglong/mock/mcp"
-            ],
-            "env": {},
+            "endpoint": "http://localhost:28082",
+            "headers": {},
             "risk_level": "low"
         }
     ],

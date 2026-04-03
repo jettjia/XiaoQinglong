@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -34,16 +35,35 @@ func NewMCPToolLoader(sseURL string, headers map[string]string) *MCPToolLoader {
 
 // LoadTools loads MCP tools from the configured SSE endpoint
 func (l *MCPToolLoader) LoadTools(ctx context.Context) ([]tool.BaseTool, error) {
-	log.Printf("[MCP] Loading tools from: %s", l.sseURL)
+	log.Printf("[MCP] Loading tools from SSE: %s", l.sseURL)
 
 	if l.sseURL == "" {
 		return nil, nil
 	}
 
-	// Request tools list from MCP server
-	req, err := http.NewRequestWithContext(ctx, "GET", l.sseURL+"/tools", nil)
+	// Try to get tools via SSE connection
+	tools, err := l.loadToolsFromSSE(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		log.Printf("[MCP] SSE tool loading failed: %v, trying HTTP...", err)
+		// Fallback to HTTP if SSE fails
+		tools, err = l.loadToolsFromHTTP(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("both SSE and HTTP MCP loading failed: %w", err)
+		}
+	}
+
+	log.Printf("[MCP] Loaded %d tools", len(tools))
+	return tools, nil
+}
+
+// loadToolsFromSSE connects to MCP SSE server and receives tool definitions
+func (l *MCPToolLoader) loadToolsFromSSE(ctx context.Context) ([]tool.BaseTool, error) {
+	// MCP SSE: connect to the SSE endpoint and receive tool announcements
+	// mcp-go library uses /sse as the default SSE endpoint
+	sseURL := strings.TrimSuffix(l.sseURL, "/") + "/sse"
+	req, err := http.NewRequestWithContext(ctx, "GET", sseURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SSE request: %w", err)
 	}
 
 	for k, v := range l.headers {
@@ -53,36 +73,76 @@ func (l *MCPToolLoader) LoadTools(ctx context.Context) ([]tool.BaseTool, error) 
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, fmt.Errorf("failed to connect to MCP SSE: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("MCP server returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("MCP SSE returned status %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	type MCPToolListResponse struct {
-		Tools []struct {
-			Name        string `json:"name"`
-			Description string `json:"description"`
-			InputSchema any    `json:"inputSchema"`
-		} `json:"tools"`
-	}
-
-	var toolList MCPToolListResponse
-	if err := json.Unmarshal(body, &toolList); err != nil {
-		// If parse fails, return empty list
-		log.Printf("[MCP] Failed to parse tool list: %v", err)
-		return nil, nil
-	}
-
+	// Parse SSE stream to find tool definitions
+	reader := bufio.NewReader(resp.Body)
 	var tools []tool.BaseTool
-	for _, t := range toolList.Tools {
+	var toolDefs []struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		InputSchema any    `json:"inputSchema"`
+	}
+
+	// Read SSE events
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, fmt.Errorf("error reading SSE stream: %w", err)
+		}
+
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "data:") {
+			data := strings.TrimPrefix(line, "data:")
+			data = strings.TrimSpace(data)
+
+			// Try to parse as JSON array of tools or individual tool announcement
+			if strings.HasPrefix(data, "[") {
+				if err := json.Unmarshal([]byte(data), &toolDefs); err != nil {
+					// Try parsing as individual tool
+					var tool struct {
+						Name        string `json:"name"`
+						Description string `json:"description"`
+						InputSchema any    `json:"inputSchema"`
+					}
+					if err2 := json.Unmarshal([]byte(data), &tool); err2 == nil && tool.Name != "" {
+						toolDefs = append(toolDefs, tool)
+					}
+				}
+			} else if strings.HasPrefix(data, "{") {
+				// Single tool announcement
+				var tool struct {
+					Name        string `json:"name"`
+					Description string `json:"description"`
+					InputSchema any    `json:"inputSchema"`
+				}
+				if err := json.Unmarshal([]byte(data), &tool); err == nil && tool.Name != "" {
+					toolDefs = append(toolDefs, tool)
+				}
+			}
+		}
+
+		// Check for end of stream
+		if line == "" || line == "event: done" {
+			break
+		}
+	}
+
+	// If no tools from SSE, return empty (caller can fallback)
+	if len(toolDefs) == 0 {
+		return nil, fmt.Errorf("no tools received from SSE")
+	}
+
+	for _, t := range toolDefs {
 		tools = append(tools, &mcpTool{
 			name:        t.Name,
 			description: t.Description,
@@ -92,8 +152,78 @@ func (l *MCPToolLoader) LoadTools(ctx context.Context) ([]tool.BaseTool, error) 
 		})
 	}
 
-	log.Printf("[MCP] Loaded %d tools", len(tools))
 	return tools, nil
+}
+
+// loadToolsFromHTTP tries to load tools via HTTP GET (for MCP servers with REST API)
+func (l *MCPToolLoader) loadToolsFromHTTP(ctx context.Context) ([]tool.BaseTool, error) {
+	// Try common MCP HTTP endpoints
+	endpoints := []string{
+		l.sseURL + "/tools",
+		l.sseURL,
+	}
+
+	var lastErr error
+	for _, endpoint := range endpoints {
+		req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to create request for %s: %w", endpoint, err)
+			continue
+		}
+
+		for k, v := range l.headers {
+			req.Header.Add(k, v)
+		}
+
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("request failed for %s: %w", endpoint, err)
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Read(make([]byte, 1)) // drain body to allow reuse
+			lastErr = fmt.Errorf("endpoint %s returned status %d", endpoint, resp.StatusCode)
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to read response from %s: %w", endpoint, err)
+			continue
+		}
+
+		type MCPToolListResponse struct {
+			Tools []struct {
+				Name        string `json:"name"`
+				Description string `json:"description"`
+				InputSchema any    `json:"inputSchema"`
+			} `json:"tools"`
+		}
+
+		var toolList MCPToolListResponse
+		if err := json.Unmarshal(body, &toolList); err != nil {
+			lastErr = fmt.Errorf("failed to parse tool list from %s: %w", endpoint, err)
+			continue
+		}
+
+		var tools []tool.BaseTool
+		for _, t := range toolList.Tools {
+			tools = append(tools, &mcpTool{
+				name:        t.Name,
+				description: t.Description,
+				inputSchema: t.InputSchema,
+				sseURL:      l.sseURL,
+				headers:     l.headers,
+			})
+		}
+
+		return tools, nil
+	}
+
+	return nil, lastErr
 }
 
 // mcpTool implements tool.BaseTool for MCP
@@ -149,7 +279,7 @@ func (t *mcpTool) InvokableRun(ctx context.Context, argumentsInJSON string, opt 
 	}
 	reqBytes, _ := json.Marshal(reqBody)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", t.sseURL+"/tools/call", strings.NewReader(string(reqBytes)))
+	req, err := http.NewRequestWithContext(ctx, "POST", t.sseURL+"/message", strings.NewReader(string(reqBytes)))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}

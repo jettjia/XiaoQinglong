@@ -68,7 +68,7 @@
             "transport": "stdio",
             "args": [
                 "run",
-                "/home/jett/aishu/XiaoQinglong/mock/mcp"
+                "/home/jett/XiaoQinglong/mock/mcp"
             ],
             "env": {},
             "risk_level": "medium"//low:不需要人工干预，medium模型自动识别是否需要干预，high:必须人工干预

@@ -83,7 +83,9 @@ mock-start:
 
 mock-stop:
 	@echo "Stopping mock services..."
-	@pkill -f "mock" 2>/dev/null || true
+	@-for svc in $(MOCK_SERVICES); do \
+		pkill -f "mock/$$svc" 2>/dev/null || true; \
+	done
 	@echo "Mock services stopped!"
 
 mock-restart: mock-stop mock-start

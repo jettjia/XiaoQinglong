@@ -71,7 +71,7 @@
             "command": "go",
             "args": [
                 "run",
-                "/home/jett/aishu/XiaoQinglong/mock/mcp"
+                "/home/jett/XiaoQinglong/mock/mcp"
             ],
             "env": {},
             "risk_level": "low"

@@ -289,8 +289,8 @@ func (d *Dispatcher) initMCPs(ctx context.Context) error {
 		logger.Infof("[Dispatcher] initMCP: name=%s, transport=%s", mcpCfg.Name, mcpCfg.Transport)
 
 		switch mcpCfg.Transport {
-		case "http":
-			// HTTP 模式：通过 HTTP API 加载 tools
+		case "http", "sse":
+			// HTTP/SSE 模式：通过 HTTP API 或 SSE 端点加载 tools
 			if mcpCfg.Endpoint == "" {
 				logger.Infof("[Dispatcher] initMCP: %s has empty endpoint, skipping", mcpCfg.Name)
 				continue
@@ -302,7 +302,7 @@ func (d *Dispatcher) initMCPs(ctx context.Context) error {
 				continue
 			}
 			for _, t := range tools {
-				// HTTP MCP tools 需要包装审批
+				// HTTP/SSE MCP tools 需要包装审批
 				if invokableTool, ok := t.(tool.InvokableTool); ok {
 					wrapped := d.wrapToolWithApproval(invokableTool, mcpCfg.Name, "mcp", mcpCfg.RiskLevel)
 					d.tools = append(d.tools, wrapped)
@@ -310,7 +310,7 @@ func (d *Dispatcher) initMCPs(ctx context.Context) error {
 					d.tools = append(d.tools, t)
 				}
 			}
-			logger.Infof("[Dispatcher] initMCP: %s loaded %d tools", mcpCfg.Name, len(tools))
+			logger.Infof("[Dispatcher] initMCP: %s loaded %d tools (transport=%s)", mcpCfg.Name, len(tools), mcpCfg.Transport)
 
 		case "stdio":
 			// stdio 模式：启动本地进程
