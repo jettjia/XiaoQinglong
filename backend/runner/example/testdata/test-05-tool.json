@@ -28,7 +28,17 @@
     },
     "system_prompt": "你是一个超级助手，能够利用各种工具和技能来回答用户的问题。请根据用户的查询，合理调用工具和技能，并结合知识库中的信息来提供准确的答案。",
     "user_message": "请假政策",
-    "tools": [],
+    "tools": [
+        {
+            "type": "http",
+            "name": "get_product_info",
+            "description": "获取产品信息",
+            "endpoint": "http://localhost:28081/products/{product_id}",
+            "method": "GET",
+            "headers": {},
+            "risk_level": "low"
+        }
+    ],
     "a2a": [],
     "mcps": [],
     "sandbox": {
@@ -100,12 +110,5 @@
         "parent_span_id": "span-xyz789"
     },
     "knowledge_bases": [],
-    "files": [
-        {
-            "name": "pgsql.md",
-            "virtual_path": "./pgsql.md",
-            "size": 1024,
-            "type": "md"
-        }
-    ]
+    "files": []
 }
