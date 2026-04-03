@@ -27,7 +27,7 @@
         }
     },
     "system_prompt": "你是一个超级助手，能够利用各种工具和技能来回答用户的问题。请根据用户的查询，合理调用工具和技能，并结合知识库中的信息来提供准确的答案。",
-    "user_message": "请假政策",
+    "user_message": "把test-all.json上传到s3",
     "tools": [],
     "a2a": [],
     "mcps": [],
@@ -84,7 +84,17 @@
             "strict": true
         }
     },
-    "skills": [],
+    "skills": [
+        {
+            "id": "s3-upload",
+            "name": "S3上传下载",
+            "description": "用于上传和下载S3对象存储中的文件",
+            "instruction": "你是一个S3操作助手，可以帮助用户上传文件到S3或从S3下载文件。",
+            "scope": "both",
+            "trigger": "manual",
+            "risk_level": "low"
+        }
+    ],
     "sub_agents": [],
     "context": {
         "session_id": "sess_abc123def456",
