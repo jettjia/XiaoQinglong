@@ -263,7 +263,7 @@ type TestConfig struct {
 }
 
 func main() {
-	configPath := "./testdata/test-03-subagent.json"
+	configPath := "./testdata/test-05-mcp.json"
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]
 	}

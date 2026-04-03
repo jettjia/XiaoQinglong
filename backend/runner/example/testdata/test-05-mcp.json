@@ -26,11 +26,23 @@
             "api_base": "${OPENAI_BASE_URL}"
         }
     },
-    "system_prompt": "你是一个超级助手，能够利用各种工具和技能来回答用户的问题。请根据用户的查询，合理调用工具和技能，并结合知识库中的信息来提供准确的答案。",
-    "user_message": "请假政策",
+    "system_prompt": "你是一个智能助手，可以调用 MCP 工具来获取天气、订单等信息。请根据用户的问题，选择合适的工具来回答。",
+    "user_message": "查询订单号12345的详情",
     "tools": [],
     "a2a": [],
-    "mcps": [],
+    "mcps": [
+        {
+            "name": "mock_mcp",
+            "transport": "sse",
+            "command": "go",
+            "args": [
+                "run",
+                "/home/jett/aishu/XiaoQinglong/mock/mcp"
+            ],
+            "env": {},
+            "risk_level": "low"
+        }
+    ],
     "sandbox": {
         "enabled": false,
         "mode": "docker",
@@ -100,12 +112,5 @@
         "parent_span_id": "span-xyz789"
     },
     "knowledge_bases": [],
-    "files": [
-        {
-            "name": "pgsql.md",
-            "virtual_path": "./pgsql.md",
-            "size": 1024,
-            "type": "md"
-        }
-    ]
+    "files": []
 }
