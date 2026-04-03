@@ -263,7 +263,7 @@ type TestConfig struct {
 }
 
 func main() {
-	configPath := "./testdata/test-99-res-image.json"
+	configPath := "./testdata/test-06-approval.json"
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]
 	}
@@ -435,6 +435,55 @@ func main() {
 					toolName, _ := data["tool"].(string)
 					output, _ := json.Marshal(data["output"])
 					fmt.Printf("[Tool Result: %s] %s\n", toolName, string(output))
+				case "interrupted":
+					checkpointID, _ := data["checkpoint_id"].(string)
+					var toolName, riskLevel string
+					fmt.Printf("\n⚠️ 执行被中断")
+					if checkpointID != "" {
+						fmt.Printf(", checkpoint_id=%s", checkpointID)
+					}
+					// 从 Info 中提取关键信息
+					if infoData, ok := data["data"].(map[string]any); ok {
+						if info, ok := infoData["Info"].(map[string]any); ok {
+							if contexts, ok := info["InterruptContexts"].([]any); ok && len(contexts) > 0 {
+								if ctx0, ok := contexts[0].(map[string]any); ok {
+									if ctxInfo, ok := ctx0["Info"].(map[string]any); ok {
+										if tn, ok := ctxInfo["tool_name"].(string); ok {
+											toolName = tn
+											fmt.Printf(", tool=%s", toolName)
+										}
+										if rl, ok := ctxInfo["risk_level"].(string); ok {
+											riskLevel = rl
+											fmt.Printf(", risk=%s", riskLevel)
+										}
+									}
+								}
+							}
+						}
+					}
+					fmt.Println()
+
+					// 询问用户确认/取消
+					fmt.Print("是否确认执行该操作? (y 确认 / n 取消): ")
+					reader := bufio.NewReader(os.Stdin)
+					input, _ := reader.ReadString('\n')
+					input = strings.TrimSpace(strings.ToLower(input))
+
+					if input == "y" || input == "yes" {
+						// 调用 resume 接口继续执行
+						fmt.Println("正在确认执行...")
+						approved := handleResume(config.Endpoint, checkpointID, toolName, riskLevel, true)
+						if approved {
+							fmt.Println("✅ 已确认，执行继续")
+						} else {
+							fmt.Println("❌ 确认失败")
+						}
+						return
+					} else {
+						// 取消执行
+						fmt.Println("❌ 已取消执行")
+						return
+					}
 				case "done":
 					fmt.Println("\n========== 流式响应结束 ==========")
 				case "error":
@@ -522,4 +571,49 @@ func expandEnvModels(models map[string]ModelConfig) map[string]ModelConfig {
 		}
 	}
 	return result
+}
+
+// handleResume 调用 resume 接口继续执行
+func handleResume(endpoint, checkpointID, toolName, riskLevel string, approved bool) bool {
+	// 构建 resume 请求
+	resumeReq := map[string]any{
+		"checkpoint_id": checkpointID,
+		"approvals": []map[string]any{
+			{
+				"interrupt_id": toolName,
+				"approved":     approved,
+			},
+		},
+	}
+
+	reqBytes, err := json.Marshal(resumeReq)
+	if err != nil {
+		log.Printf("构建 resume 请求失败: %v", err)
+		return false
+	}
+
+	// 替换 endpoint 中的 /run 为 /resume
+	resumeEndpoint := strings.Replace(endpoint, "/run", "/resume", 1)
+	req, err := http.NewRequestWithContext(context.Background(), "POST", resumeEndpoint, bytes.NewReader(reqBytes))
+	if err != nil {
+		log.Printf("创建 resume 请求失败: %v", err)
+		return false
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 300 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("发送 resume 请求失败: %v", err)
+		return false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		log.Printf("resume 响应失败: %d - %s", resp.StatusCode, string(body))
+		return false
+	}
+
+	return true
 }

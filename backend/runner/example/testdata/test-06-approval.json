@@ -26,9 +26,30 @@
             "api_base": "${OPENAI_BASE_URL}"
         }
     },
-    "system_prompt": "你是一个超级助手，能够利用各种工具和技能来回答用户的问题。请根据用户的查询，合理调用工具和技能，并结合知识库中的信息来提供准确的答案。",
-    "user_message": "请假政策",
-    "tools": [],
+    "system_prompt": "你是一个智能助手，擅长使用工具和技能来回答用户问题。如果需要查询订单，请使用 get_order_detail 工具。如果需要上传文件到S3，可以使用 s3-upload 技能。",
+    "user_message": "查询订单号12345的详情",
+    "tools": [
+        {
+            "type": "http",
+            "name": "get_order_detail",
+            "description": "根据订单号获取订单详情",
+            "endpoint": "http://localhost:28081/v1/orders/{order_no}",
+            "method": "GET",
+            "headers": {
+                "Content-Type": "application/json"
+            },
+            "risk_level": "high"
+        },
+        {
+            "type": "http",
+            "name": "get_product_info",
+            "description": "获取产品信息",
+            "endpoint": "http://localhost:28081/products/{product_id}",
+            "method": "GET",
+            "headers": {},
+            "risk_level": "low"
+        }
+    ],
     "a2a": [],
     "mcps": [],
     "sandbox": {
@@ -71,7 +92,7 @@
             "summarize_prompt": "请总结以下内容，提取关键信息，保持简洁。只返回总结内容，不要其他内容。"
         },
         "approval_policy": {
-            "enabled": false,
+            "enabled": true,
             "risk_threshold": "medium",
             "auto_approve": [
                 "get_product_info"
@@ -100,12 +121,5 @@
         "parent_span_id": "span-xyz789"
     },
     "knowledge_bases": [],
-    "files": [
-        {
-            "name": "pgsql.md",
-            "virtual_path": "./pgsql.md",
-            "size": 1024,
-            "type": "md"
-        }
-    ]
+    "files": []
 }
