@@ -243,6 +243,7 @@ func (d *Dispatcher) initInternalAgents(ctx context.Context) error {
 
 // initSubAgents 初始化 Sub-Agent 管理器
 func (d *Dispatcher) initSubAgents(ctx context.Context) error {
+	logger.Infof("[Dispatcher] initSubAgents called: SubAgents count = %d", len(d.request.SubAgents))
 	if len(d.request.SubAgents) == 0 {
 		logger.Infof("[Dispatcher] initSubAgents: no sub-agents configured")
 		return nil

@@ -26,8 +26,8 @@
             "api_base": "${OPENAI_BASE_URL}"
         }
     },
-    "system_prompt": "你是一个超级助手，能够利用各种工具和技能来回答用户的问题。请根据用户的查询，合理调用工具和技能，并结合知识库中的信息来提供准确的答案。",
-    "user_message": "请假政策",
+    "system_prompt": "当知识库没有答案时，必须使用 delegate_to_agent 委托给 hr_policy_assistant。",
+    "user_message": "帮我查下公司发工资的政策",
     "tools": [],
     "a2a": [],
     "mcps": [],
@@ -85,7 +85,24 @@
         }
     },
     "skills": [],
-    "sub_agents": [],
+    "sub_agents": [
+        {
+            "id": "hr_policy_assistant",
+            "name": "HR政策助手",
+            "description": "专门处理员工假期、报销、福利、工资等HR相关政策的查询助手",
+            "prompt": "你是一个专业的HR政策助手，专门回答员工关于请假、报销、福利等问题。请根据公司政策，准确回答用户的问题。如果不确定答案，请明确告知。",
+            "model": {
+                "provider": "openai",
+                "name": "${OPENAI_MODEL}",
+                "api_key": "${OPENAI_API_KEY}",
+                "api_base": "${OPENAI_BASE_URL}"
+            },
+            "tools": [],
+            "skills": [],
+            "max_iterations": 5,
+            "timeout_ms": 60000
+        }
+    ],
     "context": {
         "session_id": "sess_abc123def456",
         "user_id": "user_001",
@@ -99,6 +116,14 @@
         "trace_id": "trace-abc123",
         "parent_span_id": "span-xyz789"
     },
-    "knowledge_bases": [],
+    "knowledge_bases": [
+        {
+            "id": "kb-001",
+            "name": "产品知识库",
+            "retrieval_url": "http://localhost:28083/retrieve",
+            "token": "",
+            "top_k": 5
+        }
+    ],
     "files": []
 }

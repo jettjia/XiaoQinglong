@@ -263,7 +263,7 @@ type TestConfig struct {
 }
 
 func main() {
-	configPath := "./testdata/test-02-file.json"
+	configPath := "./testdata/test-03-subagent.json"
 	if len(os.Args) > 1 {
 		configPath = os.Args[1]
 	}
@@ -298,8 +298,20 @@ func main() {
 		Files:          config.Files,
 	}
 
+	// 调试：在构建请求前打印 config.SubAgents
+	log.Printf(">>> DEBUG: config.SubAgents count = %d", len(config.SubAgents))
+	for i, sa := range config.SubAgents {
+		log.Printf(">>> DEBUG: config.SubAgents[%d] = %+v", i, sa)
+	}
+
 	// 发送请求
 	reqBytes, _ := json.Marshal(req)
+
+	// 调试：打印完整请求的 JSON（只看 sub_agents 部分）
+	var debugReq map[string]any
+	json.Unmarshal(reqBytes, &debugReq)
+	subAgentsJSON, _ := json.Marshal(debugReq["sub_agents"])
+	log.Printf("[DEBUG] Request SubAgents JSON: %s", string(subAgentsJSON))
 
 	log.Println("========== 开始执行 Runner ==========")
 	log.Printf("Endpoint: %s", config.Endpoint)

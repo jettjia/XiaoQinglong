@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
@@ -33,39 +34,39 @@ func NewDelegateTool(manager *SubAgentManager) *DelegateTool {
 func (t *DelegateTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	// 获取所有可用的 Sub-Agent
 	subAgents := t.manager.ListSubAgents()
-	var agentList []string
-	for _, cfg := range subAgents {
-		agentList = append(agentList, cfg.ID)
-	}
 
-	agentDesc := ""
-	if len(agentList) > 0 {
-		agentDesc = fmt.Sprintf("Available agents: %v", agentList)
+	// 构建详细的 agent 描述
+	var agentDesc strings.Builder
+	if len(subAgents) > 0 {
+		agentDesc.WriteString("Available sub-agents and their capabilities:\n")
+		for id, cfg := range subAgents {
+			agentDesc.WriteString(fmt.Sprintf("- %s (%s): %s\n", id, cfg.Name, cfg.Description))
+		}
 	} else {
-		agentDesc = "No sub-agents configured"
+		agentDesc.WriteString("No sub-agents configured")
 	}
 
 	params := schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 		"agent_id": {
 			Type:     schema.String,
-			Desc:     "The ID of the sub-agent to delegate to. " + agentDesc,
+			Desc:     fmt.Sprintf("The ID of the sub-agent to delegate to.\n%s", agentDesc.String()),
 			Required: true,
 		},
 		"task": {
 			Type:     schema.String,
-			Desc:     "The task description to send to the sub-agent",
+			Desc:     "The task description to send to the sub-agent. Include all relevant context and details the sub-agent needs to complete the task.",
 			Required: true,
 		},
 		"context": {
 			Type:     schema.String,
-			Desc:     "Additional context information (optional)",
+			Desc:     "Additional context information such as user preferences, session info, or previous conversation history (optional)",
 			Required: false,
 		},
 	})
 
 	return &schema.ToolInfo{
 		Name:        "delegate_to_agent",
-		Desc:        fmt.Sprintf("Delegate a task to a sub-agent for independent execution. %s", agentDesc),
+		Desc:        "Use this tool when a task requires specialized knowledge or processing that goes beyond your capabilities. Delegate to a sub-agent who has specific expertise.\n\nWhen to use:\n- User asks about HR policies (leave, reimbursement, benefits) → delegate to hr_policy_assistant\n- User asks about technical documentation or code → delegate to technical_assistant\n- User asks about orders, payments → delegate to order_assistant\n- Task requires deep domain expertise you don't have\n\n" + agentDesc.String(),
 		ParamsOneOf: params,
 	}, nil
 }
