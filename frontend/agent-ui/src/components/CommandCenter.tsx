@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence, useDragControls } from 'motion/react';
 import { cn } from '../lib/utils';
-import { GoogleGenAI, Type } from "@google/genai";
+import { commandApi, CommandResult } from '../lib/api';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 
@@ -24,7 +24,7 @@ interface CommandCenterProps {
   onViewChange: (view: any) => void;
 }
 
-type Intent = 'add_model' | 'create_agent' | 'install_skill' | 'show_inbox' | 'manage_kb' | 'unknown';
+type Intent = 'add_model' | 'create_agent' | 'install_skill' | 'show_inbox' | 'config_kb' | 'test_kb_recall' | 'unknown';
 
 interface CommandAction {
   id: string;
@@ -33,6 +33,7 @@ interface CommandAction {
   description: string;
   data: any;
   status: 'pending' | 'executing' | 'completed' | 'failed';
+  result?: CommandResult;
 }
 
 export function CommandCenter({ onViewChange }: CommandCenterProps) {
@@ -41,6 +42,7 @@ export function CommandCenter({ onViewChange }: CommandCenterProps) {
   const [input, setInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [actions, setActions] = useState<CommandAction[]>([]);
+  const [skillGuidanceVisible, setSkillGuidanceVisible] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const dragControls = useDragControls();
 
@@ -58,50 +60,16 @@ export function CommandCenter({ onViewChange }: CommandCenterProps) {
     setInput('');
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Analyze the user's request and identify the administrative intent for an AI Agent Platform.
-        User Request: "${userQuery}"
-
-        Possible Intents:
-        1. add_model: Adding a new LLM configuration (provider, model name, api key, etc.)
-        2. create_agent: Creating a new AI agent (name, description, role, skills)
-        3. install_skill: Installing or adding a new skill/tool/MCP (name, type, endpoint)
-        4. show_inbox: Viewing or managing the inbox/tasks. Use this when the user asks "what's in my inbox" or "show tasks".
-        5. manage_kb: Adding or modifying knowledge base information. Use this when the user provides KB info or wants to change it.
-
-        Return a JSON object with:
-        {
-          "intent": "one of the above",
-          "title": "A short descriptive title for the action",
-          "description": "A clear explanation of what will happen",
-          "data": { ... relevant data fields for the action ... }
-        }`,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              intent: { type: Type.STRING },
-              title: { type: Type.STRING },
-              description: { type: Type.STRING },
-              data: { type: Type.OBJECT }
-            },
-            required: ["intent", "title", "description", "data"]
-          }
-        }
-      });
-
-      const result = JSON.parse(response.text);
+      const cmdResult = await commandApi.execute(userQuery);
 
       const newAction: CommandAction = {
         id: Math.random().toString(36).substr(2, 9),
-        intent: result.intent as Intent,
-        title: result.title,
-        description: result.description,
-        data: result.data,
-        status: 'pending'
+        intent: cmdResult.action as Intent,
+        title: cmdResult.action,
+        description: cmdResult.message || '',
+        data: cmdResult.prefilled || cmdResult.result || {},
+        status: 'pending',
+        result: cmdResult
       };
 
       setActions(prev => [...prev, newAction]);
@@ -116,33 +84,32 @@ export function CommandCenter({ onViewChange }: CommandCenterProps) {
   const executeAction = async (action: CommandAction) => {
     setActions(prev => prev.map(a => a.id === action.id ? { ...a, status: 'executing' } : a));
 
-    // Simulate execution delay
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
     try {
-      // In a real app, we would call the actual services here
-      // For this demo, we'll show a success toast and navigate if needed
+      const result = action.result;
 
-      switch (action.intent) {
-        case 'add_model':
-          toast.success(`Model "${action.data.modelName || 'New Model'}" added successfully!`);
-          onViewChange('models');
-          break;
-        case 'create_agent':
-          toast.success(`Agent "${action.data.agentName || 'New Agent'}" created successfully!`);
-          onViewChange('agents');
-          break;
-        case 'install_skill':
-          toast.success(`Skill "${action.data.skillName || 'New Skill'}" installed!`);
-          onViewChange('skills');
-          break;
-        case 'manage_kb':
-          toast.success(`Knowledge Base updated!`);
-          onViewChange('knowledge');
-          break;
-        case 'show_inbox':
-          onViewChange('inbox');
-          break;
+      if (!result) {
+        throw new Error('No result from command execution');
+      }
+
+      // Show toast message
+      if (result.message) {
+        if (result.success) {
+          toast.success(result.message);
+        } else {
+          toast.error(result.message);
+        }
+      }
+
+      // Handle skill guidance
+      if (result.action === 'install_skill' && result.show_guidance) {
+        setSkillGuidanceVisible(true);
+        setActions(prev => prev.map(a => a.id === action.id ? { ...a, status: 'completed' } : a));
+        return;
+      }
+
+      // Handle navigation
+      if (result.navigate_to) {
+        onViewChange(result.navigate_to);
       }
 
       setActions(prev => prev.map(a => a.id === action.id ? { ...a, status: 'completed' } : a));
@@ -158,7 +125,8 @@ export function CommandCenter({ onViewChange }: CommandCenterProps) {
       case 'create_agent': return <Bot className="text-blue-500" size={18} />;
       case 'install_skill': return <Zap className="text-orange-500" size={18} />;
       case 'show_inbox': return <InboxIcon className="text-emerald-500" size={18} />;
-      case 'manage_kb': return <Database className="text-indigo-500" size={18} />;
+      case 'config_kb': return <Database className="text-indigo-500" size={18} />;
+      case 'test_kb_recall': return <Database className="text-indigo-500" size={18} />;
       default: return <Sparkles className="text-slate-400" size={18} />;
     }
   };
@@ -303,6 +271,40 @@ export function CommandCenter({ onViewChange }: CommandCenterProps) {
                       </div>
                     </motion.div>
                   ))
+                )}
+
+                {/* Skill Guidance Card */}
+                {skillGuidanceVisible && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-4 p-4 rounded-2xl bg-orange-50 border border-orange-100"
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <Zap className="text-orange-500" size={18} />
+                      <span className="font-bold text-orange-700">技能安装需要更多配置</span>
+                    </div>
+                    <p className="text-xs text-orange-600 mb-3">
+                      技能安装需要：技能类型、服务地址、访问凭证等复杂配置，
+                      建议去技能市场查找。
+                    </p>
+                    <div className="flex gap-2">
+                      <a
+                        href="https://skills.sh"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 py-2 bg-orange-500 text-white rounded-xl text-xs font-bold text-center hover:bg-orange-600"
+                      >
+                        去 skills.sh 看看
+                      </a>
+                      <button
+                        onClick={() => setSkillGuidanceVisible(false)}
+                        className="px-4 py-2 bg-white border border-orange-200 text-orange-600 rounded-xl text-xs font-bold hover:bg-orange-50"
+                      >
+                        关闭
+                      </button>
+                    </div>
+                  </motion.div>
                 )}
               </div>
 

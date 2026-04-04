@@ -274,6 +274,32 @@ export const knowledgeBaseApi = {
   },
 };
 
+// Command API - 魔法盒命令执行
+export interface CommandResult {
+  success: boolean;
+  action: string;
+  result?: any;
+  navigate_to?: string;
+  message?: string;
+  prefilled?: Record<string, any>;
+  show_guidance?: boolean;
+}
+
+export const commandApi = {
+  async execute(command: string): Promise<CommandResult> {
+    const res = await fetch(`${API_BASE}/command/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to execute command');
+    }
+    return json.data || json;
+  },
+};
+
 export interface Skill {
   ulid: string;
   created_at: number;

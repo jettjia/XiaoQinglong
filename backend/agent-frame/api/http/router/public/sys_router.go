@@ -14,6 +14,7 @@ import (
 	handRunner "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/runner"
 	handJob "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/job"
 	handDashboard "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/dashboard"
+	handCommand "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/command"
 
 	channelDispatcher "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/channel"
 	feishuHandler "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/channel/feishu"
@@ -31,6 +32,7 @@ func SetPublicRouter(Router *gin.RouterGroup) {
 	handRunner := handRunner.NewHandler()
 	handJob := handJob.NewHandler()
 	handDashboard := handDashboard.NewHandler()
+	handCommand := handCommand.NewHandler()
 
 	GRouter := Router.Group("/user")
 	{
@@ -178,5 +180,11 @@ func SetPublicRouter(Router *gin.RouterGroup) {
 		DashboardRouter.GET("/overview", handDashboard.GetOverview)                 // 概览统计
 		DashboardRouter.GET("/token-ranking", handDashboard.GetTokenRanking)      // Token排行
 		DashboardRouter.GET("/channel-activity", handDashboard.GetChannelActivity)  // 渠道活动
+	}
+
+	// command - 魔法盒命令执行
+	CommandRouter := Router.Group("/command")
+	{
+		CommandRouter.POST("/execute", handCommand.Execute) // 执行命令
 	}
 }
