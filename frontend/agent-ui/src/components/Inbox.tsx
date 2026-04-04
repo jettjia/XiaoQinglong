@@ -1,5 +1,5 @@
 import React from 'react';
-import { Inbox as InboxIcon, CheckCircle2, XCircle, Clock, ShieldAlert, UserCheck } from 'lucide-react';
+import { Inbox as InboxIcon, CheckCircle2, XCircle, Clock, ShieldAlert, UserCheck, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../lib/utils';
 import { ChatApproval } from '../types';
@@ -11,19 +11,24 @@ export function Inbox() {
   const { t } = useTranslation();
   const [approvals, setApprovals] = React.useState<ChatApproval[]>([]);
   const [filter, setFilter] = React.useState<'pending' | 'all'>('pending');
+  const [loading, setLoading] = React.useState(false);
 
-  // Load approvals
-  React.useEffect(() => {
-    const loadApprovals = async () => {
-      try {
-        const data = await chatApi.getPendingApprovals();
-        setApprovals(data);
-      } catch (err) {
-        console.error('Failed to load approvals:', err);
-      }
-    };
-    loadApprovals();
+  const loadApprovals = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await chatApi.getPendingApprovals();
+      setApprovals(data);
+    } catch (err) {
+      console.error('Failed to load approvals:', err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  // Load on mount
+  React.useEffect(() => {
+    loadApprovals();
+  }, [loadApprovals]);
 
   const filteredApprovals = approvals.filter(a => filter === 'all' || a.status === 'pending');
 
@@ -54,25 +59,38 @@ export function Inbox() {
             <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">{t('inbox.subtitle')}</p>
           </div>
         </div>
-        <div className="flex p-1 bg-slate-100 rounded-lg">
+        <div className="flex items-center gap-3">
           <button
-            onClick={() => setFilter('pending')}
+            onClick={loadApprovals}
+            disabled={loading}
             className={cn(
-              "px-4 py-1.5 text-xs font-bold rounded-md transition-all",
-              filter === 'pending' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              "flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded-lg transition-all",
+              loading ? "text-slate-400 cursor-not-allowed" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
             )}
           >
-            {t('inbox.pending')} ({approvals.filter(a => a.status === 'pending').length})
+            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+            {t('inbox.refresh') || '刷新'}
           </button>
-          <button
-            onClick={() => setFilter('all')}
-            className={cn(
-              "px-4 py-1.5 text-xs font-bold rounded-md transition-all",
-              filter === 'all' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-            )}
-          >
-            {t('inbox.all')}
-          </button>
+          <div className="flex p-1 bg-slate-100 rounded-lg">
+            <button
+              onClick={() => setFilter('pending')}
+              className={cn(
+                "px-4 py-1.5 text-xs font-bold rounded-md transition-all",
+                filter === 'pending' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              )}
+            >
+              {t('inbox.pending')} ({approvals.filter(a => a.status === 'pending').length})
+            </button>
+            <button
+              onClick={() => setFilter('all')}
+              className={cn(
+                "px-4 py-1.5 text-xs font-bold rounded-md transition-all",
+                filter === 'all' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              )}
+            >
+              {t('inbox.all')}
+            </button>
+          </div>
         </div>
       </header>
 

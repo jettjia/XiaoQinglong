@@ -16,7 +16,6 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { View } from '../types';
-import { chatApi } from '../lib/api';
 import { useTranslation } from 'react-i18next';
 
 interface SidebarProps {
@@ -26,28 +25,11 @@ interface SidebarProps {
 
 export function Sidebar({ activeView, onViewChange }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = React.useState(false);
-  const [pendingCount, setPendingCount] = React.useState(0);
   const { t, i18n } = useTranslation();
-
-  // Poll for pending approvals
-  React.useEffect(() => {
-    const pollPending = async () => {
-      try {
-        const approvals = await chatApi.getPendingApprovals();
-        setPendingCount(approvals.length);
-      } catch (err) {
-        console.error('Failed to fetch pending approvals:', err);
-      }
-    };
-
-    pollPending();
-    const interval = setInterval(pollPending, 5000);
-    return () => clearInterval(interval);
-  }, []);
 
   const navItems = [
     { id: 'dashboard', label: t('sidebar.dashboard'), icon: LayoutDashboard },
-    { id: 'inbox', label: t('sidebar.inbox'), icon: Inbox, badge: pendingCount },
+    { id: 'inbox', label: t('sidebar.inbox'), icon: Inbox },
     { id: 'orchestrator', label: t('sidebar.orchestrator'), icon: Workflow },
     { id: 'agents', label: t('sidebar.agents'), icon: Users },
     { id: 'chat', label: t('sidebar.chat'), icon: MessageSquare },
