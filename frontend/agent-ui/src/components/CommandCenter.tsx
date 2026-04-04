@@ -63,17 +63,27 @@ export function CommandCenter({ onViewChange }: CommandCenterProps) {
     try {
       const cmdResult = await commandApi.execute(userQuery);
 
+      // 如果没有 prefilled 数据，直接执行不需要确认
+      const needsConfirmation = !!cmdResult.prefilled;
+
       const newAction: CommandAction = {
         id: Math.random().toString(36).substr(2, 9),
         intent: cmdResult.action as Intent,
         title: cmdResult.action,
         description: cmdResult.message || '',
         data: cmdResult.prefilled || cmdResult.result || {},
-        status: 'pending',
+        status: needsConfirmation ? 'pending' : 'executing', // 有预填充数据需要确认，否则直接执行
         result: cmdResult
       };
 
       setActions(prev => [...prev, newAction]);
+
+      // 无需确认的直接执行
+      if (!needsConfirmation) {
+        const action = newAction;
+        // 使用 setTimeout 避免在 setState 过程中调用
+        setTimeout(() => executeAction(action), 0);
+      }
     } catch (error) {
       console.error('Command Error:', error);
       toast.error('Failed to process command. Please try again.');
