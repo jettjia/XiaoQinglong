@@ -12,7 +12,8 @@ import {
   AlertCircle,
   Loader2,
   Plus,
-  ArrowRight
+  ArrowRight,
+  Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence, useDragControls } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -189,15 +190,29 @@ export function CommandCenter({ onViewChange }: CommandCenterProps) {
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t('commandCenter.subtitle')}</p>
                   </div>
                 </div>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsOpen(false);
-                  }}
-                  className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 transition-colors pointer-events-auto"
-                >
-                  <X size={20} />
-                </button>
+                <div className="flex items-center gap-1 pointer-events-auto">
+                  {actions.length > 0 && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActions([]);
+                      }}
+                      className="p-2 hover:bg-red-50 rounded-xl text-slate-400 hover:text-red-500 transition-colors"
+                      title="清除历史"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  )}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsOpen(false);
+                    }}
+                    className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 transition-colors"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
               </div>
 
               {/* Actions List */}
@@ -265,6 +280,21 @@ export function CommandCenter({ onViewChange }: CommandCenterProps) {
                             <div className="mt-4 flex items-center gap-2 text-emerald-600 text-[10px] font-bold">
                               <Check size={12} />
                               {t('commandCenter.completed')}
+                            </div>
+                          )}
+
+                          {action.status === 'completed' && action.result?.result?.results && (
+                            <div className="mt-3 p-3 bg-white rounded-xl border border-slate-100">
+                              <div className="text-[10px] font-bold text-slate-500 mb-2">
+                                召回结果 ({action.result.result.results.length})
+                              </div>
+                              {action.result.result.results.map((r: any, idx: number) => (
+                                <div key={idx} className="mb-2 last:mb-0">
+                                  <div className="text-[11px] font-bold text-slate-700">{r.title}</div>
+                                  <div className="text-[10px] text-slate-500 mt-0.5 line-clamp-2">{r.content}</div>
+                                  <div className="text-[9px] text-slate-400 mt-0.5">Score: {r.score?.toFixed(2)}</div>
+                                </div>
+                              ))}
                             </div>
                           )}
                         </div>
