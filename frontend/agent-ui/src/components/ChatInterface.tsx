@@ -87,7 +87,6 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
   const [pendingApprovals, setPendingApprovals] = React.useState<PendingApproval[]>([]);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const abortControllerRef = React.useRef<AbortController | null>(null);
-  const pollingRef = React.useRef<NodeJS.Timeout | null>(null);
   const checkpointIdRef = React.useRef<string | null>(null);
   const userInitiatedStopRef = React.useRef(false);
 
@@ -138,38 +137,6 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
       }
     }
   }, [preselectedAgent, onAgentUsed]);
-
-  // Poll for pending approvals
-  React.useEffect(() => {
-    const pollApprovals = async () => {
-      try {
-        const approvals = await chatApi.getPendingApprovals();
-        const mapped: PendingApproval[] = approvals.map(a => ({
-          id: a.ulid,
-          sessionId: a.session_id,
-          messageId: a.message_id,
-          toolName: a.tool_name,
-          toolType: a.tool_type,
-          riskLevel: a.risk_level,
-          parameters: a.parameters ? JSON.parse(a.parameters) : {},
-          status: a.status as 'pending' | 'approved' | 'rejected',
-          timestamp: new Date(a.created_at)
-        }));
-        setPendingApprovals(mapped);
-      } catch (err) {
-        console.error('Failed to poll approvals:', err);
-      }
-    };
-
-    pollApprovals();
-    pollingRef.current = setInterval(pollApprovals, 5000);
-
-    return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-      }
-    };
-  }, []);
 
   // Load session messages
   const loadSessionMessages = async (sessionId: string) => {
