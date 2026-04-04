@@ -117,6 +117,9 @@ type RetryConfig struct {
 	MaxDelayMs        int      `json:"max_delay_ms"`
 	BackoffMultiplier float64  `json:"backoff_multiplier"`
 	RetryableErrors   []string `json:"retryable_errors"`
+	// 熔断器配置
+	CircuitBreakerThreshold int `json:"circuit_breaker_threshold"` // 连续失败次数阈值，达到后熔断
+	CircuitBreakerDurationMs int `json:"circuit_breaker_duration_ms"` // 熔断持续时间
 }
 
 // ModelRole 模型角色，用于多模型路由

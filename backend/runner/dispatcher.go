@@ -342,8 +342,6 @@ type Dispatcher struct {
 	compactService  *contextcompressor.IntegrationService
 	compactChan     chan CompactionRequest  // 发送压缩请求
 	compactDoneChan chan CompactionResponse // 接收压缩结果
-	pendingCompact  *CompactionResponse     // 待应用的压缩结果
-	compactMu       sync.Mutex              // 保护 pendingCompact
 
 	// 知识检索器
 	knowledgeRetriever *retriever.KnowledgeRetriever
@@ -953,11 +951,13 @@ func (d *Dispatcher) buildModelRetryConfig() *adk.ModelRetryConfig {
 			return false
 		},
 		BackoffFunc: func(ctx context.Context, attempt int) time.Duration {
-			delay := float64(retry.InitialDelayMs) * math.Pow(retry.BackoffMultiplier, float64(attempt-1))
-			if delay > float64(retry.MaxDelayMs) {
-				delay = float64(retry.MaxDelayMs)
+			base := float64(retry.InitialDelayMs) * math.Pow(retry.BackoffMultiplier, float64(attempt-1))
+			if base > float64(retry.MaxDelayMs) {
+				base = float64(retry.MaxDelayMs)
 			}
-			return time.Duration(delay) * time.Millisecond
+			// 添加 jitter: base * (0.5 + rand * 0.5) 防止雷鸣 herd
+			jitter := base * (0.5 + float64(time.Now().UnixNano()%100)/200.0)
+			return time.Duration(jitter) * time.Millisecond
 		},
 	}
 }
@@ -1040,8 +1040,29 @@ func (d *Dispatcher) applyCompactionResultNonBlocking(messages *[]adk.Message, c
 		// 替换消息
 		*messages = compactedAdk
 
+		// 压缩后重新评估是否需要更高等级压缩
+		d.recheckCompactionAfterApply(*messages)
+
 	default:
 		// 没有结果可读
+	}
+}
+
+// recheckCompactionAfterApply 压缩后重新评估是否需要更高等级压缩
+func (d *Dispatcher) recheckCompactionAfterApply(messages []adk.Message) {
+	if d.compactService == nil || !d.compactService.IsEnabled() {
+		return
+	}
+
+	ccMessages := d.convertToCCMessages(messages)
+	if d.compactService.ShouldCompact(ccMessages) {
+		// 再次触发压缩（可能会选择更高等级）
+		select {
+		case d.compactChan <- CompactionRequest{Messages: ccMessages}:
+			logger.Infof("[Dispatcher] recheckCompactionAfterApply: re-triggered compaction")
+		default:
+			logger.Infof("[Dispatcher] recheckCompactionAfterApply: channel full, skipping")
+		}
 	}
 }
 

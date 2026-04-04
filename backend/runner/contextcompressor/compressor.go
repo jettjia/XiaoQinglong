@@ -146,13 +146,24 @@ func (c *Compactor) Compact(ctx context.Context, messages []Message, opts ...Opt
 
 	msgCount := len(messages)
 	tokenCount := c.tokenizer.EstimateMessages(toCompactorsMessages(messages))
+	threshold := c.getThreshold()
 
 	var result *compactors.CompactionResult
 	var err error
 
 	switch {
 	case msgCount <= 10 && tokenCount < 50000:
-		result, err = c.microCompacter.Compact(ctx, toCompactorsMessages(messages))
+		// 使用 ShouldCompactMicro 判断是否真正需要微压缩
+		if compactors.ShouldCompactMicro(toCompactorsMessages(messages), c.tokenizer, threshold/4) {
+			result, err = c.microCompacter.Compact(ctx, toCompactorsMessages(messages))
+		} else {
+			// 不需要压缩，直接返回
+			return &CompactionResult{
+				MessagesToKeep:    messages,
+				PreCompactTokens:  tokenCount,
+				PostCompactTokens: tokenCount,
+			}, nil
+		}
 	case msgCount <= 50 && tokenCount < 100000:
 		result, err = c.partialCompacter.Compact(ctx, toCompactorsMessages(messages))
 	default:
@@ -164,6 +175,15 @@ func (c *Compactor) Compact(ctx context.Context, messages []Message, opts ...Opt
 	}
 
 	return fromCompactorsResult(result), nil
+}
+
+// getThreshold 获取压缩阈值
+func (c *Compactor) getThreshold() int {
+	if c.config.CustomThreshold > 0 {
+		return c.config.CustomThreshold
+	}
+	// 默认阈值
+	return 100000
 }
 
 // FullCompact 完整压缩

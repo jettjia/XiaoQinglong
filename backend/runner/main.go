@@ -175,8 +175,10 @@ func handleRunStream(w http.ResponseWriter, r *http.Request, req *types.RunReque
 
 	var out strings.Builder
 
-	// heartbeat
+	// heartbeat with idle watchdog
 	stopHeartbeat := make(chan struct{})
+	idleTimeout := time.NewTimer(90 * time.Second)
+	defer idleTimeout.Stop()
 	go func() {
 		t := time.NewTicker(5 * time.Second)
 		defer t.Stop()
@@ -188,11 +190,29 @@ func handleRunStream(w http.ResponseWriter, r *http.Request, req *types.RunReque
 				return
 			case <-t.C:
 				_ = write("meta", map[string]any{"heartbeat_at": time.Now().Format(time.RFC3339Nano)})
+			case <-idleTimeout.C:
+				// 静默断连 - 90秒无活动
+				log.Printf("[SSE] idle timeout, closing connection")
+				return
 			}
 		}
 	}()
 
+	// 重置 idle 看门狗的函数
+	resetIdleWatchdog := func() {
+		if !idleTimeout.Stop() {
+			select {
+			case <-idleTimeout.C:
+			default:
+			}
+		}
+		idleTimeout.Reset(90 * time.Second)
+	}
+
 	for event := range eventsChan {
+		// 每次收到事件，重置 idle 看门狗
+		resetIdleWatchdog()
+
 		switch event.Type {
 		case "delta":
 			if text, ok := event.Data["text"].(string); ok {
