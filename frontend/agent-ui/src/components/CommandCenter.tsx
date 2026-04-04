@@ -22,7 +22,7 @@ import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 
 interface CommandCenterProps {
-  onViewChange: (view: any) => void;
+  onViewChange: (view: any, data?: any) => void;
 }
 
 type Intent = 'add_model' | 'create_agent' | 'install_skill' | 'show_inbox' | 'config_kb' | 'test_kb_recall' | 'unknown';
@@ -120,7 +120,7 @@ export function CommandCenter({ onViewChange }: CommandCenterProps) {
 
       // Handle navigation
       if (result.navigate_to) {
-        onViewChange(result.navigate_to);
+        onViewChange(result.navigate_to, result.prefilled);
       }
 
       setActions(prev => prev.map(a => a.id === action.id ? { ...a, status: 'completed' } : a));

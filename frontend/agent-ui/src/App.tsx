@@ -23,6 +23,7 @@ export default function App() {
   const [activeView, setActiveView] = React.useState<View>('dashboard');
   const [preselectedAgent, setPreselectedAgent] = React.useState<Agent | null>(null);
   const [editingAgent, setEditingAgent] = React.useState<Agent | null>(null);
+  const [pendingKBConfig, setPendingKBConfig] = React.useState<Record<string, any> | null>(null);
 
   const handleEditAgent = (agent: Agent) => {
     setEditingAgent(agent);
@@ -40,7 +41,7 @@ export default function App() {
       case 'chat':
         return <ChatInterface preselectedAgent={preselectedAgent} onAgentUsed={() => setPreselectedAgent(null)} />;
       case 'knowledge':
-        return <KnowledgeBaseManager />;
+        return <KnowledgeBaseManager pendingConfig={pendingKBConfig} onConfigConsumed={() => setPendingKBConfig(null)} />;
       case 'skills':
         return <SkillManager initialTab="skills" />;
       case 'orchestrator':
@@ -77,7 +78,12 @@ export default function App() {
         </AnimatePresence>
       </main>
 
-      <CommandCenter onViewChange={setActiveView} />
+      <CommandCenter onViewChange={(view, data) => {
+        if (view === 'knowledge' && data) {
+          setPendingKBConfig(data);
+        }
+        setActiveView(view);
+      }} />
       <Toaster position="top-right" richColors />
     </div>
   );

@@ -20,7 +20,12 @@ import { useTranslation } from 'react-i18next';
 import { KnowledgeBase, RecallTestRecord } from '../types';
 import { knowledgeBaseApi, RecallResult } from '../lib/api';
 
-export function KnowledgeBaseManager() {
+interface KnowledgeBaseManagerProps {
+  pendingConfig?: Record<string, any> | null;
+  onConfigConsumed?: () => void;
+}
+
+export function KnowledgeBaseManager({ pendingConfig, onConfigConsumed }: KnowledgeBaseManagerProps) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
@@ -43,6 +48,21 @@ export function KnowledgeBaseManager() {
     token: '',
     enabled: true
   });
+
+  // Handle pending config from CommandCenter
+  React.useEffect(() => {
+    if (pendingConfig) {
+      setNewKB({
+        name: pendingConfig.name || '',
+        description: pendingConfig.description || '',
+        retrievalUrl: pendingConfig.retrieval_url || '',
+        token: pendingConfig.token || '',
+        enabled: true
+      });
+      setIsAddModalOpen(true);
+      onConfigConsumed?.();
+    }
+  }, [pendingConfig]);
 
   const loadKnowledgeBases = React.useCallback(async () => {
     try {
