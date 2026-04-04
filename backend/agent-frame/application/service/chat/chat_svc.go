@@ -114,6 +114,7 @@ func (s *ChatSessionService) FindChatSessionPage(ctx context.Context, req *dto.F
 type ChatMessageService struct {
 	chatDto    *ass.ChatAssembler
 	sessionSrv *srv.ChatSessionSvc
+	statsSrv   *srv.ChatTokenStatsSvc
 }
 
 // NewChatMessageService NewChatMessageService
@@ -121,6 +122,7 @@ func NewChatMessageService() *ChatMessageService {
 	return &ChatMessageService{
 		chatDto:    ass.NewChatAssembler(),
 		sessionSrv: srv.NewChatSessionSvc(),
+		statsSrv:   srv.NewChatTokenStatsSvc(),
 	}
 }
 
@@ -131,6 +133,20 @@ func (s *ChatMessageService) CreateChatMessage(ctx context.Context, req *dto.Cre
 	ulid, err := s.sessionSrv.CreateMessage(ctx, en)
 	if err != nil {
 		return nil, err
+	}
+
+	// Record token stats for assistant messages
+	if req.Role == "assistant" && (req.InputTokens > 0 || req.OutputTokens > 0 || req.TotalTokens > 0) {
+		// Get agentId and userId from session
+		session, err := s.sessionSrv.FindSessionById(ctx, req.SessionId)
+		if err == nil && session != nil {
+			input := req.InputTokens
+			output := req.OutputTokens
+			if req.TotalTokens > 0 && input == 0 && output == 0 {
+				output = req.TotalTokens
+			}
+			_ = s.statsSrv.AddTokens(ctx, session.AgentId, session.UserId, req.Model, input, output)
+		}
 	}
 
 	return &dto.CreateChatMessageRsp{Ulid: ulid}, nil

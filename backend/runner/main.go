@@ -228,10 +228,24 @@ func handleRunStream(w http.ResponseWriter, r *http.Request, req *types.RunReque
 		case "error":
 			_ = write("error", event.Data)
 		case "done":
-			_ = write("done", map[string]any{
+			data := map[string]any{
 				"content":     out.String(),
 				"finished_at": time.Now().Format(time.RFC3339Nano),
-			})
+			}
+			// Include token info from dispatcher
+			if v, ok := event.Data["prompt_tokens"].(int); ok {
+				data["prompt_tokens"] = v
+			}
+			if v, ok := event.Data["completion_tokens"].(int); ok {
+				data["completion_tokens"] = v
+			}
+			if v, ok := event.Data["total_tokens"].(int); ok {
+				data["total_tokens"] = v
+			}
+			if v, ok := event.Data["tool_calls_count"].(int); ok {
+				data["tool_calls_count"] = v
+			}
+			_ = write("done", data)
 		case "meta":
 			// meta 事件已在上方处理，这里忽略
 		}

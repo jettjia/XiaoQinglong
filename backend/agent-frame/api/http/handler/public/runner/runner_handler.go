@@ -213,7 +213,7 @@ func (h *Handler) Run(c *gin.Context) {
 	// 检查是否是流式响应 (SSE)
 	contentType := resp.Header.Get("Content-Type")
 	if strings.Contains(contentType, "text/event-stream") {
-		// 流式响应：直接转发 SSE 数据
+		// 流式响应：直接转发 SSE 数据，同时缓存完整响应用于后续解析 memories
 		log.Info("====== RUNNER STREAM RESPONSE ======")
 		log.Infof("Status: %d, Content-Type: %s", resp.StatusCode, contentType)
 
@@ -223,13 +223,14 @@ func (h *Handler) Run(c *gin.Context) {
 		c.Header("Connection", "keep-alive")
 		c.Header("Access-Control-Allow-Origin", "*")
 
-		// 直接将 SSE 数据流式转发给客户端
-		// 注意：知识库检索由 Runner 在运行时通过 retrieve_knowledge 工具完成
+		// 缓存完整响应并转发 SSE
+		var fullResp []byte
 		c.Status(resp.StatusCode)
 		buf := make([]byte, 4096)
 		for {
 			n, err := resp.Body.Read(buf)
 			if n > 0 {
+				fullResp = append(fullResp, buf[:n]...)
 				if _, writeErr := c.Writer.Write(buf[:n]); writeErr != nil {
 					break
 				}
@@ -241,6 +242,20 @@ func (h *Handler) Run(c *gin.Context) {
 				}
 				break
 			}
+		}
+
+		// 流结束后，异步保存 memories（非测试模式）
+		if !chatReq.IsTest && chatReq.SessionID != "" {
+			go func() {
+				var respData map[string]any
+				if err := json.Unmarshal(fullResp, &respData); err == nil {
+					if memoriesRaw, ok := respData["memories"].([]any); ok && len(memoriesRaw) > 0 {
+						if err := h.saveMemoriesFromRunner(context.Background(), chatReq.AgentID, chatReq.UserID, chatReq.SessionID, memoriesRaw); err != nil {
+							logger.GetRunnerLogger().WithError(err).Error("Failed to save memories from runner")
+						}
+					}
+				}
+			}()
 		}
 		return
 	}

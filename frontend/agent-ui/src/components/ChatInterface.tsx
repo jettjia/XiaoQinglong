@@ -558,13 +558,9 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
             role: 'assistant',
             content: accumulatedContent,
             model: activeAgent.model || '',
-            tokens: streamTokenUsage.total_tokens || 0,
-            metadata: streamTokenUsage.prompt_tokens || streamTokenUsage.completion_tokens
-              ? JSON.stringify({
-                prompt_tokens: streamTokenUsage.prompt_tokens,
-                completion_tokens: streamTokenUsage.completion_tokens
-              })
-              : undefined,
+            input_tokens: streamTokenUsage.prompt_tokens || 0,
+            output_tokens: streamTokenUsage.completion_tokens || 0,
+            total_tokens: streamTokenUsage.total_tokens || 0,
             status: 'completed'
           });
         } catch (err) {

@@ -10,13 +10,13 @@ import (
 type (
 	// CreateChatSessionReq 创建会话请求对象
 	CreateChatSessionReq struct {
-		Ulid     string `json:"ulid"`
-		UserId   string `json:"user_id" validate:"required"`
-		AgentId  string `json:"agent_id" validate:"required"`
-		Title    string `json:"title"`
-		Channel  string `json:"channel"`
-		Model    string `json:"model"`
-		Status   string `json:"status"`
+		Ulid      string `json:"ulid"`
+		UserId    string `json:"user_id" validate:"required"`
+		AgentId   string `json:"agent_id" validate:"required"`
+		Title     string `json:"title"`
+		Channel   string `json:"channel"`
+		Model     string `json:"model"`
+		Status    string `json:"status"`
 		CreatedBy string `json:"created_by"`
 	}
 
@@ -67,22 +67,22 @@ type (
 
 	// ChatSessionRsp 会话返回对象
 	ChatSessionRsp struct {
-		Ulid       string `json:"ulid"`
-		UserId     string `json:"user_id"`
-		AgentId    string `json:"agent_id"`
-		Title      string `json:"title"`
-		Channel    string `json:"channel"`
-		Model      string `json:"model"`
-		Status     string `json:"status"`
-		CreatedAt  int64  `json:"created_at"`
-		UpdatedAt  int64  `json:"updated_at"`
-		CreatedBy  string `json:"created_by"`
-		UpdatedBy  string `json:"updated_by"`
+		Ulid      string `json:"ulid"`
+		UserId    string `json:"user_id"`
+		AgentId   string `json:"agent_id"`
+		Title     string `json:"title"`
+		Channel   string `json:"channel"`
+		Model     string `json:"model"`
+		Status    string `json:"status"`
+		CreatedAt int64  `json:"created_at"`
+		UpdatedAt int64  `json:"updated_at"`
+		CreatedBy string `json:"created_by"`
+		UpdatedBy string `json:"updated_by"`
 	}
 
 	// FindChatSessionPageRsp 分页查询会话返回对象
 	FindChatSessionPageRsp struct {
-		Entries  []*ChatSessionRsp     `json:"entries"`
+		Entries  []*ChatSessionRsp `json:"entries"`
 		PageData *builder.PageData `json:"page_data"`
 	}
 )
@@ -93,17 +93,19 @@ type (
 type (
 	// CreateChatMessageReq 创建消息请求对象
 	CreateChatMessageReq struct {
-		Ulid       string `json:"ulid"`
-		SessionId  string `json:"session_id" validate:"required"`
-		Role       string `json:"role" validate:"required"`
-		Content    string `json:"content"`
-		Model      string `json:"model"`
-		Tokens     int    `json:"tokens"`
-		LatencyMs  int64  `json:"latency_ms"`
-		Trace      string `json:"trace"`
-		Status     string `json:"status"`
-		ErrorMsg   string `json:"error_msg"`
-		Metadata   string `json:"metadata"`
+		Ulid         string `json:"ulid"`
+		SessionId    string `json:"session_id" validate:"required"`
+		Role         string `json:"role" validate:"required"`
+		Content      string `json:"content"`
+		Model        string `json:"model"`
+		InputTokens  int    `json:"input_tokens"`
+		OutputTokens int    `json:"output_tokens"`
+		TotalTokens  int    `json:"total_tokens"`
+		LatencyMs    int64  `json:"latency_ms"`
+		Trace        string `json:"trace"`
+		Status       string `json:"status"`
+		ErrorMsg     string `json:"error_msg"`
+		Metadata     string `json:"metadata"`
 	}
 
 	// UpdateChatMessageReq 更新消息请求对象
@@ -141,19 +143,19 @@ type (
 
 	// ChatMessageRsp 消息返回对象
 	ChatMessageRsp struct {
-		Ulid       string `json:"ulid"`
-		SessionId  string `json:"session_id"`
-		Role       string `json:"role"`
-		Content    string `json:"content"`
-		Model      string `json:"model"`
-		Tokens     int    `json:"tokens"`
-		LatencyMs  int64  `json:"latency_ms"`
-		Trace      string `json:"trace"`
-		Status     string `json:"status"`
-		ErrorMsg   string `json:"error_msg"`
-		Metadata   string `json:"metadata"`
-		CreatedAt  int64  `json:"created_at"`
-		UpdatedAt  int64  `json:"updated_at"`
+		Ulid      string `json:"ulid"`
+		SessionId string `json:"session_id"`
+		Role      string `json:"role"`
+		Content   string `json:"content"`
+		Model     string `json:"model"`
+		Tokens    int    `json:"tokens"`
+		LatencyMs int64  `json:"latency_ms"`
+		Trace     string `json:"trace"`
+		Status    string `json:"status"`
+		ErrorMsg  string `json:"error_msg"`
+		Metadata  string `json:"metadata"`
+		CreatedAt int64  `json:"created_at"`
+		UpdatedAt int64  `json:"updated_at"`
 	}
 )
 
@@ -178,10 +180,10 @@ type (
 
 	// UpdateChatApprovalStatusReq 更新审批状态请求对象
 	UpdateChatApprovalStatusReq struct {
-		Ulid      string `validate:"required" json:"ulid"`
-		Status    string `json:"status"`
+		Ulid       string `validate:"required" json:"ulid"`
+		Status     string `json:"status"`
 		ApprovedBy string `json:"approved_by"`
-		Reason    string `json:"reason"`
+		Reason     string `json:"reason"`
 	}
 
 	// ApproveChatApprovalReq 批准审批请求对象
@@ -248,17 +250,17 @@ type (
 
 // ChatTokenStatsRsp Token统计返回对象
 type ChatTokenStatsRsp struct {
-	Ulid         string `json:"ulid"`
-	SessionId    string `json:"session_id"`
-	AgentId      string `json:"agent_id"`
-	UserId       string `json:"user_id"`
-	Date         string `json:"date"`
-	Model        string `json:"model"`
-	InputTokens  int    `json:"input_tokens"`
-	OutputTokens int    `json:"output_tokens"`
-	TotalTokens  int    `json:"total_tokens"`
-	RequestCount int    `json:"request_count"`
+	Ulid         string  `json:"ulid"`
+	SessionId    string  `json:"session_id"`
+	AgentId      string  `json:"agent_id"`
+	UserId       string  `json:"user_id"`
+	Date         string  `json:"date"`
+	Model        string  `json:"model"`
+	InputTokens  int     `json:"input_tokens"`
+	OutputTokens int     `json:"output_tokens"`
+	TotalTokens  int     `json:"total_tokens"`
+	RequestCount int     `json:"request_count"`
 	CostAmount   float64 `json:"cost_amount"`
-	CreatedAt    int64  `json:"created_at"`
-	UpdatedAt    int64  `json:"updated_at"`
+	CreatedAt    int64   `json:"created_at"`
+	UpdatedAt    int64   `json:"updated_at"`
 }

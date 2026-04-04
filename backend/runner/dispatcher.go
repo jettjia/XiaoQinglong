@@ -1750,6 +1750,16 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 			}
 		}
 
+		// Fallback: 如果流式未获取到 usage，通过非流式调用获取（只取 usage，不使用响应内容）
+		if totalPromptTokens == 0 && totalCompletionTokens == 0 && len(messages) > 0 {
+			if nonStreamResult, err := d.defaultModel.Generate(ctx, messages); err == nil {
+				if nonStreamResult != nil && nonStreamResult.ResponseMeta != nil && nonStreamResult.ResponseMeta.Usage != nil {
+					totalPromptTokens = nonStreamResult.ResponseMeta.Usage.PromptTokens
+					totalCompletionTokens = nonStreamResult.ResponseMeta.Usage.CompletionTokens
+				}
+			}
+		}
+
 		eventsChan <- StreamEvent{Type: "done", Data: map[string]any{
 			"content":           out.String(),
 			"prompt_tokens":     totalPromptTokens,
