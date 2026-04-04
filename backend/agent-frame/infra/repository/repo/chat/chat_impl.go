@@ -137,6 +137,25 @@ func (r *ChatSession) FindRecent(ctx context.Context, limit int) ([]*entity.Chat
 	return converter.P2EChatSessions(chatPos), nil
 }
 
+func (r *ChatSession) CountByChannel(ctx context.Context) (map[string]int, error) {
+	var results []struct {
+		Channel     string
+		MessageCount int
+	}
+	if err := r.data.DB(ctx).Model(&po.ChatSession{}).
+		Select("channel, COUNT(*) as message_count").
+		Where("deleted_at = 0").
+		Group("channel").
+		Scan(&results).Error; err != nil {
+		return nil, err
+	}
+	countMap := make(map[string]int)
+	for _, res := range results {
+		countMap[res.Channel] = res.MessageCount
+	}
+	return countMap, nil
+}
+
 // ====== ChatMessage ======
 
 var _ irepository.IChatMessageRepo = (*ChatMessage)(nil)

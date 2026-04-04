@@ -18,6 +18,7 @@ type IChatSessionRepo interface {
 	FindByUserId(ctx context.Context, userId string, status string) ([]*entity.ChatSession, error)
 	FindPage(ctx context.Context, queries []*builder.Query, reqPage *builder.PageData, reqSort *builder.SortData) ([]*entity.ChatSession, *builder.PageData, error)
 	FindRecent(ctx context.Context, limit int) ([]*entity.ChatSession, error) // 获取最近的会话
+	CountByChannel(ctx context.Context) (map[string]int, error)              // 按渠道统计消息数
 }
 
 // IChatMessageRepo 聊天消息仓库接口

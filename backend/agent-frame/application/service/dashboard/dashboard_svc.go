@@ -110,6 +110,12 @@ func (s *DashboardSvc) GetChannelActivity(ctx context.Context, req *dto.ChannelA
 		return nil, err
 	}
 
+	// Get message count per channel from chat_session
+	channelCounts, err := s.chatSessionSvc.CountByChannel(ctx)
+	if err != nil {
+		channelCounts = make(map[string]int)
+	}
+
 	items := make([]dto.ChannelActivityItem, 0, len(channels))
 	for _, ch := range channels {
 		status := "inactive"
@@ -120,7 +126,7 @@ func (s *DashboardSvc) GetChannelActivity(ctx context.Context, req *dto.ChannelA
 			ChannelId:    ch.Ulid,
 			ChannelName:  ch.Name,
 			Status:       status,
-			MessageCount: 0, // TODO: Need to join with chat_session to count messages
+			MessageCount: channelCounts[ch.Code],
 		})
 	}
 

@@ -65,6 +65,11 @@ func (s *ChatSessionSvc) FindRecentSessions(ctx context.Context, limit int) ([]*
 	return s.sessionRepo.FindRecent(ctx, limit)
 }
 
+// CountByChannel 按渠道统计消息数
+func (s *ChatSessionSvc) CountByChannel(ctx context.Context) (map[string]int, error) {
+	return s.sessionRepo.CountByChannel(ctx)
+}
+
 // ====== ChatMessage ======
 
 // CreateMessage 创建消息
