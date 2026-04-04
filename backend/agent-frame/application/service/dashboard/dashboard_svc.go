@@ -8,6 +8,7 @@ import (
 	channelSrv "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/channel"
 	chatSrv "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/chat"
 	knowledgeBaseSrv "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/knowledge_base"
+	"github.com/jettjia/igo-pkg/pkg/xsql/builder"
 )
 
 type DashboardSvc struct {
@@ -27,8 +28,11 @@ func NewDashboardSvc() *DashboardSvc {
 }
 
 func (s *DashboardSvc) GetOverview(ctx context.Context, req *dto.DashboardOverviewReq) (*dto.DashboardOverviewRsp, error) {
-	// Get active agents count
-	agents, err := s.agentSvc.FindAll(ctx, nil)
+	// Get active agents count (only non-deleted)
+	agentQueries := []*builder.Query{
+		{Key: "deleted_at", Operator: builder.Operator_opEq, Value: 0},
+	}
+	agents, err := s.agentSvc.FindAll(ctx, agentQueries)
 	activeAgents := 0
 	periodicAgents := 0
 	if err == nil && agents != nil {
@@ -42,8 +46,11 @@ func (s *DashboardSvc) GetOverview(ctx context.Context, req *dto.DashboardOvervi
 		}
 	}
 
-	// Get active knowledge sources count
-	kbList, err := s.kbSvc.FindAll(ctx, nil)
+	// Get active knowledge sources count (only non-deleted)
+	kbQueries := []*builder.Query{
+		{Key: "deleted_at", Operator: builder.Operator_opEq, Value: 0},
+	}
+	kbList, err := s.kbSvc.FindAll(ctx, kbQueries)
 	activeKnowledgeSources := 0
 	if err == nil && kbList != nil {
 		for _, kb := range kbList {
