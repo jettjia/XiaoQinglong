@@ -14,6 +14,7 @@ import (
 	"github.com/jettjia/xiaoqinglong/agent-frame/infra/pkg/idata"
 	converter "github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/converter/chat"
 	po "github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/chat"
+	poJob "github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/job"
 )
 
 var _ irepository.IChatSessionRepo = (*ChatSession)(nil)
@@ -118,6 +119,21 @@ func (r *ChatSession) FindPage(ctx context.Context, queries []*builder.Query, re
 	}
 
 	return converter.P2EChatSessions(chatPos), rspPag, nil
+}
+
+func (r *ChatSession) FindRecent(ctx context.Context, limit int) ([]*entity.ChatSession, error) {
+	var chatPos []*po.ChatSession
+	if limit <= 0 {
+		limit = 10
+	}
+	if err := r.data.DB(ctx).
+		Where("deleted_at = 0").
+		Order("updated_at DESC").
+		Limit(limit).
+		Find(&chatPos).Error; err != nil {
+		return nil, err
+	}
+	return converter.P2EChatSessions(chatPos), nil
 }
 
 // ====== ChatMessage ======
@@ -340,10 +356,24 @@ func (r *ChatTokenStats) GetTotalTokens(ctx context.Context) (int, error) {
 	var result struct {
 		Total int
 	}
+
+	// 查询 chat_token_stats 表的总 token
 	if err := r.data.DB(ctx).Model(&po.ChatTokenStats{}).Select("COALESCE(SUM(total_tokens), 0) as total").Scan(&result).Error; err != nil {
 		return 0, err
 	}
-	return result.Total, nil
+	chatTokens := result.Total
+
+	// 查询 job_execution_log 表成功任务的 token 消耗
+	var jobTokens int
+	if err := r.data.DB(ctx).Model(&poJob.JobExecutionPO{}).
+		Select("COALESCE(SUM(tokens_used), 0) as total").
+		Where("status = 'success' AND deleted_at = 0").
+		Scan(&jobTokens).Error; err != nil {
+		// job 表查不到不报错，只是 chat token
+		jobTokens = 0
+	}
+
+	return chatTokens + jobTokens, nil
 }
 
 func (r *ChatTokenStats) GetTokenRanking(ctx context.Context, limit int) ([]*irepository.TokenRankingItem, error) {

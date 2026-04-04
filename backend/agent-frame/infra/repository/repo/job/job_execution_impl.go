@@ -182,3 +182,11 @@ func (r *JobExecutionRepo) CountByAgentId(ctx context.Context, agentId string) (
 		Count(&count).Error
 	return int(count), err
 }
+
+func (r *JobExecutionRepo) CountByStatus(ctx context.Context, status string) (int, error) {
+	var count int64
+	err := r.data.DB(ctx).Model(&poJob.JobExecutionPO{}).
+		Where("status = ? AND deleted_at = 0", status).
+		Count(&count).Error
+	return int(count), err
+}

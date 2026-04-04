@@ -68,3 +68,22 @@ func (h *Handler) GetChannelActivity(c *gin.Context) {
 
 	xresponse.RspOk(c, http.StatusOK, rsp)
 }
+
+// GetRecentSessions 获取最近会话
+func (h *Handler) GetRecentSessions(c *gin.Context) {
+	dtoReq := dto.GetRecentSessionsReq{}
+	if err := c.ShouldBindQuery(&dtoReq); err != nil {
+		err = xerror.NewErrorOpt(apierror.BadRequestErr, xerror.WithCause(err.Error()))
+		_ = c.Error(err)
+		return
+	}
+
+	rsp, err := h.dashboardSvc.GetRecentSessions(c, &dtoReq)
+	if err != nil {
+		err = xerror.NewErrorOpt(apierror.InternalServerErr, xerror.WithCause(err.Error()))
+		_ = c.Error(err)
+		return
+	}
+
+	xresponse.RspOk(c, http.StatusOK, rsp)
+}

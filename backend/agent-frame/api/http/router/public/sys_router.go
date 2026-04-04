@@ -180,6 +180,7 @@ func SetPublicRouter(Router *gin.RouterGroup) {
 		DashboardRouter.GET("/overview", handDashboard.GetOverview)                 // 概览统计
 		DashboardRouter.GET("/token-ranking", handDashboard.GetTokenRanking)      // Token排行
 		DashboardRouter.GET("/channel-activity", handDashboard.GetChannelActivity)  // 渠道活动
+		DashboardRouter.GET("/recent-sessions", handDashboard.GetRecentSessions)   // 最近会话
 	}
 
 	// command - 魔法盒命令执行

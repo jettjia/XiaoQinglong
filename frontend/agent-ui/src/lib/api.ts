@@ -1046,4 +1046,22 @@ export const dashboardApi = {
       return [];
     }
   },
+
+  // 最近会话
+  async getRecentSessions(limit: number = 10): Promise<ChatSession[]> {
+    try {
+      const res = await fetch(`${API_BASE}/dashboard/recent-sessions?limit=${limit}`);
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.message || `Request failed: ${res.status}`);
+      }
+      const data = await res.json();
+      if (Array.isArray(data)) return data;
+      if (data.sessions && Array.isArray(data.sessions)) return data.sessions;
+      return [];
+    } catch (e) {
+      console.error('getRecentSessions failed:', e);
+      return [];
+    }
+  },
 };

@@ -95,8 +95,7 @@ export function Dashboard({ onViewChange }: DashboardProps) {
         chatApi.getPendingApprovals().catch(() => []),
         agentApi.findAll().catch(() => []),
         knowledgeBaseApi.findAll().catch(() => []),
-        // For recent sessions, we need a user_id - use empty array as fallback
-        Promise.resolve<ChatSession[]>([]),
+        dashboardApi.getRecentSessions().catch(() => []),
       ]);
 
       // Handle overview data or calculate from other APIs

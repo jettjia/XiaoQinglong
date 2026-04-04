@@ -7,6 +7,7 @@ import (
 	agentSrv "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/agent"
 	channelSrv "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/channel"
 	chatSrv "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/chat"
+	jobSrv "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/job"
 	knowledgeBaseSrv "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/knowledge_base"
 	"github.com/jettjia/igo-pkg/pkg/xsql/builder"
 )
@@ -16,6 +17,8 @@ type DashboardSvc struct {
 	kbSvc             *knowledgeBaseSrv.SysKnowledgeBaseSvc
 	channelSvc        *channelSrv.SysChannelSvc
 	chatTokenStatsSvc *chatSrv.ChatTokenStatsSvc
+	chatSessionSvc    *chatSrv.ChatSessionSvc
+	jobSvc            *jobSrv.JobExecution
 }
 
 func NewDashboardSvc() *DashboardSvc {
@@ -24,6 +27,8 @@ func NewDashboardSvc() *DashboardSvc {
 		kbSvc:             knowledgeBaseSrv.NewSysKnowledgeBaseSvc(),
 		channelSvc:        channelSrv.NewSysChannelSvc(),
 		chatTokenStatsSvc: chatSrv.NewChatTokenStatsSvc(),
+		chatSessionSvc:    chatSrv.NewChatSessionSvc(),
+		jobSvc:            jobSrv.NewJobExecutionSvc(),
 	}
 }
 
@@ -66,9 +71,11 @@ func (s *DashboardSvc) GetOverview(ctx context.Context, req *dto.DashboardOvervi
 		totalTokens = 0
 	}
 
-	// Tasks completed - count sessions with status = 'completed'
-	// For now, return 0 as we need to add this method
-	tasksCompleted := 0
+	// Tasks completed - count job executions with status = 'success'
+	tasksCompleted, err := s.jobSvc.CountByStatus(ctx, "success")
+	if err != nil {
+		tasksCompleted = 0
+	}
 
 	return &dto.DashboardOverviewRsp{
 		ActiveAgents:           activeAgents,
@@ -118,4 +125,34 @@ func (s *DashboardSvc) GetChannelActivity(ctx context.Context, req *dto.ChannelA
 	}
 
 	return &dto.ChannelActivityRsp{Channels: items}, nil
+}
+
+func (s *DashboardSvc) GetRecentSessions(ctx context.Context, req *dto.GetRecentSessionsReq) (*dto.GetRecentSessionsRsp, error) {
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+	sessions, err := s.chatSessionSvc.FindRecentSessions(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]dto.RecentSessionItem, 0, len(sessions))
+	for _, sess := range sessions {
+		items = append(items, dto.RecentSessionItem{
+			Ulid:      sess.Ulid,
+			CreatedAt: sess.CreatedAt,
+			UpdatedAt: sess.UpdatedAt,
+			UserId:    sess.UserId,
+			AgentId:   sess.AgentId,
+			Title:     sess.Title,
+			Status:    sess.Status,
+			Channel:   sess.Channel,
+			Model:     "",
+			CreatedBy: "",
+			UpdatedBy: "",
+		})
+	}
+
+	return &dto.GetRecentSessionsRsp{Sessions: items}, nil
 }

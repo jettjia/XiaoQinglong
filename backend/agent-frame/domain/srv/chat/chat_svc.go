@@ -60,6 +60,11 @@ func (s *ChatSessionSvc) FindSessionPage(ctx context.Context, queries []*builder
 	return s.sessionRepo.FindPage(ctx, queries, reqPage, reqSort)
 }
 
+// FindRecentSessions 获取最近的会话
+func (s *ChatSessionSvc) FindRecentSessions(ctx context.Context, limit int) ([]*entity.ChatSession, error) {
+	return s.sessionRepo.FindRecent(ctx, limit)
+}
+
 // ====== ChatMessage ======
 
 // CreateMessage 创建消息

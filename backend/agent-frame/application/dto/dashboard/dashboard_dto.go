@@ -46,3 +46,28 @@ type ChannelActivityItem struct {
 	Status       string `json:"status"`
 	MessageCount int    `json:"message_count"`
 }
+
+// RecentSessionItem 最近会话项
+type RecentSessionItem struct {
+	Ulid      string `json:"ulid"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
+	UserId    string `json:"user_id"`
+	AgentId   string `json:"agent_id"`
+	Title     string `json:"title"`
+	Status    string `json:"status"`
+	Channel   string `json:"channel"`
+	Model     string `json:"model"`
+	CreatedBy string `json:"created_by"`
+	UpdatedBy string `json:"updated_by"`
+}
+
+// GetRecentSessionsReq 获取最近会话请求
+type GetRecentSessionsReq struct {
+	Limit int `form:"limit" json:"limit"`
+}
+
+// GetRecentSessionsRsp 获取最近会话响应
+type GetRecentSessionsRsp struct {
+	Sessions []RecentSessionItem `json:"sessions"`
+}

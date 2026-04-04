@@ -23,6 +23,7 @@ type JobExecutionSvc interface {
 	FindByAgentId(ctx context.Context, agentId string, limit int) ([]*entityJob.JobExecution, error)                                                                              // 根据AgentId查询
 	DeleteOldByAgentId(ctx context.Context, agentId string, keepCount int) error                                                                                                // 删除旧的
 	CountByAgentId(ctx context.Context, agentId string) (int, error)                                                                                                              // 统计数量
+	CountByStatus(ctx context.Context, status string) (int, error)                                                                                                                // 按状态统计数量
 }
 
 type JobExecution struct {
@@ -73,4 +74,8 @@ func (s *JobExecution) DeleteOldByAgentId(ctx context.Context, agentId string, k
 
 func (s *JobExecution) CountByAgentId(ctx context.Context, agentId string) (int, error) {
 	return s.jobExecutionRepo.CountByAgentId(ctx, agentId)
+}
+
+func (s *JobExecution) CountByStatus(ctx context.Context, status string) (int, error) {
+	return s.jobExecutionRepo.CountByStatus(ctx, status)
 }
