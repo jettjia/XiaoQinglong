@@ -60,3 +60,12 @@ func (s *SysAgentSvc) FindPage(ctx context.Context, queries []*builder.Query, re
 func (s *SysAgentSvc) FindByName(ctx context.Context, name string) (sysAgentEn *entity.SysAgent, err error) {
 	return s.sysAgentRepo.FindByName(ctx, name)
 }
+
+// FindPeriodicEnabled 查找所有启用的周期任务Agent
+func (s *SysAgentSvc) FindPeriodicEnabled(ctx context.Context) ([]*entity.SysAgent, error) {
+	queries := []*builder.Query{
+		{Key: "is_periodic", Operator: builder.Operator_opEq, Value: true},
+		{Key: "deleted_at", Operator: builder.Operator_opEq, Value: 0},
+	}
+	return s.sysAgentRepo.FindAll(ctx, queries)
+}

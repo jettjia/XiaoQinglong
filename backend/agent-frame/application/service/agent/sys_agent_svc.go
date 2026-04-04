@@ -8,6 +8,7 @@ import (
 
 	ass "github.com/jettjia/xiaoqinglong/agent-frame/application/assembler/agent"
 	dto "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/agent"
+	entity "github.com/jettjia/xiaoqinglong/agent-frame/domain/entity/agent"
 	srv "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/agent"
 	"github.com/jettjia/xiaoqinglong/agent-frame/types/apierror"
 
@@ -100,7 +101,22 @@ func (s *SysAgentService) UpdateSysAgent(ctx context.Context, req *dto.UpdateSys
 
 // UpdateSysAgentEnabled 修改启用状态
 func (s *SysAgentService) UpdateSysAgentEnabled(ctx context.Context, req *dto.UpdateSysAgentEnabledReq) error {
-	return s.sysAgentSrv.UpdateEnabled(ctx, req.Ulid, req.Enabled)
+	// 更新数据库中的 enabled 状态
+	if err := s.sysAgentSrv.UpdateEnabled(ctx, req.Ulid, req.Enabled); err != nil {
+		return err
+	}
+
+	// 同步更新 JobManager 中的暂停状态
+	jm := job.GetJobManager()
+	if jm != nil {
+		if req.Enabled {
+			_ = jm.ResumeCronJob(req.Ulid)
+		} else {
+			_ = jm.PauseCronJob(req.Ulid)
+		}
+	}
+
+	return nil
 }
 
 func (s *SysAgentService) FindSysAgentById(ctx context.Context, req *dto.FindSysAgentByIdReq) (*dto.FindSysAgentRsp, error) {
@@ -176,4 +192,9 @@ func (s *SysAgentService) UploadSysAgent(ctx context.Context, req *dto.UploadSys
 	}
 
 	return s.CreateSysAgent(ctx, createReq)
+}
+
+// FindPeriodicAgents 查找所有周期任务Agent（用于JobManager启动同步）
+func (s *SysAgentService) FindPeriodicAgents(ctx context.Context) ([]*entity.SysAgent, error) {
+	return s.sysAgentSrv.FindPeriodicEnabled(ctx)
 }

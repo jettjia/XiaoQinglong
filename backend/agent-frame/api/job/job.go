@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 var (
 	globalJobManager *JobManager
 	once             sync.Once
+	jobManagerReady  = make(chan struct{})
 )
 
 // JobManager 周期任务管理器
@@ -36,6 +38,10 @@ type JobManager struct {
 	cronEntries   map[string]cron.EntryID
 	cronEntriesMu sync.RWMutex
 
+	// paused agents (agent_id -> true if paused)
+	pausedAgents   map[string]bool
+	pausedAgentsMu sync.RWMutex
+
 	shutdown chan struct{}
 	wg       sync.WaitGroup
 }
@@ -50,11 +56,13 @@ func InitJobManager(runnerURL string, maxKeepCount int) *JobManager {
 			maxKeepCount:    maxKeepCount,
 			agentSessions:   make(map[string]string),
 			cronEntries:     make(map[string]cron.EntryID),
+			pausedAgents:    make(map[string]bool),
 			shutdown:        make(chan struct{}),
 		}
 
 		globalJobManager.cron.Start()
 		log.Printf("[JobManager] Started")
+		close(jobManagerReady)
 	})
 
 	return globalJobManager
@@ -65,11 +73,19 @@ func GetJobManager() *JobManager {
 	return globalJobManager
 }
 
+// WaitForReady 等待 JobManager 初始化完成
+func WaitForReady() {
+	<-jobManagerReady
+}
+
 // AddCronJob 添加周期任务
 func (m *JobManager) AddCronJob(agentId, agentName, cronRule, configJson string) error {
 	if cronRule == "" {
 		return fmt.Errorf("cron rule is empty")
 	}
+
+	// 统一转为 6 字段 cron 表达式（robfig/cron 默认支持秒字段）
+	cronRule = normalizeCronRule(cronRule)
 
 	// 验证 cron 表达式
 	specParser := cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
@@ -118,6 +134,11 @@ func (m *JobManager) RemoveCronJob(agentId string) error {
 	delete(m.agentSessions, agentId)
 	m.agentSessionsMu.Unlock()
 
+	// 清除暂停状态
+	m.pausedAgentsMu.Lock()
+	delete(m.pausedAgents, agentId)
+	m.pausedAgentsMu.Unlock()
+
 	log.Printf("[JobManager] Removed cron job for agent %s", agentId)
 	return nil
 }
@@ -137,10 +158,57 @@ func (m *JobManager) UpdateCronJob(agentId, agentName, cronRule, configJson stri
 	return nil
 }
 
+// PauseCronJob 暂停周期任务
+func (m *JobManager) PauseCronJob(agentId string) error {
+	m.cronEntriesMu.RLock()
+	_, exists := m.cronEntries[agentId]
+	m.cronEntriesMu.RUnlock()
+	if !exists {
+		return fmt.Errorf("cron job not found for agent: %s", agentId)
+	}
+
+	m.pausedAgentsMu.Lock()
+	m.pausedAgents[agentId] = true
+	m.pausedAgentsMu.Unlock()
+
+	log.Printf("[JobManager] Paused cron job for agent %s", agentId)
+	return nil
+}
+
+// ResumeCronJob 恢复周期任务
+func (m *JobManager) ResumeCronJob(agentId string) error {
+	m.cronEntriesMu.RLock()
+	_, exists := m.cronEntries[agentId]
+	m.cronEntriesMu.RUnlock()
+	if !exists {
+		return fmt.Errorf("cron job not found for agent: %s", agentId)
+	}
+
+	m.pausedAgentsMu.Lock()
+	delete(m.pausedAgents, agentId)
+	m.pausedAgentsMu.Unlock()
+
+	log.Printf("[JobManager] Resumed cron job for agent %s", agentId)
+	return nil
+}
+
+// IsCronJobPaused 检查周期任务是否暂停
+func (m *JobManager) IsCronJobPaused(agentId string) bool {
+	m.pausedAgentsMu.RLock()
+	defer m.pausedAgentsMu.RUnlock()
+	return m.pausedAgents[agentId]
+}
+
 // executeAgentJob 执行周期任务
 func (m *JobManager) executeAgentJob(agentId, agentName, configJson string) {
 	m.wg.Add(1)
 	defer m.wg.Done()
+
+	// 检查是否暂停
+	if m.IsCronJobPaused(agentId) {
+		log.Printf("[JobManager] Agent %s is paused, skipping execution", agentId)
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
@@ -307,10 +375,11 @@ func (m *JobManager) setAgentSession(agentId, sessionId string) {
 
 // createAgentSession 为 agent 创建 session
 func (m *JobManager) createAgentSession(agentId, _ string) string {
-	// TODO: 调用 chat service 创建 session
-	// 这里暂时返回空，等 chat service 完善后再补充
-	log.Printf("[JobManager] createAgentSession called for agent %s", agentId)
-	return ""
+	// 临时方案：使用 agentId + 时间戳作为 sessionId
+	// TODO: 后续调用 chat service 创建真正的 session
+	sessionId := fmt.Sprintf("cron-%s-%d", agentId, time.Now().UnixMilli())
+	log.Printf("[JobManager] Created temporary session %s for agent %s", sessionId, agentId)
+	return sessionId
 }
 
 // cleanupOldRecords 清理旧记录
@@ -329,6 +398,15 @@ func (m *JobManager) cleanupOldRecords(ctx context.Context, agentId string) {
 }
 
 // truncateString 截断字符串
+// normalizeCronRule 将 5 字段 cron 转为 6 字段（robfig/cron 使用秒字段）
+func normalizeCronRule(rule string) string {
+	fields := strings.Fields(rule)
+	if len(fields) == 5 {
+		return "0 " + rule // 补全秒字段
+	}
+	return rule
+}
+
 func truncateString(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
@@ -342,6 +420,15 @@ func (m *JobManager) Stop() {
 	m.cron.Stop()
 	m.wg.Wait()
 	log.Printf("[JobManager] Stopped")
+}
+
+// PeriodicAgent 周期任务Agent的结构（用于从DB同步）
+type PeriodicAgent struct {
+	Ulid       string
+	Name       string
+	CronRule   string
+	ConfigJson string
+	Enabled    bool
 }
 
 // InitJob 初始化 JobManager (兼容 main.go 调用)
@@ -359,4 +446,35 @@ func InitJob(shutdown chan struct{}) {
 		log.Printf("[Job] Received shutdown signal, stopping JobManager...")
 		jm.Stop()
 	}()
+}
+
+// SyncCronJobsFromDB 从数据库同步周期任务（服务启动时调用）
+func SyncCronJobsFromDB(agents []PeriodicAgent) {
+	// 等待 JobManager 初始化完成
+	WaitForReady()
+
+	if len(agents) == 0 {
+		return
+	}
+
+	jm := GetJobManager()
+	if jm == nil {
+		log.Printf("[Job] SyncCronJobsFromDB: JobManager is nil")
+		return
+	}
+
+	for _, ag := range agents {
+		if ag.CronRule == "" {
+			continue
+		}
+		if err := jm.AddCronJob(ag.Ulid, ag.Name, ag.CronRule, ag.ConfigJson); err != nil {
+			log.Printf("[Job] SyncCronJobsFromDB: failed to add cron job for agent %s: %v", ag.Ulid, err)
+			continue
+		}
+		// 如果该 Agent 被停用了，暂停其 cron job
+		if !ag.Enabled {
+			_ = jm.PauseCronJob(ag.Ulid)
+		}
+		log.Printf("[Job] SyncCronJobsFromDB: registered cron job for agent %s", ag.Ulid)
+	}
 }

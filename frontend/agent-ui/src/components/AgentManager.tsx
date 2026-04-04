@@ -449,7 +449,7 @@ export function AgentManager({ onViewChange, onPlayAgent, onEditAgent }: AgentMa
                       try {
                         const agentId = agent.ulid || agent.id;
                         const data = await chatApi.getJobExecutions(agentId);
-                        setJobExecutions(data || []);
+                        setJobExecutions((data?.entries || data) || []);
                       } catch (err) {
                         console.error('Failed to load job executions:', err);
                         setJobExecutions([]);

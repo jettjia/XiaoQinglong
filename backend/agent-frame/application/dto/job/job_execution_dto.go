@@ -13,8 +13,8 @@ type (
 
 	// FindJobExecutionByAgentIdReq 根据AgentId查询 请求对象
 	FindJobExecutionByAgentIdReq struct {
-		AgentId string `validate:"required" json:"agent_id"` // agent_id
-		Limit   int    `json:"limit"`                        // 限制数量
+		AgentId string `form:"agent_id" validate:"required" json:"agent_id"` // agent_id
+		Limit   int    `form:"limit" json:"limit"`                           // 限制数量
 	}
 
 	// FindJobExecutionPageReq 分页查询 请求对象
