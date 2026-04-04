@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"github.com/jettjia/igo-pkg/pkg/data"
@@ -377,40 +378,72 @@ func (r *ChatTokenStats) GetTotalTokens(ctx context.Context) (int, error) {
 }
 
 func (r *ChatTokenStats) GetTokenRanking(ctx context.Context, limit int) ([]*irepository.TokenRankingItem, error) {
-	var results []*struct {
-		AgentId     string
-		AgentName   string
-		TotalTokens int
-	}
-
 	if limit <= 0 {
 		limit = 10
 	}
 
+	// Token from chat sessions
+	var chatResults []struct {
+		AgentId     string
+		TotalTokens int
+	}
 	err := r.data.DB(ctx).Model(&po.ChatTokenStats{}).
 		Select("agent_id, SUM(total_tokens) as total_tokens").
 		Group("agent_id").
-		Order("total_tokens DESC").
-		Limit(limit).
-		Scan(&results).Error
+		Scan(&chatResults)
 	if err != nil {
-		return nil, err
+		return nil, err.Error
 	}
 
-	// Get agent names
-	items := make([]*irepository.TokenRankingItem, 0, len(results))
-	for _, res := range results {
-		agentName := res.AgentId // fallback to ID if not found
-		// Try to get agent name from sys_agent table if available
+	// Token from job executions
+	var jobResults []struct {
+		AgentId     string
+		TotalTokens int
+	}
+	err = r.data.DB(ctx).Model(&poJob.JobExecutionPO{}).
+		Select("agent_id, COALESCE(SUM(tokens_used), 0) as total_tokens").
+		Where("status = 'success' AND deleted_at = 0").
+		Group("agent_id").
+		Scan(&jobResults)
+	if err != nil {
+		jobResults = nil // fallback if error
+	}
+
+	// Merge by agent_id
+	tokenMap := make(map[string]int)
+	for _, res := range chatResults {
+		tokenMap[res.AgentId] += res.TotalTokens
+	}
+	for _, res := range jobResults {
+		tokenMap[res.AgentId] += res.TotalTokens
+	}
+
+	// Sort by total_tokens desc
+	type rankedItem struct {
+		agentId     string
+		totalTokens int
+	}
+	ranked := make([]rankedItem, 0, len(tokenMap))
+	for agentId, tokens := range tokenMap {
+		ranked = append(ranked, rankedItem{agentId, tokens})
+	}
+	sort.Slice(ranked, func(i, j int) bool {
+		return ranked[i].totalTokens > ranked[j].totalTokens
+	})
+
+	// Apply limit and get agent names
+	items := make([]*irepository.TokenRankingItem, 0, limit)
+	for i := 0; i < len(ranked) && i < limit; i++ {
+		agentName := ranked[i].agentId
 		var agentNameFromDB string
-		err := r.data.DB(ctx).Table("sys_agent").Where("ulid = ?", res.AgentId).Pluck("name", &agentNameFromDB).Error
-		if err == nil && agentNameFromDB != "" {
+		_ = r.data.DB(ctx).Table("sys_agent").Where("ulid = ?", ranked[i].agentId).Pluck("name", &agentNameFromDB).Error
+		if agentNameFromDB != "" {
 			agentName = agentNameFromDB
 		}
 		items = append(items, &irepository.TokenRankingItem{
-			AgentId:     res.AgentId,
+			AgentId:     ranked[i].agentId,
 			AgentName:   agentName,
-			TotalTokens: res.TotalTokens,
+			TotalTokens: ranked[i].totalTokens,
 		})
 	}
 
