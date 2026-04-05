@@ -65,6 +65,23 @@ func (r *ChatSession) FindById(ctx context.Context, ulid string) (*entity.ChatSe
 	return converter.P2EChatSession(&chatPo), nil
 }
 
+func (r *ChatSession) CreateWithId(ctx context.Context, session *entity.ChatSession, ulid string) error {
+	chatPo := converter.E2PChatSessionAdd(session)
+	chatPo.Ulid = ulid
+	return r.data.DB(ctx).Create(&chatPo).Error
+}
+
+func (r *ChatSession) FindByUserIdAndChannel(ctx context.Context, userId, channel string) (*entity.ChatSession, error) {
+	var chatPo po.ChatSession
+	if err := r.data.DB(ctx).Where("user_id = ? AND channel = ? AND deleted_at = 0", userId, channel).Order("updated_at DESC").First(&chatPo).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return converter.P2EChatSession(&chatPo), nil
+}
+
 func (r *ChatSession) FindByUserId(ctx context.Context, userId string, status string) ([]*entity.ChatSession, error) {
 	var chatPos []*po.ChatSession
 	query := r.data.DB(ctx).Where("user_id = ? AND deleted_at = 0", userId)

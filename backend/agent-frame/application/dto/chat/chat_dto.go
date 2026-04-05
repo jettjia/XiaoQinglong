@@ -28,6 +28,7 @@ type (
 	// UpdateChatSessionReq 更新会话请求对象
 	UpdateChatSessionReq struct {
 		Ulid      string `validate:"required" json:"ulid"`
+		AgentId   string `json:"agent_id"`
 		Title     string `json:"title"`
 		Status    string `json:"status"`
 		UpdatedBy string `json:"updated_by"`

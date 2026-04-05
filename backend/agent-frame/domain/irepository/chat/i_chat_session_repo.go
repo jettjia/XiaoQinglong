@@ -11,6 +11,7 @@ import (
 // IChatSessionRepo 聊天会话仓库接口
 type IChatSessionRepo interface {
 	Create(ctx context.Context, session *entity.ChatSession) (ulid string, err error)
+	CreateWithId(ctx context.Context, session *entity.ChatSession, ulid string) error
 	Delete(ctx context.Context, ulid string) error
 	Update(ctx context.Context, session *entity.ChatSession) error
 	UpdateStatus(ctx context.Context, ulid string, status string) error
@@ -19,6 +20,7 @@ type IChatSessionRepo interface {
 	FindPage(ctx context.Context, queries []*builder.Query, reqPage *builder.PageData, reqSort *builder.SortData) ([]*entity.ChatSession, *builder.PageData, error)
 	FindRecent(ctx context.Context, limit int) ([]*entity.ChatSession, error) // 获取最近的会话
 	CountByChannel(ctx context.Context) (map[string]int, error)              // 按渠道统计消息数
+	FindByUserIdAndChannel(ctx context.Context, userId, channel string) (*entity.ChatSession, error)
 }
 
 // IChatMessageRepo 聊天消息仓库接口

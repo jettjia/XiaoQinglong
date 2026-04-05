@@ -2,6 +2,7 @@ package feishu
 
 import (
 	"context"
+	"errors"
 	"os"
 
 	publicChannel "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/channel"
@@ -21,6 +22,14 @@ func GetWsManager() *WsManager {
 		wsManager = &WsManager{}
 	}
 	return wsManager
+}
+
+// SendText 通过 WebSocket 发送文本消息
+func (m *WsManager) SendText(ctx context.Context, receiveID, msgType, content string) error {
+	if m.feishuWsHandler == nil {
+		return errors.New("feishu ws handler not initialized")
+	}
+	return m.feishuWsHandler.SendText(ctx, receiveID, msgType, content)
 }
 
 // StartFeishuWs 启动飞书WebSocket连接

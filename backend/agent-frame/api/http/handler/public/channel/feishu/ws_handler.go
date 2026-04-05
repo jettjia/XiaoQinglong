@@ -193,6 +193,22 @@ func (h *WsHandler) handleMessageReceived(ctx context.Context, event *larkim.P2M
 		return nil
 	}
 
+	// 使用 message_id 做去重，避免 Feishu 重试导致重复处理
+	if messageID != "" {
+		h.mu.Lock()
+		if _, seen := h.processedMsgs[messageID]; seen {
+			h.mu.Unlock()
+			logger.GetRunnerLogger().Infof("[Feishu WS] Skipping duplicate message: %s", messageID)
+			return nil
+		}
+		h.processedMsgs[messageID] = true
+		// 限制去重缓存大小
+		if len(h.processedMsgs) > 1000 {
+			h.processedMsgs = make(map[string]bool)
+		}
+		h.mu.Unlock()
+	}
+
 	// 解析消息内容
 	content, _ := h.extractMessageContent(event.Event.Message)
 	if content == "" {
@@ -255,10 +271,19 @@ func (h *WsHandler) extractMessageContent(msg *larkim.EventMessage) (string, err
 func (h *WsHandler) SendText(ctx context.Context, receiveID, msgType, content string) error {
 	logger.GetRunnerLogger().Infof("[Feishu WS] Sending message to %s: %s", receiveID, content)
 
+	// 飞书文本消息的 content 必须是 JSON 字符串格式: {"text":"..."}
+	jsonContent := map[string]string{"text": content}
+	contentBytes, err := json.Marshal(jsonContent)
+	if err != nil {
+		logger.GetRunnerLogger().Errorf("[Feishu WS] Failed to marshal content: %v", err)
+		return err
+	}
+	jsonStr := string(contentBytes)
+
 	body := &larkim.CreateMessageReqBody{
 		ReceiveId: &receiveID,
 		MsgType:   &msgType,
-		Content:   &content,
+		Content:   &jsonStr,
 	}
 
 	req := larkim.NewCreateMessageReqBuilder().

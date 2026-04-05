@@ -65,6 +65,39 @@ func (s *ChatSessionSvc) FindRecentSessions(ctx context.Context, limit int) ([]*
 	return s.sessionRepo.FindRecent(ctx, limit)
 }
 
+// FindOrCreateSessionByChannel 查找或创建渠道会话（用于 Feishu WS 等场景）
+// 使用 userId + channel 查找活跃会话，如果不存在则创建
+func (s *ChatSessionSvc) FindOrCreateSessionByChannel(ctx context.Context, userId, channel, agentId string) (*entity.ChatSession, error) {
+	// 先查找用户在该渠道的活跃会话
+	session, err := s.sessionRepo.FindByUserIdAndChannel(ctx, userId, channel)
+	if err != nil {
+		return nil, err
+	}
+	if session != nil && session.Status == "active" {
+		return session, nil
+	}
+
+	// 创建新会话
+	newSession := &entity.ChatSession{
+		UserId:   userId,
+		Channel:  channel,
+		AgentId:  agentId,
+		Title:    "New Chat",
+		Status:   "active",
+	}
+	ulid, err := s.sessionRepo.Create(ctx, newSession)
+	if err != nil {
+		return nil, err
+	}
+	newSession.Ulid = ulid
+	return newSession, nil
+}
+
+// CreateSessionWithId 创建会话并指定 ulid（用于 Feishu WS 等场景，chat_id 作为 session ulid）
+func (s *ChatSessionSvc) CreateSessionWithId(ctx context.Context, session *entity.ChatSession, ulid string) error {
+	return s.sessionRepo.CreateWithId(ctx, session, ulid)
+}
+
 // CountByChannel 按渠道统计消息数
 func (s *ChatSessionSvc) CountByChannel(ctx context.Context) (map[string]int, error) {
 	return s.sessionRepo.CountByChannel(ctx)

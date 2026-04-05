@@ -23,6 +23,11 @@ import (
 	"github.com/jettjia/xiaoqinglong/agent-frame/pkg/logger"
 )
 
+// FeishuWSSender 飞书 WS 发送器接口（避免循环依赖）
+type FeishuWSSender interface {
+	SendText(ctx context.Context, receiveID, msgType, content string) error
+}
+
 // ChannelDispatcher 渠道调度器
 type ChannelDispatcher struct {
 	inboundHandlers  map[string]InboundHandler
@@ -34,9 +39,25 @@ type ChannelDispatcher struct {
 	memorySvc        *memorySvc.AgentMemorySvc
 }
 
+// 全局调度器实例（供 boot 包使用）
+var globalDispatcher *ChannelDispatcher
+
+// 全局 Feishu WS 发送器（供 dispatcher 使用，避免循环依赖）
+var globalFeishuWSSender FeishuWSSender
+
+// SetFeishuWSSender 设置全局 Feishu WS 发送器
+func SetFeishuWSSender(sender FeishuWSSender) {
+	globalFeishuWSSender = sender
+}
+
+// GetGlobalDispatcher 获取全局调度器实例
+func GetGlobalDispatcher() *ChannelDispatcher {
+	return globalDispatcher
+}
+
 // NewChannelDispatcher 创建调度器
 func NewChannelDispatcher() *ChannelDispatcher {
-	return &ChannelDispatcher{
+	dispatcher := &ChannelDispatcher{
 		inboundHandlers:  make(map[string]InboundHandler),
 		outboundHandlers: make(map[string]OutboundHandler),
 		runnerURL:        "http://localhost:18080",
@@ -45,6 +66,8 @@ func NewChannelDispatcher() *ChannelDispatcher {
 		channelSvc:       channelSvc.NewSysChannelService(),
 		memorySvc:        memorySvc.NewAgentMemorySvc(),
 	}
+	globalDispatcher = dispatcher
+	return dispatcher
 }
 
 // RegisterInboundHandler 注册入站处理器
@@ -450,6 +473,435 @@ func (d *ChannelDispatcher) sendError(c *gin.Context, ctx *ChannelContext, err e
 // GetChannelConfig 根据 code 获取渠道配置
 func (d *ChannelDispatcher) GetChannelConfig(code string) (*channelSvc.SysChannelService, error) {
 	return nil, nil
+}
+
+// HandleFeishuWSMessage 处理飞书 WebSocket 消息
+func (d *ChannelDispatcher) HandleFeishuWSMessage(ctx *MessageContext) error {
+	log := logger.GetRunnerLogger()
+	log.Infof("[Dispatcher] HandleFeishuWSMessage: sessionID=%s, userID=%s, content=%s",
+		ctx.SessionID, ctx.UserID, ctx.Content)
+
+	// 1. 查找或创建 Session
+	var agentId string
+	session, err := d.chatSvc.FindOrCreateChatSessionByChannel(context.Background(), ctx.UserID, "feishu", "")
+	if err != nil {
+		log.Warnf("[Dispatcher] Failed to find/create session: %v", err)
+		return err
+	}
+
+	// 如果 session 没有绑定 agent，需要路由选择
+	if session.AgentId == "" {
+		log.Infof("[Dispatcher] Session has no agent bound, routing...")
+
+		// 2. LLM 路由选择 Agent
+		agent, err := d.routeAgentForChannel(ctx.Content, "feishu")
+		if err != nil {
+			log.Warnf("[Dispatcher] Failed to route agent: %v", err)
+			// 发送错误消息
+			d.sendFeishuWSText(ctx, "抱歉，暂时没有可用的 Agent 处理您的请求。")
+			return err
+		}
+		agentId = agent.Ulid
+
+		// 3. 更新 Session 绑定 Agent
+		err = d.chatSvc.UpdateChatSession(context.Background(), &chatDto.UpdateChatSessionReq{
+			Ulid:    session.Ulid,
+			AgentId: agentId,
+		})
+		if err != nil {
+			log.Warnf("[Dispatcher] Failed to bind agent to session: %v", err)
+		}
+		log.Infof("[Dispatcher] Bound agent %s to session %s", agentId, session.Ulid)
+	} else {
+		agentId = session.AgentId
+		log.Infof("[Dispatcher] Session already bound to agent %s", agentId)
+	}
+
+	// 4. 构建请求并调用 runner
+	return d.runAndRespondWS(ctx, agentId, session.Ulid)
+}
+
+// routeAgentForChannel 根据消息内容和渠道路由选择 Agent（LLM 路由）
+func (d *ChannelDispatcher) routeAgentForChannel(content, channel string) (*agentDto.FindSysAgentRsp, error) {
+	log := logger.GetRunnerLogger()
+
+	// 1. 获取所有 Agent
+	allAgents, err := d.agentSvc.FindSysAgentAll(context.Background(), &agentDto.FindSysAgentAllReq{})
+	if err != nil {
+		return nil, err
+	}
+	if len(allAgents) == 0 {
+		return nil, errors.New("no agent available")
+	}
+
+	// 2. 过滤出支持该渠道的 Agent
+	var feishuAgents []*agentDto.FindSysAgentRsp
+	for _, agent := range allAgents {
+		// 检查 Agent 的 channels 配置
+		if agent.Channels != "" {
+			var channels []string
+			if err := json.Unmarshal([]byte(agent.Channels), &channels); err == nil {
+				for _, ch := range channels {
+					if ch == channel {
+						feishuAgents = append(feishuAgents, agent)
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// 如果没有配置 channels，则默认支持所有渠道
+	if len(feishuAgents) == 0 {
+		feishuAgents = allAgents
+	}
+
+	// 3. 只有一个 Agent，直接返回
+	if len(feishuAgents) == 1 {
+		return feishuAgents[0], nil
+	}
+
+	// 4. 多个 Agent，使用 LLM 选择最合适的
+	log.Infof("[Dispatcher] Multiple agents (%d), using LLM to select", len(feishuAgents))
+
+	// 构建选择 prompt
+	agentNames := make([]string, 0)
+	agentMap := make(map[string]string)
+	for _, agent := range feishuAgents {
+		agentNames = append(agentNames, agent.Name)
+		agentMap[agent.Name] = agent.Ulid
+	}
+
+	// 简单的 LLM 调用（这里使用第一个，实际应该调用 LLM）
+	// TODO: 实现真正的 LLM 路由
+	selectedName := agentNames[0]
+	log.Warnf("[Dispatcher] LLM routing not implemented, defaulting to first agent: %s", selectedName)
+
+	return &agentDto.FindSysAgentRsp{
+		Ulid: agentMap[selectedName],
+		Name: selectedName,
+	}, nil
+}
+
+// runAndRespondWS 非 HTTP context 下调用 runner 并发送响应
+func (d *ChannelDispatcher) runAndRespondWS(ctx *MessageContext, agentId, sessionId string) error {
+	log := logger.GetRunnerLogger()
+
+	// 1. 获取 Agent 配置
+	agentRsp, err := d.agentSvc.FindSysAgentById(context.Background(), &agentDto.FindSysAgentByIdReq{
+		Ulid: agentId,
+	})
+	if err != nil || agentRsp == nil {
+		log.Warnf("[Dispatcher] Agent not found: %s, err=%v", agentId, err)
+		d.sendFeishuWSText(ctx, "抱歉，Agent 未找到。")
+		return err
+	}
+
+	// 2. 构建 runner 请求
+	runnerReq, err := d.buildRunnerRequestWS(agentRsp, ctx, agentId, sessionId)
+	if err != nil {
+		log.Warnf("[Dispatcher] Failed to build runner request: %v", err)
+		d.sendFeishuWSText(ctx, "抱歉，请求构建失败。")
+		return err
+	}
+
+	// 3. 序列化请求
+	runnerBody, err := json.Marshal(runnerReq)
+	if err != nil {
+		log.Warnf("[Dispatcher] Failed to marshal runner request: %v", err)
+		d.sendFeishuWSText(ctx, "抱歉，请求序列化失败。")
+		return err
+	}
+
+	// 4. 发送请求到 runner
+	runURL := d.runnerURL + "/run"
+	req, err := http.NewRequest("POST", runURL, bytes.NewReader(runnerBody))
+	if err != nil {
+		log.Warnf("[Dispatcher] Failed to create request: %v", err)
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.WithError(err).Error("[Dispatcher] Failed to call runner")
+		d.sendFeishuWSText(ctx, "抱歉，暂时无法处理您的请求。")
+		return err
+	}
+	defer resp.Body.Close()
+
+	// 5. 读取响应
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Warnf("[Dispatcher] Failed to read runner response: %v", err)
+		d.sendFeishuWSText(ctx, "抱歉，响应读取失败。")
+		return err
+	}
+
+	// 6. 解析响应，发送文本
+	var respData map[string]any
+	if err := json.Unmarshal(respBody, &respData); err != nil {
+		// 非 JSON 响应（可能是 SSE 事件流格式）
+		respText := string(respBody)
+		log.Warnf("[Dispatcher] Response is not JSON, attempting SSE parse: %s", respText[:min(200, len(respText))])
+
+		// 尝试解析 SSE 格式的事件
+		content := parseSSEResponse(respText)
+		if content != "" {
+			if err := d.sendFeishuWSText(ctx, content); err != nil {
+				log.WithError(err).Error("[Dispatcher] Failed to send Feishu WS text")
+				return err
+			}
+			return nil
+		}
+
+		d.sendFeishuWSText(ctx, "抱歉，暂时无法处理您的请求。")
+		return errors.New("failed to parse response")
+	}
+
+	if respData["Content"] != nil {
+		if content, ok := respData["Content"].(string); ok {
+			if err := d.sendFeishuWSText(ctx, content); err != nil {
+				log.WithError(err).Error("[Dispatcher] Failed to send Feishu WS text")
+				return err
+			}
+		}
+	}
+
+	// 7. 保存消息到历史记录
+	go d.saveWSMessageToHistory(agentId, ctx.UserID, sessionId, ctx.Content, respData)
+
+	return nil
+}
+
+// buildRunnerRequestWS 为 WebSocket 上下文构建 runner 请求
+func (d *ChannelDispatcher) buildRunnerRequestWS(agentRsp *agentDto.FindSysAgentRsp, ctx *MessageContext, agentId, sessionId string) (map[string]any, error) {
+	// 1. 解析 Agent config_json
+	var agentConfig map[string]any
+	if agentRsp.ConfigJson != "" {
+		if err := json.Unmarshal([]byte(agentRsp.ConfigJson), &agentConfig); err != nil {
+			return nil, errors.New("failed to parse agent config: " + err.Error())
+		}
+	}
+
+	// 2. 获取 runner URL
+	runnerURL := d.runnerURL
+	if endpoint, ok := agentConfig["endpoint"].(string); ok && endpoint != "" {
+		runnerURL = strings.TrimSuffix(endpoint, "/run")
+		runnerURL = strings.TrimSuffix(runnerURL, "/")
+	}
+	d.runnerURL = runnerURL
+
+	// 3. 构建 runner 请求
+	runnerReq := make(map[string]any)
+
+	// 从 agent config 中提取 runner 需要的字段
+	if models, ok := agentConfig["models"].(map[string]any); ok && len(models) > 0 {
+		runnerReq["models"] = models
+	}
+	if systemPrompt, ok := agentConfig["system_prompt"].(string); ok {
+		runnerReq["prompt"] = systemPrompt
+	}
+	if tools, ok := agentConfig["tools"].([]any); ok && len(tools) > 0 {
+		runnerReq["tools"] = tools
+	}
+	if skills, ok := agentConfig["skills"].([]any); ok && len(skills) > 0 {
+		runnerReq["skills"] = skills
+	}
+	if options, ok := agentConfig["options"].(map[string]any); ok && len(options) > 0 {
+		runnerReq["options"] = options
+	}
+
+	// 禁用流式响应（飞书不支持 SSE）
+	if runnerReq["options"] == nil {
+		runnerReq["options"] = map[string]any{}
+	}
+	if opts, ok := runnerReq["options"].(map[string]any); ok {
+		opts["stream"] = false
+	}
+
+	if knowledgeBases, ok := agentConfig["knowledge_bases"].([]any); ok && len(knowledgeBases) > 0 {
+		runnerReq["knowledge_bases"] = knowledgeBases
+	}
+	if mcps, ok := agentConfig["mcps"].([]any); ok && len(mcps) > 0 {
+		runnerReq["mcps"] = mcps
+	}
+	if a2a, ok := agentConfig["a2a"].([]any); ok && len(a2a) > 0 {
+		runnerReq["a2a"] = a2a
+	}
+	if sandbox, ok := agentConfig["sandbox"].(map[string]any); ok && len(sandbox) > 0 {
+		runnerReq["sandbox"] = sandbox
+	}
+
+	// 4. 加载历史消息
+	historicalMessages, _ := d.loadHistoricalMessages(context.Background(), sessionId, agentConfig)
+
+	// 5. 加载长期记忆
+	memoryContext, _ := d.loadMemoryContext(context.Background(), agentId, ctx.UserID, ctx.Content, agentConfig)
+
+	// 6. 构建 messages 数组
+	messages := make([]map[string]any, 0)
+	messages = append(messages, memoryContext...)
+	messages = append(messages, historicalMessages...)
+	messages = append(messages, map[string]any{
+		"role":    "user",
+		"content": ctx.Content,
+	})
+	runnerReq["messages"] = messages
+
+	// 7. 获取 uploads 目录
+	uploadsDir := os.Getenv("APP_DATA")
+	if uploadsDir == "" {
+		uploadsDir = "/tmp/xiaoqinglong/data"
+	}
+	uploadsDir = filepath.Join(uploadsDir, "uploads")
+
+	// 8. 构建 context
+	runnerReq["context"] = map[string]any{
+		"session_id":  sessionId,
+		"user_id":     ctx.UserID,
+		"channel_id":  "feishu",
+		"agent_id":    agentId,
+		"uploads_dir": uploadsDir,
+		"memory_svc":  d.memorySvc,
+	}
+
+	return runnerReq, nil
+}
+
+// saveWSMessageToHistory 保存 WebSocket 消息到历史记录
+func (d *ChannelDispatcher) saveWSMessageToHistory(agentId, userId, sessionId, userInput string, respData map[string]any) {
+	ctx := context.Background()
+
+	// 保存用户消息
+	d.chatSvc.CreateChatMessage(ctx, &chatDto.CreateChatMessageReq{
+		SessionId: sessionId,
+		Role:      "user",
+		Content:   userInput,
+	})
+
+	// 保存助手消息
+	content := ""
+	if respData["Content"] != nil {
+		if c, ok := respData["Content"].(string); ok {
+			content = c
+		}
+	}
+	if content == "" && respData["content"] != nil {
+		if c, ok := respData["content"].(string); ok {
+			content = c
+		}
+	}
+	model := ""
+	if respData["model"] != nil {
+		if m, ok := respData["model"].(string); ok {
+			model = m
+		}
+	}
+	d.chatSvc.CreateChatMessage(ctx, &chatDto.CreateChatMessageReq{
+		SessionId: sessionId,
+		Role:      "assistant",
+		Content:   content,
+		Model:     model,
+	})
+}
+
+// parseSSEResponse 解析 SSE 格式响应，提取 content
+// SSE 格式: event: completion\ndata: {...}\n
+// done 事件格式: event: done\ndata: {"content": "...", ...}
+func parseSSEResponse(sseText string) string {
+	lines := strings.Split(sseText, "\n")
+	var content string
+
+	for i := 0; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+
+		// 找到 event: 行后的数据行
+		if strings.HasPrefix(line, "event:") {
+			eventName := strings.TrimPrefix(line, "event:")
+			// 检查下一行
+			if i+1 < len(lines) {
+				nextLine := strings.TrimSpace(lines[i+1])
+				var jsonStr string
+				if strings.HasPrefix(nextLine, "data:") {
+					jsonStr = strings.TrimPrefix(nextLine, "data:")
+				} else {
+					jsonStr = nextLine
+				}
+
+				// 跳过空行
+				if jsonStr == "" {
+					continue
+				}
+
+				var data map[string]any
+				if err := json.Unmarshal([]byte(jsonStr), &data); err == nil {
+					// done 事件包含最终的 content
+					if eventName == "done" {
+						if c, ok := data["content"].(string); ok && c != "" {
+							content = c
+							break
+						}
+					}
+					// 其他事件也尝试提取 content
+					if c, ok := data["content"].(string); ok && c != "" {
+						content = c
+					}
+				}
+			}
+			continue
+		}
+
+		// 处理单个 data: 行的情况（无 event: 前缀）
+		if strings.HasPrefix(line, "data:") {
+			jsonStr := strings.TrimPrefix(line, "data:")
+			if jsonStr == "" {
+				continue
+			}
+			var data map[string]any
+			if err := json.Unmarshal([]byte(jsonStr), &data); err == nil {
+				// 尝试 Content（大写，runner 返回格式）
+				if c, ok := data["Content"].(string); ok && c != "" {
+					content = c
+				}
+				// 也尝试 content（小写）
+				if content == "" {
+					if c, ok := data["content"].(string); ok && c != "" {
+						content = c
+					}
+				}
+				if content != "" {
+					break
+				}
+			}
+		}
+	}
+
+	return content
+}
+
+// sendFeishuWSText 通过飞书 WebSocket 发送文本消息
+func (d *ChannelDispatcher) sendFeishuWSText(ctx *MessageContext, text string) error {
+	log := logger.GetRunnerLogger()
+
+	if globalFeishuWSSender == nil {
+		log.Warn("[Dispatcher] Feishu WS sender not set")
+		return errors.New("feishu ws sender not set")
+	}
+
+	// 使用 chat_id 作为 receive_id
+	err := globalFeishuWSSender.SendText(context.Background(), ctx.SessionID, "text", text)
+	if err != nil {
+		log.WithError(err).Error("[Dispatcher] Failed to send Feishu WS text")
+		return err
+	}
+
+	log.Infof("[Dispatcher] Sent Feishu WS text to sessionID=%s, length=%d", ctx.SessionID, len(text))
+	return nil
 }
 
 // FindSysChannelByCode 根据 code 查询渠道

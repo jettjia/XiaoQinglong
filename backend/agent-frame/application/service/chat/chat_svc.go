@@ -110,6 +110,18 @@ func (s *ChatSessionService) FindChatSessionPage(ctx context.Context, req *dto.F
 
 //////////////////////////////////////////////////////////////////
 
+// FindOrCreateChatSessionByChannel 查找或创建渠道会话
+func (s *ChatSessionService) FindOrCreateChatSessionByChannel(ctx context.Context, userId, channel, agentId string) (*dto.ChatSessionRsp, error) {
+	en, err := s.sessionSrv.FindOrCreateSessionByChannel(ctx, userId, channel, agentId)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.chatDto.E2DChatSession(en), nil
+}
+
+//////////////////////////////////////////////////////////////////
+
 // ChatMessageService chat message application service
 type ChatMessageService struct {
 	chatDto    *ass.ChatAssembler
@@ -185,6 +197,22 @@ func (s *ChatMessageService) FindChatMessagesBySessionId(ctx context.Context, re
 	}
 
 	return s.chatDto.E2DChatMessages(ens), nil
+}
+
+// UpdateChatSession 更新会话
+func (s *ChatMessageService) UpdateChatSession(ctx context.Context, req *dto.UpdateChatSessionReq) error {
+	en := s.chatDto.D2EUpdateChatSession(req)
+	return s.sessionSrv.UpdateSession(ctx, en)
+}
+
+// FindOrCreateChatSessionByChannel 查找或创建渠道会话
+func (s *ChatMessageService) FindOrCreateChatSessionByChannel(ctx context.Context, userId, channel, agentId string) (*dto.ChatSessionRsp, error) {
+	en, err := s.sessionSrv.FindOrCreateSessionByChannel(ctx, userId, channel, agentId)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.chatDto.E2DChatSession(en), nil
 }
 
 //////////////////////////////////////////////////////////////////

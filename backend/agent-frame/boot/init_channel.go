@@ -2,6 +2,7 @@ package boot
 
 import (
 	"context"
+	"errors"
 	"log"
 	"os"
 
@@ -74,10 +75,20 @@ func StartChannelWsConnections() error {
 		log.Println("[Init] Starting Feishu WebSocket connection")
 
 		wsManager := feishu.GetWsManager()
+
+		// 设置全局 Feishu WS 发送器（供 dispatcher 使用）
+		publicChannel.SetFeishuWSSender(wsManager)
+
 		err := wsManager.StartFeishuWs(ctx, func(channelCtx *publicChannel.MessageContext) error {
 			log.Printf("[Feishu WS] Received message from user=%s, chat=%s",
 				channelCtx.UserID, channelCtx.SessionID)
-			return nil
+			// 调用全局 dispatcher 处理消息
+			dispatcher := publicChannel.GetGlobalDispatcher()
+			if dispatcher == nil {
+				log.Println("[Init] Global dispatcher not initialized yet")
+				return errors.New("global dispatcher not initialized")
+			}
+			return dispatcher.HandleFeishuWSMessage(channelCtx)
 		})
 		if err != nil {
 			log.Printf("[Init] Failed to start Feishu WS: %v", err)
