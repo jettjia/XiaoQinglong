@@ -40,6 +40,9 @@ type WsHandler struct {
 	// 回调配置
 	onMessage func(ctx *MessageContext) error
 
+	// 已处理消息去重
+	processedMsgs map[string]bool
+
 	mu sync.RWMutex
 }
 
@@ -75,6 +78,7 @@ func NewWsHandler(cfg WsHandlerConfig) *WsHandler {
 		encryptKey:        cfg.EncryptKey,
 		httpClient:        httpClient,
 		onMessage:         cfg.OnMessage,
+		processedMsgs:     make(map[string]bool),
 	}
 
 	// 创建事件分发器
