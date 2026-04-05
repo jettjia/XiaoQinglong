@@ -160,10 +160,11 @@ func SetPublicRouter(Router *gin.RouterGroup) {
 	// runner proxy
 	RunnerRouter := Router.Group("/runner")
 	{
-		RunnerRouter.POST("/run", handRunner.Run)        // 代理runner run请求
-		RunnerRouter.POST("/resume", handRunner.Resume)  // 代理runner resume请求
-		RunnerRouter.POST("/stop", handRunner.Stop)      // 代理runner stop请求
-		RunnerRouter.POST("/upload", handRunner.Upload)  // 文件上传
+		RunnerRouter.POST("/run", handRunner.Run)          // 代理runner run请求
+		RunnerRouter.POST("/resume", handRunner.Resume)    // 代理runner resume请求
+		RunnerRouter.POST("/stop", handRunner.Stop)        // 代理runner stop请求
+		RunnerRouter.POST("/upload", handRunner.Upload)      // 文件上传
+		RunnerRouter.POST("/memory", handRunner.SaveMemoriesHandler) // runner回调保存记忆
 	}
 
 	// job execution

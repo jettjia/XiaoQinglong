@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -16,6 +17,7 @@ import (
 	chatDto "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/chat"
 	agentSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/agent"
 	chatSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/chat"
+	"github.com/jettjia/xiaoqinglong/agent-frame/config"
 	memorySvc "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/memory"
 	"github.com/jettjia/xiaoqinglong/agent-frame/pkg/logger"
 )
@@ -32,19 +34,22 @@ type ChatRunReq struct {
 
 // Handler runner代理处理器
 type Handler struct {
-	runnerURL string
-	agentSvc  *agentSvc.SysAgentService
-	chatSvc   *chatSvc.ChatMessageService
-	memorySvc *memorySvc.AgentMemorySvc
+	runnerURL      string
+	agentFrameURL string
+	agentSvc      *agentSvc.SysAgentService
+	chatSvc       *chatSvc.ChatMessageService
+	memorySvc     *memorySvc.AgentMemorySvc
 }
 
 // NewHandler NewHandler
 func NewHandler() *Handler {
+	cfg := config.NewConfig()
 	return &Handler{
-		runnerURL: "http://localhost:18080", // 默认runner服务地址
-		agentSvc:  agentSvc.NewSysAgentService(),
-		chatSvc:   chatSvc.NewChatMessageService(),
-		memorySvc: memorySvc.NewAgentMemorySvc(),
+		runnerURL:      "http://localhost:18080", // 默认runner服务地址
+		agentFrameURL: fmt.Sprintf("http://localhost:%d", cfg.Server.PublicPort), // agent-frame服务地址，用于runner回调
+		agentSvc:      agentSvc.NewSysAgentService(),
+		chatSvc:       chatSvc.NewChatMessageService(),
+		memorySvc:     memorySvc.NewAgentMemorySvc(),
 	}
 }
 
@@ -166,12 +171,12 @@ func (h *Handler) Run(c *gin.Context) {
 	uploadsDir = filepath.Join(uploadsDir, "uploads")
 
 	runnerReq["context"] = map[string]any{
-		"session_id":  chatReq.SessionID,
-		"user_id":     chatReq.UserID,
-		"channel_id":  "web",
-		"agent_id":    chatReq.AgentID,
-		"uploads_dir": uploadsDir,
-		"memory_svc":  h.memorySvc, // 传递 memory service 给 runner
+		"session_id":               chatReq.SessionID,
+		"user_id":                  chatReq.UserID,
+		"channel_id":               "web",
+		"agent_id":                 chatReq.AgentID,
+		"uploads_dir":              uploadsDir,
+		"agent_frame_callback_url": h.agentFrameURL + "/api/xiaoqinglong/agent-frame/v1/runner/memory", // runner回调保存记忆
 	}
 
 	// 5. 序列化runner请求
@@ -244,15 +249,35 @@ func (h *Handler) Run(c *gin.Context) {
 			}
 		}
 
-		// 流结束后，异步保存 memories（非测试模式）
+		// 流结束后，异步提取记忆（非测试模式）
 		if !chatReq.IsTest && chatReq.SessionID != "" {
 			go func() {
-				var respData map[string]any
-				if err := json.Unmarshal(fullResp, &respData); err == nil {
-					if memoriesRaw, ok := respData["memories"].([]any); ok && len(memoriesRaw) > 0 {
-						if err := h.saveMemoriesFromRunner(context.Background(), chatReq.AgentID, chatReq.UserID, chatReq.SessionID, memoriesRaw); err != nil {
-							logger.GetRunnerLogger().WithError(err).Error("Failed to save memories from runner")
-						}
+				// 从数据库获取对话消息
+				msgs, err := h.chatSvc.FindChatMessagesBySessionId(context.Background(), &chatDto.FindChatMessagesBySessionIdReq{
+					SessionId: chatReq.SessionID,
+				})
+				if err != nil || len(msgs) < 2 {
+					logger.GetRunnerLogger().WithError(err).Warnf("Failed to get messages for memory extraction, sessionID=%s", chatReq.SessionID)
+					return
+				}
+				// 获取最后一条 user 和 assistant 消息
+				var lastUserInput, lastAssistantOutput string
+				for i := len(msgs) - 1; i >= 0; i-- {
+					if msgs[i].Role == "user" && lastUserInput == "" {
+						lastUserInput = msgs[i].Content
+					}
+					if msgs[i].Role == "assistant" && lastAssistantOutput == "" {
+						lastAssistantOutput = msgs[i].Content
+					}
+					if lastUserInput != "" && lastAssistantOutput != "" {
+						break
+					}
+				}
+				if lastUserInput != "" && lastAssistantOutput != "" {
+					if err := h.memorySvc.ExtractAndSaveMemories(context.Background(), chatReq.AgentID, chatReq.UserID, chatReq.SessionID, lastUserInput, lastAssistantOutput); err != nil {
+						logger.GetRunnerLogger().WithError(err).Errorf("Failed to extract memories, sessionID=%s", chatReq.SessionID)
+					} else {
+						logger.GetRunnerLogger().Infof("Memory extracted successfully for sessionID=%s", chatReq.SessionID)
 					}
 				}
 			}()
@@ -274,19 +299,22 @@ func (h *Handler) Run(c *gin.Context) {
 	log.Infof("Response Body:\n%s", string(respBody))
 	log.Info("============================")
 
-	// 6. 非测试模式下，保存 runner 返回的记忆
+	// 6. 非测试模式下，保存 runner 返回的记忆（runner 已用 LLM 提取）
 	if !chatReq.IsTest && chatReq.SessionID != "" {
-		var respData map[string]any
-		if err := json.Unmarshal(respBody, &respData); err == nil {
-			if memoriesRaw, ok := respData["memories"].([]any); ok && len(memoriesRaw) > 0 {
-				// 异步保存记忆（不阻塞响应）
-				go func() {
-					if err := h.saveMemoriesFromRunner(c.Request.Context(), chatReq.AgentID, chatReq.UserID, chatReq.SessionID, memoriesRaw); err != nil {
-						logger.GetRunnerLogger().WithError(err).Error("Failed to save memories from runner")
-					}
-				}()
+		go func() {
+			var respData map[string]any
+			if err := json.Unmarshal(respBody, &respData); err != nil {
+				logger.GetRunnerLogger().WithError(err).Warnf("Failed to parse runner response for memories, sessionID=%s", chatReq.SessionID)
+				return
 			}
-		}
+			if memoriesRaw, ok := respData["memories"].([]any); ok && len(memoriesRaw) > 0 {
+				if err := h.saveMemoriesFromRunner(context.Background(), chatReq.AgentID, chatReq.UserID, chatReq.SessionID, memoriesRaw); err != nil {
+					logger.GetRunnerLogger().WithError(err).Errorf("Failed to save memories from runner, sessionID=%s", chatReq.SessionID)
+				} else {
+					logger.GetRunnerLogger().Infof("Saved %d memories from runner, sessionID=%s", len(memoriesRaw), chatReq.SessionID)
+				}
+			}
+		}()
 	}
 
 	// 返回响应

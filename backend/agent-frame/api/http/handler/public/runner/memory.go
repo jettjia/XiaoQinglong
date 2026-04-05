@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 
+	"github.com/gin-gonic/gin"
 	memoryEntity "github.com/jettjia/xiaoqinglong/agent-frame/domain/entity/memory"
 	"github.com/jettjia/xiaoqinglong/agent-frame/pkg/logger"
 )
@@ -66,8 +67,51 @@ func (h *Handler) saveMemoriesFromRunner(ctx context.Context, agentId, userId, s
 			Importance:  2,
 		}
 		if err := h.memorySvc.CreateMemoryWithIndex(ctx, memory); err != nil {
-			logger.GetRunnerLogger().WithError(err).Errorf("Failed to create memory: %s", memory.Name)
+			logger.GetRunnerLogger().WithError(err).Errorf("Failed to create memory with index: name=%s, err=%v", memory.Name, err)
+		} else {
+			logger.GetRunnerLogger().Infof("Memory with index created: name=%s, memoryType=%s", memory.Name, memory.MemoryType)
 		}
 	}
 	return nil
 }
+
+// SaveMemoriesHandler 处理runner回调保存记忆的请求
+func (h *Handler) SaveMemoriesHandler(c *gin.Context) {
+	log := logger.GetRunnerLogger()
+	log.Infof("[Memory Callback] Received request, RemoteAddr=%s", c.Request.RemoteAddr)
+
+	var req struct {
+		AgentID   string `json:"agent_id"`
+		UserID    string `json:"user_id"`
+		SessionID string `json:"session_id"`
+		Memories  []any  `json:"memories"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Warnf("[Memory Callback] Failed to parse request: %v", err)
+		c.JSON(400, gin.H{"error": "failed to parse request: " + err.Error()})
+		return
+	}
+
+	log.Infof("[Memory Callback] Received %d memories, agentID=%s, sessionID=%s", len(req.Memories), req.AgentID, req.SessionID)
+	for i, mem := range req.Memories {
+		if memMap, ok := mem.(map[string]any); ok {
+			log.Infof("[Memory Callback]   [%d] name=%v, type=%v, description=%v, content=%v",
+				i, memMap["name"], memMap["type"], memMap["description"], memMap["content"])
+		}
+	}
+
+	if len(req.Memories) == 0 {
+		c.JSON(200, gin.H{"saved": 0})
+		return
+	}
+
+	if err := h.saveMemoriesFromRunner(c.Request.Context(), req.AgentID, req.UserID, req.SessionID, req.Memories); err != nil {
+		log.WithError(err).Error("Failed to save memories from runner")
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	log.Infof("[Memory Callback] Saved %d memories successfully", len(req.Memories))
+	c.JSON(200, gin.H{"saved": len(req.Memories)})
+}
+

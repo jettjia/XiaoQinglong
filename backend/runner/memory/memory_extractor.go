@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 
@@ -155,11 +156,28 @@ func (e *MemoryExtractor) callLLM(ctx context.Context, prompt string) (string, e
 		return "", fmt.Errorf("failed to parse LLM response: %w", err)
 	}
 
+	log.Printf("[Memory LLM] raw response: %s", string(body))
+
 	if len(openAIResp.Choices) == 0 {
 		return "", fmt.Errorf("LLM returned no choices")
 	}
 
-	return openAIResp.Choices[0].Message.Content, nil
+	// 去除 markdown 代码块标记
+	content := openAIResp.Choices[0].Message.Content
+
+	// 去掉首尾空白字符
+	content = strings.TrimSpace(content)
+
+	// 移除 markdown 代码块标记（处理 ```json\n... 的情况）
+	content = strings.Replace(content, "```json\n", "", 1)
+	content = strings.Replace(content, "```\n", "", 1)
+	content = strings.TrimPrefix(content, "```")
+	content = strings.TrimSuffix(content, "```")
+	content = strings.TrimSpace(content)
+
+	log.Printf("[Memory LLM] cleaned response: %s", content)
+
+	return content, nil
 }
 
 // ExtractMemoriesAsync 异步提取记忆，不阻塞主流程

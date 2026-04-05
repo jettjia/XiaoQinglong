@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -56,10 +57,13 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 异步提取记忆（不阻塞响应）
+	// 同步提取记忆（等待结果，确保在响应中返回）
 	if len(req.Messages) >= 2 {
-		extractor := memory.NewMemoryExtractor(memory.GetModelConfigForMemory(req.Models))
+		modelConfig := memory.GetModelConfigForMemory(req.Models)
+		log.Printf("[Memory Debug] modelConfig: %+v", modelConfig)
+		extractor := memory.NewMemoryExtractor(modelConfig)
 		if extractor != nil {
+			log.Printf("[Memory Debug] extractor created successfully")
 			// 获取最后一条 user 和 assistant 的内容
 			var userInput, assistantOutput string
 			for i := len(req.Messages) - 1; i >= 0; i-- {
@@ -73,12 +77,29 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 					break
 				}
 			}
+			log.Printf("[Memory Debug] userInput: %s, assistantOutput: %s", userInput[:min(50, len(userInput))], assistantOutput[:min(50, len(assistantOutput))])
 			if userInput != "" && assistantOutput != "" {
-				extractor.ExtractMemoriesAsync(r.Context(), userInput, assistantOutput, func(memories []types.MemoryEntry) {
+				memories, err := extractor.ExtractMemories(r.Context(), userInput, assistantOutput)
+				log.Printf("[Memory Debug] ExtractMemories returned, err=%v, len(memories)=%d", err, len(memories))
+				if err != nil {
+					log.Printf("[Memory] Failed to extract memories: %v", err)
+				} else if len(memories) > 0 {
 					log.Printf("[Memory] Extracted %d memories from conversation", len(memories))
 					resp.Memories = memories
-				})
+
+					// 流结束后，回调保存记忆
+					callbackURL := getContextStr(req.Context, "agent_frame_callback_url")
+					if callbackURL != "" {
+						go extractAndSaveMemoriesCallback(req.Context, callbackURL, req.Models, req.Messages)
+					}
+				} else {
+					log.Printf("[Memory] No memories extracted (empty result)")
+				}
+			} else {
+				log.Printf("[Memory Debug] userInput or assistantOutput is empty, skipping")
 			}
+		} else {
+			log.Printf("[Memory Debug] extractor is nil, modelConfig: %+v", modelConfig)
 		}
 	}
 
@@ -252,6 +273,99 @@ func handleRunStream(w http.ResponseWriter, r *http.Request, req *types.RunReque
 	}
 
 	close(stopHeartbeat)
+
+	// 流结束后，提取记忆并回调保存
+	callbackURL := getContextStr(req.Context, "agent_frame_callback_url")
+	if callbackURL != "" {
+		extractAndSaveMemoriesCallback(req.Context, callbackURL, req.Models, req.Messages)
+	}
+}
+
+// getContextStr 从 context 中获取字符串值
+func getContextStr(context map[string]any, key string) string {
+	if context == nil {
+		return ""
+	}
+	if v, ok := context[key].(string); ok {
+		return v
+	}
+	return ""
+}
+
+// extractAndSaveMemoriesCallback 从消息中提取记忆并回调保存
+func extractAndSaveMemoriesCallback(ctx map[string]any, callbackURL string, models map[string]types.ModelConfig, messages []types.Message) {
+	// 获取最后一条 user 和 assistant 的内容
+	var userInput, assistantOutput string
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "user" && userInput == "" {
+			userInput = messages[i].Content
+		}
+		if messages[i].Role == "assistant" && assistantOutput == "" {
+			assistantOutput = messages[i].Content
+		}
+		if userInput != "" && assistantOutput != "" {
+			break
+		}
+	}
+	if userInput == "" || assistantOutput == "" {
+		return
+	}
+
+	// 提取记忆
+	extractor := memory.NewMemoryExtractor(memory.GetModelConfigForMemory(models))
+	if extractor == nil {
+		return
+	}
+
+	memories, err := extractor.ExtractMemories(context.Background(), userInput, assistantOutput)
+	if err != nil || len(memories) == 0 {
+		if err != nil {
+			log.Printf("[Memory] Failed to extract memories: %v", err)
+		} else {
+			log.Printf("[Memory] No memories extracted, userInput=%s", userInput[:min(50, len(userInput))])
+		}
+		return
+	}
+
+	log.Printf("[Memory] Extracted %d memories", len(memories))
+	for i, m := range memories {
+		contentPreview := m.Content
+		if len(contentPreview) > 50 {
+			contentPreview = contentPreview[:50] + "..."
+		}
+		log.Printf("[Memory]   [%d] name=%s, type=%s, description=%s, content=%s",
+			i, m.Name, m.Type, m.Description, contentPreview)
+	}
+
+	// 构建回调请求
+	callbackReq := map[string]any{
+		"agent_id":   getContextStr(ctx, "agent_id"),
+		"user_id":    getContextStr(ctx, "user_id"),
+		"session_id": getContextStr(ctx, "session_id"),
+		"memories":  memories,
+	}
+
+	reqBytes, _ := json.Marshal(callbackReq)
+	go func() {
+		req, err := http.NewRequestWithContext(context.Background(), "POST", callbackURL, bytes.NewReader(reqBytes))
+		if err != nil {
+			log.Printf("[Memory] Failed to create callback request: %v", err)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Printf("[Memory] Failed to send memories callback: %v", err)
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			log.Printf("[Memory] Callback returned status %d", resp.StatusCode)
+		} else {
+			log.Printf("[Memory] Saved %d memories via callback", len(memories))
+		}
+	}()
 }
 
 func handleResume(w http.ResponseWriter, r *http.Request) {
