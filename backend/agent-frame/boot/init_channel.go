@@ -11,6 +11,7 @@ import (
 	srvChannel "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/channel"
 	publicChannel "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/channel"
 	feishu "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/channel/feishu"
+	dingtalk "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/channel/dingtalk"
 )
 
 // initDefaultChannels 初始化默认渠道
@@ -92,6 +93,33 @@ func StartChannelWsConnections() error {
 		})
 		if err != nil {
 			log.Printf("[Init] Failed to start Feishu WS: %v", err)
+			return err
+		}
+	}
+
+	// 启动钉钉 WebSocket
+	dingtalkMode := os.Getenv("DINGTALK_MODE")
+	if dingtalkMode == "websocket" {
+		log.Println("[Init] Starting DingTalk WebSocket connection")
+
+		wsManager := dingtalk.GetWsManager()
+
+		// 设置全局 DingTalk WS 发送器（供 dispatcher 使用）
+		publicChannel.SetDingTalkWSSender(wsManager)
+
+		err := wsManager.StartDingTalkWs(ctx, func(channelCtx *publicChannel.MessageContext) error {
+			log.Printf("[DingTalk WS] Received message from user=%s, chat=%s",
+				channelCtx.UserID, channelCtx.SessionID)
+			// 调用全局 dispatcher 处理消息
+			dispatcher := publicChannel.GetGlobalDispatcher()
+			if dispatcher == nil {
+				log.Println("[Init] Global dispatcher not initialized yet")
+				return errors.New("global dispatcher not initialized")
+			}
+			return dispatcher.HandleDingTalkWSMessage(channelCtx)
+		})
+		if err != nil {
+			log.Printf("[Init] Failed to start DingTalk WS: %v", err)
 			return err
 		}
 	}

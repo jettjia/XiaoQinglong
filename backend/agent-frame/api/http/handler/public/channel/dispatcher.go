@@ -28,6 +28,11 @@ type FeishuWSSender interface {
 	SendText(ctx context.Context, receiveID, msgType, content string) error
 }
 
+// DingTalkWSSender 钉钉 WS 发送器接口（避免循环依赖）
+type DingTalkWSSender interface {
+	SendText(ctx context.Context, receiveID, msgType, content string) error
+}
+
 // ChannelDispatcher 渠道调度器
 type ChannelDispatcher struct {
 	inboundHandlers  map[string]InboundHandler
@@ -48,6 +53,14 @@ var globalFeishuWSSender FeishuWSSender
 // SetFeishuWSSender 设置全局 Feishu WS 发送器
 func SetFeishuWSSender(sender FeishuWSSender) {
 	globalFeishuWSSender = sender
+}
+
+// 全局 DingTalk WS 发送器（供 dispatcher 使用，避免循环依赖）
+var globalDingTalkWSSender DingTalkWSSender
+
+// SetDingTalkWSSender 设置全局 DingTalk WS 发送器
+func SetDingTalkWSSender(sender DingTalkWSSender) {
+	globalDingTalkWSSender = sender
 }
 
 // GetGlobalDispatcher 获取全局调度器实例
@@ -882,6 +895,296 @@ func parseSSEResponse(sseText string) string {
 	}
 
 	return content
+}
+
+// HandleDingTalkWSMessage 处理钉钉 WebSocket 消息
+func (d *ChannelDispatcher) HandleDingTalkWSMessage(ctx *MessageContext) error {
+	log := logger.GetRunnerLogger()
+	log.Infof("[Dispatcher] HandleDingTalkWSMessage: sessionID=%s, userID=%s, content=%s",
+		ctx.SessionID, ctx.UserID, ctx.Content)
+
+	// 1. 查找或创建 Session
+	var agentId string
+	session, err := d.chatSvc.FindOrCreateChatSessionByChannel(context.Background(), ctx.UserID, "dingtalk", "")
+	if err != nil {
+		log.Warnf("[Dispatcher] Failed to find/create session: %v", err)
+		return err
+	}
+
+	// 如果 session 没有绑定 agent，需要路由选择
+	if session.AgentId == "" {
+		log.Infof("[Dispatcher] Session has no agent bound, routing...")
+
+		// 2. LLM 路由选择 Agent
+		agent, err := d.routeAgentForChannel(ctx.Content, "dingtalk")
+		if err != nil {
+			log.Warnf("[Dispatcher] Failed to route agent: %v", err)
+			// 发送错误消息
+			d.sendDingTalkWSText(ctx, "抱歉，暂时没有可用的 Agent 处理您的请求。")
+			return err
+		}
+		agentId = agent.Ulid
+
+		// 3. 更新 Session 绑定 Agent
+		err = d.chatSvc.UpdateChatSession(context.Background(), &chatDto.UpdateChatSessionReq{
+			Ulid:    session.Ulid,
+			AgentId: agentId,
+		})
+		if err != nil {
+			log.Warnf("[Dispatcher] Failed to bind agent to session: %v", err)
+		}
+		log.Infof("[Dispatcher] Bound agent %s to session %s", agentId, session.Ulid)
+	} else {
+		agentId = session.AgentId
+		log.Infof("[Dispatcher] Session already bound to agent %s", agentId)
+	}
+
+	// 4. 构建请求并调用 runner
+	return d.runAndRespondDingTalkWS(ctx, agentId, session.Ulid)
+}
+
+// runAndRespondDingTalkWS 非 HTTP context 下调用 runner 并发送响应（钉钉）
+func (d *ChannelDispatcher) runAndRespondDingTalkWS(ctx *MessageContext, agentId, sessionId string) error {
+	log := logger.GetRunnerLogger()
+
+	// 1. 获取 Agent 配置
+	agentRsp, err := d.agentSvc.FindSysAgentById(context.Background(), &agentDto.FindSysAgentByIdReq{
+		Ulid: agentId,
+	})
+	if err != nil || agentRsp == nil {
+		log.Warnf("[Dispatcher] Agent not found: %s, err=%v", agentId, err)
+		d.sendDingTalkWSText(ctx, "抱歉，Agent 未找到。")
+		return err
+	}
+
+	// 2. 构建 runner 请求
+	runnerReq, err := d.buildRunnerRequestDingTalkWS(agentRsp, ctx, agentId, sessionId)
+	if err != nil {
+		log.Warnf("[Dispatcher] Failed to build runner request: %v", err)
+		d.sendDingTalkWSText(ctx, "抱歉，请求构建失败。")
+		return err
+	}
+
+	// 3. 序列化请求
+	runnerBody, err := json.Marshal(runnerReq)
+	if err != nil {
+		log.Warnf("[Dispatcher] Failed to marshal runner request: %v", err)
+		d.sendDingTalkWSText(ctx, "抱歉，请求序列化失败。")
+		return err
+	}
+
+	// 4. 发送请求到 runner
+	runURL := d.runnerURL + "/run"
+	req, err := http.NewRequest("POST", runURL, bytes.NewReader(runnerBody))
+	if err != nil {
+		log.Warnf("[Dispatcher] Failed to create request: %v", err)
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.WithError(err).Error("[Dispatcher] Failed to call runner")
+		d.sendDingTalkWSText(ctx, "抱歉，暂时无法处理您的请求。")
+		return err
+	}
+	defer resp.Body.Close()
+
+	// 5. 读取响应
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Warnf("[Dispatcher] Failed to read runner response: %v", err)
+		d.sendDingTalkWSText(ctx, "抱歉，响应读取失败。")
+		return err
+	}
+
+	// 6. 解析响应，发送文本
+	var respData map[string]any
+	if err := json.Unmarshal(respBody, &respData); err != nil {
+		// 非 JSON 响应（可能是 SSE 事件流格式）
+		respText := string(respBody)
+		log.Warnf("[Dispatcher] Response is not JSON, attempting SSE parse: %s", respText[:min(200, len(respText))])
+
+		// 尝试解析 SSE 格式的事件
+		content := parseSSEResponse(respText)
+		if content != "" {
+			if err := d.sendDingTalkWSText(ctx, content); err != nil {
+				log.WithError(err).Error("[Dispatcher] Failed to send DingTalk WS text")
+				return err
+			}
+			return nil
+		}
+
+		d.sendDingTalkWSText(ctx, "抱歉，暂时无法处理您的请求。")
+		return errors.New("failed to parse response")
+	}
+
+	if respData["Content"] != nil {
+		if content, ok := respData["Content"].(string); ok {
+			if err := d.sendDingTalkWSText(ctx, content); err != nil {
+				log.WithError(err).Error("[Dispatcher] Failed to send DingTalk WS text")
+				return err
+			}
+		}
+	}
+
+	// 7. 保存消息到历史记录
+	go d.saveDingTalkWSMessageToHistory(agentId, ctx.UserID, sessionId, ctx.Content, respData)
+
+	return nil
+}
+
+// buildRunnerRequestDingTalkWS 为钉钉 WebSocket 上下文构建 runner 请求
+func (d *ChannelDispatcher) buildRunnerRequestDingTalkWS(agentRsp *agentDto.FindSysAgentRsp, ctx *MessageContext, agentId, sessionId string) (map[string]any, error) {
+	// 1. 解析 Agent config_json
+	var agentConfig map[string]any
+	if agentRsp.ConfigJson != "" {
+		if err := json.Unmarshal([]byte(agentRsp.ConfigJson), &agentConfig); err != nil {
+			return nil, errors.New("failed to parse agent config: " + err.Error())
+		}
+	}
+
+	// 2. 获取 runner URL
+	runnerURL := d.runnerURL
+	if endpoint, ok := agentConfig["endpoint"].(string); ok && endpoint != "" {
+		runnerURL = strings.TrimSuffix(endpoint, "/run")
+		runnerURL = strings.TrimSuffix(runnerURL, "/")
+	}
+	d.runnerURL = runnerURL
+
+	// 3. 构建 runner 请求
+	runnerReq := make(map[string]any)
+
+	// 从 agent config 中提取 runner 需要的字段
+	if models, ok := agentConfig["models"].(map[string]any); ok && len(models) > 0 {
+		runnerReq["models"] = models
+	}
+	if systemPrompt, ok := agentConfig["system_prompt"].(string); ok {
+		runnerReq["prompt"] = systemPrompt
+	}
+	if tools, ok := agentConfig["tools"].([]any); ok && len(tools) > 0 {
+		runnerReq["tools"] = tools
+	}
+	if skills, ok := agentConfig["skills"].([]any); ok && len(skills) > 0 {
+		runnerReq["skills"] = skills
+	}
+	if options, ok := agentConfig["options"].([]any); ok && len(options) > 0 {
+		runnerReq["options"] = options
+	}
+
+	// 禁用流式响应（钉钉不支持 SSE）
+	if runnerReq["options"] == nil {
+		runnerReq["options"] = map[string]any{}
+	}
+	if opts, ok := runnerReq["options"].(map[string]any); ok {
+		opts["stream"] = false
+	}
+
+	if knowledgeBases, ok := agentConfig["knowledge_bases"].([]any); ok && len(knowledgeBases) > 0 {
+		runnerReq["knowledge_bases"] = knowledgeBases
+	}
+	if mcps, ok := agentConfig["mcps"].([]any); ok && len(mcps) > 0 {
+		runnerReq["mcps"] = mcps
+	}
+	if a2a, ok := agentConfig["a2a"].([]any); ok && len(a2a) > 0 {
+		runnerReq["a2a"] = a2a
+	}
+	if sandbox, ok := agentConfig["sandbox"].(map[string]any); ok && len(sandbox) > 0 {
+		runnerReq["sandbox"] = sandbox
+	}
+
+	// 4. 加载历史消息
+	historicalMessages, _ := d.loadHistoricalMessages(context.Background(), sessionId, agentConfig)
+
+	// 5. 加载长期记忆
+	memoryContext, _ := d.loadMemoryContext(context.Background(), agentId, ctx.UserID, ctx.Content, agentConfig)
+
+	// 6. 构建 messages 数组
+	messages := make([]map[string]any, 0)
+	messages = append(messages, memoryContext...)
+	messages = append(messages, historicalMessages...)
+	messages = append(messages, map[string]any{
+		"role":    "user",
+		"content": ctx.Content,
+	})
+	runnerReq["messages"] = messages
+
+	// 7. 获取 uploads 目录
+	uploadsDir := os.Getenv("APP_DATA")
+	if uploadsDir == "" {
+		uploadsDir = "/tmp/xiaoqinglong/data"
+	}
+	uploadsDir = filepath.Join(uploadsDir, "uploads")
+
+	// 8. 构建 context
+	runnerReq["context"] = map[string]any{
+		"session_id":  sessionId,
+		"user_id":     ctx.UserID,
+		"channel_id":  "dingtalk",
+		"agent_id":    agentId,
+		"uploads_dir": uploadsDir,
+		"memory_svc":  d.memorySvc,
+	}
+
+	return runnerReq, nil
+}
+
+// saveDingTalkWSMessageToHistory 保存钉钉 WebSocket 消息到历史记录
+func (d *ChannelDispatcher) saveDingTalkWSMessageToHistory(agentId, userId, sessionId, userInput string, respData map[string]any) {
+	ctx := context.Background()
+
+	// 保存用户消息
+	d.chatSvc.CreateChatMessage(ctx, &chatDto.CreateChatMessageReq{
+		SessionId: sessionId,
+		Role:      "user",
+		Content:   userInput,
+	})
+
+	// 保存助手消息
+	content := ""
+	if respData["Content"] != nil {
+		if c, ok := respData["Content"].(string); ok {
+			content = c
+		}
+	}
+	if content == "" && respData["content"] != nil {
+		if c, ok := respData["content"].(string); ok {
+			content = c
+		}
+	}
+	model := ""
+	if respData["model"] != nil {
+		if m, ok := respData["model"].(string); ok {
+			model = m
+		}
+	}
+	d.chatSvc.CreateChatMessage(ctx, &chatDto.CreateChatMessageReq{
+		SessionId: sessionId,
+		Role:      "assistant",
+		Content:   content,
+		Model:     model,
+	})
+}
+
+// sendDingTalkWSText 通过钉钉 WebSocket 发送文本消息
+func (d *ChannelDispatcher) sendDingTalkWSText(ctx *MessageContext, text string) error {
+	log := logger.GetRunnerLogger()
+
+	if globalDingTalkWSSender == nil {
+		log.Warn("[Dispatcher] DingTalk WS sender not set")
+		return errors.New("dingtalk ws sender not set")
+	}
+
+	// 使用 session_id 作为 receive_id
+	err := globalDingTalkWSSender.SendText(context.Background(), ctx.SessionID, "text", text)
+	if err != nil {
+		log.WithError(err).Error("[Dispatcher] Failed to send DingTalk WS text")
+		return err
+	}
+
+	log.Infof("[Dispatcher] Sent DingTalk WS text to sessionID=%s, length=%d", ctx.SessionID, len(text))
+	return nil
 }
 
 // sendFeishuWSText 通过飞书 WebSocket 发送文本消息

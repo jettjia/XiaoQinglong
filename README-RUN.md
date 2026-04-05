@@ -77,3 +77,10 @@ export FEISHU_DOMAIN="feishu"  # 可选，默认 "lark"
 | FEISHU_ENCRYPT_KEY        | 消息加密密钥（用于签名验证）        | 是   |
 | FEISHU_VERIFICATION_TOKEN | 飞书事件订阅验证 Token              | 否   |
 | FEISHU_DOMAIN             | 飞书域名：`lark`（飞书）或 `feishu` | 否   |
+
+## dingtalk
+```bash
+DINGTALK_CLIENT_ID=your_client_id
+DINGTALK_CLIENT_SECRET=your_client_secret
+DINGTALK_MODE=websocket
+```
