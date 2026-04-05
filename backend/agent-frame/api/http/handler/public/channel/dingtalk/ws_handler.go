@@ -137,8 +137,8 @@ func (h *WsHandler) onChatBotMessageReceived(ctx context.Context, data *chatbot.
 		Header: map[string]string{
 			"conversation_id":   data.ConversationId,
 			"conversation_type": data.ConversationType,
-			"sender_nick":      senderNick,
-			"session_webhook":  data.SessionWebhook,
+			"sender_nick":       senderNick,
+			"session_webhook":   data.SessionWebhook,
 		},
 	}
 
@@ -175,7 +175,7 @@ func (h *WsHandler) SendText(ctx context.Context, receiveID, msgType, content st
 	err := replier.SimpleReplyMarkdown(
 		ctx,
 		webhook,
-		[]byte("GoClaw"),
+		[]byte("xiaoqinglong"),
 		[]byte(content),
 	)
 
