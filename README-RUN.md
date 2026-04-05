@@ -84,3 +84,11 @@ DINGTALK_CLIENT_ID=your_client_id
 DINGTALK_CLIENT_SECRET=your_client_secret
 DINGTALK_MODE=websocket
 ```
+
+## wework
+```bash
+WEWORK_BOT_ID=your_bot_id
+WEWORK_SECRET=your_secret
+WEWORK_WS_URL=wss://openws.work.weixin.qq.com  # 可选，有默认值
+WEWORK_MODE=websocket
+```
