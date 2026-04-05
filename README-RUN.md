@@ -50,6 +50,7 @@ make mock-stop
 
 ### Webhook 模式配置
 ```bash
+export FEISHU_DOMAIN="open.feishu.cn"
 export FEISHU_MODE="webhook"
 export FEISHU_APP_ID="cli_xxx"
 export FEISHU_APP_SECRET="xxx"
@@ -68,11 +69,11 @@ export FEISHU_DOMAIN="feishu"  # 可选，默认 "lark"
 ```
 
 ### 环境变量说明
-| 变量 | 说明 | 必填 |
-|------|------|------|
-| FEISHU_MODE | 连接模式：`webhook` 或 `websocket` | 是 |
-| FEISHU_APP_ID | 飞书应用 App ID | 是 |
-| FEISHU_APP_SECRET | 飞书应用 App Secret | 是 |
-| FEISHU_ENCRYPT_KEY | 消息加密密钥（用于签名验证） | 是 |
-| FEISHU_VERIFICATION_TOKEN | 飞书事件订阅验证 Token | 否 |
-| FEISHU_DOMAIN | 飞书域名：`lark`（飞书）或 `feishu` | 否 |
+| 变量                      | 说明                                | 必填 |
+| ------------------------- | ----------------------------------- | ---- |
+| FEISHU_MODE               | 连接模式：`webhook` 或 `websocket`  | 是   |
+| FEISHU_APP_ID             | 飞书应用 App ID                     | 是   |
+| FEISHU_APP_SECRET         | 飞书应用 App Secret                 | 是   |
+| FEISHU_ENCRYPT_KEY        | 消息加密密钥（用于签名验证）        | 是   |
+| FEISHU_VERIFICATION_TOKEN | 飞书事件订阅验证 Token              | 否   |
+| FEISHU_DOMAIN             | 飞书域名：`lark`（飞书）或 `feishu` | 否   |

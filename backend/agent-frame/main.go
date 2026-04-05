@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -41,6 +42,11 @@ func main() {
 
 	// start http
 	http.InitHttp()
+
+	// start channel websocket connections (feishu, etc.)
+	if err := boot.StartChannelWsConnections(); err != nil {
+		log.Printf("[Main] Failed to start channel WS connections: %v", err)
+	}
 
 	// start grpc
 	grpc.InitGrpc()

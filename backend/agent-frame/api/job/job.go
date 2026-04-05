@@ -206,7 +206,7 @@ func (m *JobManager) executeAgentJob(agentId, agentName, configJson string) {
 
 	// 检查是否暂停
 	if m.IsCronJobPaused(agentId) {
-		log.Printf("[JobManager] Agent %s is paused, skipping execution", agentId)
+		// log.Printf("[JobManager] Agent %s is paused, skipping execution", agentId)
 		return
 	}
 
