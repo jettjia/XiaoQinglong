@@ -153,6 +153,15 @@ func (r *AgentMemoryRepo) FindByType(ctx context.Context, agentId, userId, memor
 	return poToEntities(memoryPos), nil
 }
 
+func (r *AgentMemoryRepo) FindBySession(ctx context.Context, sessionId string) ([]*entity.AgentMemory, error) {
+	var memoryPos []*po.AgentMemory
+	query := r.data.DB(ctx).Where("session_id = ? AND deleted_at = 0 AND (expires_at = 0 OR expires_at > ?)", sessionId, time.Now().UnixMilli())
+	if err := query.Order("created_at ASC").Find(&memoryPos).Error; err != nil {
+		return nil, err
+	}
+	return poToEntities(memoryPos), nil
+}
+
 func (r *AgentMemoryRepo) CreateWithIndex(ctx context.Context, memory *entity.AgentMemory) error {
 	// 开启事务
 	return r.data.DB(ctx).Transaction(func(tx *gorm.DB) error {

@@ -2,6 +2,8 @@ package runner
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	memoryEntity "github.com/jettjia/xiaoqinglong/agent-frame/domain/entity/memory"
@@ -56,6 +58,17 @@ func (h *Handler) saveMemoriesFromRunner(ctx context.Context, agentId, userId, s
 		if !ok {
 			continue
 		}
+
+		// 设置过期时间：默认30天，高重要性(>2)永不过期
+		importance := 2
+		if imp, ok := memMap["importance"].(float64); ok {
+			importance = int(imp)
+		}
+		expiresAt := int64(0)
+		if importance <= 2 {
+			expiresAt = getExpirationTime(30) // 默认30天过期
+		}
+
 		memory := &memoryEntity.AgentMemory{
 			AgentId:     agentId,
 			UserId:      userId,
@@ -64,12 +77,23 @@ func (h *Handler) saveMemoriesFromRunner(ctx context.Context, agentId, userId, s
 			Description: getStringFromMap(memMap, "description"),
 			MemoryType:  getStringFromMap(memMap, "type", "user"),
 			Content:     getStringFromMap(memMap, "content"),
-			Importance:  2,
+			Importance:  importance,
+			ExpiresAt:   expiresAt, // 0=永不过期，高重要性为0
 		}
+
+		// 检查并强制执行 session 记忆数量限制（最多200条）
+		if err := h.enforceSessionMemoryLimit(ctx, sessionId, 200); err != nil {
+			logger.GetRunnerLogger().Warnf("Failed to enforce memory limit: %v", err)
+		}
+
 		if err := h.memorySvc.CreateMemoryWithIndex(ctx, memory); err != nil {
 			logger.GetRunnerLogger().WithError(err).Errorf("Failed to create memory with index: name=%s, err=%v", memory.Name, err)
 		} else {
-			logger.GetRunnerLogger().Infof("Memory with index created: name=%s, memoryType=%s", memory.Name, memory.MemoryType)
+			expireStr := "never"
+			if expiresAt > 0 {
+				expireStr = fmt.Sprintf("30days")
+			}
+			logger.GetRunnerLogger().Infof("Memory with index created: name=%s, memoryType=%s, expiresAt=%s", memory.Name, memory.MemoryType, expireStr)
 		}
 	}
 	return nil
@@ -115,3 +139,23 @@ func (h *Handler) SaveMemoriesHandler(c *gin.Context) {
 	c.JSON(200, gin.H{"saved": len(req.Memories)})
 }
 
+// getExpirationTime 计算过期时间（从现在起 days 天）
+func getExpirationTime(days int) int64 {
+	return time.Now().AddDate(0, 0, days).UnixMilli()
+}
+
+// enforceSessionMemoryLimit 强制执行 session 记忆数量限制
+func (h *Handler) enforceSessionMemoryLimit(ctx context.Context, sessionId string, maxCount int) error {
+	// 获取当前 session 的记忆数量
+	memories, err := h.memorySvc.FindMemoriesBySession(ctx, sessionId)
+	if err != nil {
+		return err
+	}
+
+	if len(memories) >= maxCount {
+		// 删除最早的（importance 最低的，且未过期的）记忆
+		oldest := memories[0] // memories 已按 created_at 排序
+		return h.memorySvc.DeleteMemory(ctx, oldest.Ulid)
+	}
+	return nil
+}

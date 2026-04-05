@@ -46,6 +46,11 @@ func (s *AgentMemorySvc) FindMemoriesByAgentAndUser(ctx context.Context, agentId
 	return s.memoryRepo.FindByAgentAndUser(ctx, agentId, userId)
 }
 
+// FindMemoriesBySession 查看某个 session 的记忆（按创建时间排序）
+func (s *AgentMemorySvc) FindMemoriesBySession(ctx context.Context, sessionId string) ([]*entity.AgentMemory, error) {
+	return s.memoryRepo.FindBySession(ctx, sessionId)
+}
+
 // SearchMemories 搜索记忆（基于关键词）
 func (s *AgentMemorySvc) SearchMemories(ctx context.Context, agentId, userId string, query string) ([]*entity.AgentMemory, error) {
 	// 简单方案：使用关键词匹配
