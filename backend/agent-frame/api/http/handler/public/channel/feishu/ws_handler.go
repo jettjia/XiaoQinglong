@@ -271,23 +271,18 @@ func (h *WsHandler) extractMessageContent(msg *larkim.EventMessage) (string, err
 	}
 }
 
-// SendText 通过 WebSocket 发送文本消息
+// SendText 通过 WebSocket 发送文本消息（使用 markdown 卡片格式）
 func (h *WsHandler) SendText(ctx context.Context, receiveID, msgType, content string) error {
-	logger.GetRunnerLogger().Infof("[Feishu WS] Sending message to %s: %s", receiveID, content)
+	logger.GetRunnerLogger().Infof("[Feishu WS] Sending message to %s (length=%d)", receiveID, len(content))
 
-	// 飞书文本消息的 content 必须是 JSON 字符串格式: {"text":"..."}
-	jsonContent := map[string]string{"text": content}
-	contentBytes, err := json.Marshal(jsonContent)
-	if err != nil {
-		logger.GetRunnerLogger().Errorf("[Feishu WS] Failed to marshal content: %v", err)
-		return err
-	}
-	jsonStr := string(contentBytes)
+	// 使用交互式卡片消息（markdown 格式）
+	cardContent := h.buildMarkdownCard(content)
 
+	msgTypeStr := "interactive"
 	body := &larkim.CreateMessageReqBody{
 		ReceiveId: &receiveID,
-		MsgType:   &msgType,
-		Content:   &jsonStr,
+		MsgType:   &msgTypeStr,
+		Content:   &cardContent,
 	}
 
 	req := larkim.NewCreateMessageReqBuilder().
@@ -307,4 +302,35 @@ func (h *WsHandler) SendText(ctx context.Context, receiveID, msgType, content st
 	}
 
 	return nil
+}
+
+// buildMarkdownCard 构建 markdown 卡片内容
+func (h *WsHandler) buildMarkdownCard(content string) string {
+	// 需要对 content 进行 JSON 转义
+	contentEscaped := jsonEscape(content)
+	return fmt.Sprintf(`{
+		"schema": "2.0",
+		"config": {
+			"wide_screen_mode": true
+		},
+		"body": {
+			"elements": [
+				{
+					"tag": "markdown",
+					"content": "%s"
+				}
+			]
+		}
+	}`, contentEscaped)
+}
+
+// jsonEscape 对字符串进行 JSON 转义
+func jsonEscape(s string) string {
+	b, _ := json.Marshal(s)
+	s = string(b)
+	// 去掉首尾的引号
+	if len(s) >= 2 {
+		s = s[1 : len(s)-1]
+	}
+	return s
 }
