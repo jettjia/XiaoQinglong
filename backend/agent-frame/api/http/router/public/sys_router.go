@@ -18,6 +18,7 @@ import (
 
 	channelDispatcher "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/channel"
 	feishuHandler "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/channel/feishu"
+	weixinHandler "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/channel/weixin"
 )
 
 func SetPublicRouter(Router *gin.RouterGroup) {
@@ -126,6 +127,14 @@ func SetPublicRouter(Router *gin.RouterGroup) {
 	CallbackRouter := Router.Group("/callback")
 	{
 		CallbackRouter.POST("/:channel", dispatcherSvc.HandleCallback()) // 渠道回调
+	}
+
+	// weixin login
+	weixinLoginHdlr := weixinHandler.NewLoginHandler()
+	WeixinLoginRouter := Router.Group("/weixin")
+	{
+		WeixinLoginRouter.GET("/login", weixinLoginHdlr.Login)   // 扫码登录（获取二维码+后台监控）
+		WeixinLoginRouter.GET("/login/status", weixinLoginHdlr.Status) // 查询登录状态
 	}
 
 	// chat

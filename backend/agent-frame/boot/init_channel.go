@@ -13,6 +13,7 @@ import (
 	feishu "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/channel/feishu"
 	dingtalk "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/channel/dingtalk"
 	wework "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/channel/wework"
+	weixin "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/channel/weixin"
 )
 
 // initDefaultChannels 初始化默认渠道
@@ -36,6 +37,7 @@ func initDefaultChannels() error {
 		{"Feishu", "feishu", "Feishu Channel", "MessageSquare", 3},
 		{"DingTalk", "dingtalk", "DingTalk Channel", "MessageSquare", 4},
 		{"WeWork", "wework", "WeWork Channel", "MessageSquare", 5},
+		{"Weixin", "weixin", "Weixin Channel", "MessageSquare", 6},
 	}
 
 	for _, ch := range defaultChannels {
@@ -149,6 +151,33 @@ func StartChannelWsConnections() error {
 		})
 		if err != nil {
 			log.Printf("[Init] Failed to start WeWork WS: %v", err)
+			return err
+		}
+	}
+
+	// 启动微信长轮询
+	weixinMode := os.Getenv("WEIXIN_MODE")
+	if weixinMode == "longpolling" {
+		log.Println("[Init] Starting Weixin long polling connection")
+
+		wsManager := weixin.GetWsManager()
+
+		// 设置全局 Weixin WS 发送器（供 dispatcher 使用）
+		publicChannel.SetWeixinWSSender(wsManager)
+
+		err := wsManager.StartWeixin(ctx, func(channelCtx *publicChannel.MessageContext) error {
+			log.Printf("[Weixin WS] Received message from user=%s, chat=%s",
+				channelCtx.UserID, channelCtx.SessionID)
+			// 调用全局 dispatcher 处理消息
+			dispatcher := publicChannel.GetGlobalDispatcher()
+			if dispatcher == nil {
+				log.Println("[Init] Global dispatcher not initialized yet")
+				return errors.New("global dispatcher not initialized")
+			}
+			return dispatcher.HandleWeixinWSMessage(channelCtx)
+		})
+		if err != nil {
+			log.Printf("[Init] Failed to start Weixin: %v", err)
 			return err
 		}
 	}

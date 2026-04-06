@@ -80,15 +80,27 @@ export FEISHU_DOMAIN="feishu"  # 可选，默认 "lark"
 
 ## dingtalk
 ```bash
-DINGTALK_CLIENT_ID=your_client_id
-DINGTALK_CLIENT_SECRET=your_client_secret
-DINGTALK_MODE=websocket
+export DINGTALK_CLIENT_ID=your_client_id
+export DINGTALK_CLIENT_SECRET=your_client_secret
+export DINGTALK_MODE=websocket
 ```
 
 ## wework
 ```bash
-WEWORK_BOT_ID=your_bot_id
-WEWORK_SECRET=your_secret
-WEWORK_WS_URL=wss://openws.work.weixin.qq.com  # 可选，有默认值
-WEWORK_MODE=websocket
+export WEWORK_BOT_ID=your_bot_id
+export WEWORK_SECRET=your_secret
+export WEWORK_WS_URL=wss://openws.work.weixin.qq.com  # 可选，有默认值
+export WEWORK_MODE=websocket
+```
+
+## wechat
+```bash
+http://127.0.0.1:9292/api/xiaoqinglong/agent-frame/v1/weixin/login/qrcode
+
+http://127.0.0.1:9292/api/xiaoqinglong/agent-frame/v1/weixin/login/qrcode/image
+
+http://127.0.0.1:9292/api/xiaoqinglong/agent-frame/v1/weixin/login
+
+export WEIXIN_ACCOUNT_ID=default          # 可选，默认 "default"
+export WEIXIN_MODE=longpolling           # 开启微信长轮询
 ```
