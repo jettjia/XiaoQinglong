@@ -345,6 +345,9 @@ type Dispatcher struct {
 
 	// 知识检索器
 	knowledgeRetriever *retriever.KnowledgeRetriever
+
+	// Deep Agent（当配置了 sub_agents 时使用）
+	deepAgent adk.ResumableAgent
 }
 
 func NewDispatcher(req *types.RunRequest) *Dispatcher {
@@ -1113,6 +1116,136 @@ func (d *Dispatcher) convertFromCCMessages(messages []contextcompressor.Message)
 }
 
 func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*DispatchResult, error) {
+	// 如果有 deepAgent，使用 deep agent 模式
+	if d.deepAgent != nil {
+		return d.runDeepAgent(ctx, messages)
+	}
+	// 否则使用普通的单 agent 模式
+	return d.runSimpleAgent(ctx, messages)
+}
+
+// runDeepAgent 使用 deep agent 运行
+func (d *Dispatcher) runDeepAgent(ctx context.Context, messages []adk.Message) (*DispatchResult, error) {
+	startTime := time.Now()
+
+	logger.Infof("[Dispatcher] runDeepAgent: starting with deep agent")
+
+	// Token 使用量追踪
+	var totalPromptTokens int
+	var totalCompletionTokens int
+
+	// checkpointID
+	checkpointID := ""
+	if d.request.Options != nil && d.request.Options.CheckPointID != "" {
+		checkpointID = d.request.Options.CheckPointID
+	}
+	if checkpointID == "" {
+		checkpointID = uuid.New().String()
+	}
+	var checkpointStore compose.CheckPointStore
+	if checkpointID != "" {
+		checkpointStore = GetCheckPointStore(checkpointID)
+		if checkpointStore == nil {
+			checkpointStore = NewFileCheckPointStore("/tmp/runner_checkpoints")
+			SetCheckPointStore(checkpointID, checkpointStore)
+		}
+	} else {
+		checkpointStore = NewInMemoryCheckPointStore()
+	}
+
+	runnerConfig := adk.RunnerConfig{
+		Agent:           d.deepAgent,
+		CheckPointStore: checkpointStore,
+	}
+	if d.request.Options != nil && d.request.Options.Stream {
+		runnerConfig.EnableStreaming = true
+	}
+
+	runner := adk.NewRunner(ctx, runnerConfig)
+
+	var finalContent string
+	var toolCalls []ToolCall
+	var finishReason string
+	var toolCallsDetail []types.ToolCallMetadata
+	var pendingApprovals []types.PendingApproval
+	var interrupted bool
+	toolCallCount := 0
+
+	events := runner.Run(ctx, messages, adk.WithCheckPointID(checkpointID))
+
+	for {
+		event, ok := events.Next()
+		if !ok {
+			break
+		}
+
+		if event.Err != nil {
+			logger.Infof("[Dispatcher] runDeepAgent error: %v", event.Err)
+			return nil, fmt.Errorf("deep agent error: %w", event.Err)
+		}
+
+		// 处理中断
+		if event.Action != nil && event.Action.Interrupted != nil {
+			interrupted = true
+			logger.Infof("[Dispatcher] runDeepAgent interrupted")
+			break
+		}
+
+		// 处理输出
+		if event.Output != nil && event.Output.MessageOutput != nil {
+			if msg, err := event.Output.MessageOutput.GetMessage(); err == nil {
+				finalContent = msg.Content
+				if msg.ResponseMeta != nil && msg.ResponseMeta.Usage != nil {
+					totalPromptTokens += msg.ResponseMeta.Usage.PromptTokens
+					totalCompletionTokens += msg.ResponseMeta.Usage.CompletionTokens
+				}
+				for _, tc := range msg.ToolCalls {
+					toolCallCount++
+					toolCalls = append(toolCalls, ToolCall{
+						Tool:   tc.Function.Name,
+						Input:  tc.Function.Arguments,
+						Output: nil,
+					})
+					toolCallsDetail = append(toolCallsDetail, types.ToolCallMetadata{
+						Tool:  tc.Function.Name,
+						Input: tc.Function.Arguments,
+					})
+				}
+				if len(msg.ToolCalls) > 0 {
+					finishReason = "tool"
+				} else {
+					finishReason = "stop"
+				}
+			}
+		}
+	}
+
+	if interrupted {
+		finishReason = "interrupted"
+	} else if finishReason == "" {
+		finishReason = "stop"
+	}
+
+	return &DispatchResult{
+		Content:          finalContent,
+		ToolCalls:        toolCalls,
+		FinishReason:     finishReason,
+		PendingApprovals: pendingApprovals,
+		CheckPointID:     checkpointID,
+		Metadata: &ResultMetadata{
+			Model:            d.defaultModelName,
+			TotalLatencyMs:   time.Since(startTime).Milliseconds(),
+			ToolCallsCount:   toolCallCount,
+			Iterations:       toolCallCount,
+			PromptTokens:     totalPromptTokens,
+			CompletionTokens: totalCompletionTokens,
+			ToolCallsDetail:  toolCallsDetail,
+		},
+	}, nil
+}
+
+// runSimpleAgent 使用普通单 agent 运行（原有的单 agent 模式）
+func (d *Dispatcher) runSimpleAgent(ctx context.Context, messages []adk.Message) (*DispatchResult, error) {
 	startTime := time.Now()
 
 	// 计算最大迭代次数

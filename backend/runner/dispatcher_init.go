@@ -7,8 +7,10 @@ import (
 
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/adk/prebuilt/deep"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
+	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"github.com/jettjia/XiaoQinglong/runner/cliext"
 	"github.com/jettjia/XiaoQinglong/runner/cron"
@@ -277,7 +279,137 @@ func (d *Dispatcher) initSubAgents(ctx context.Context) error {
 	d.tools = append(d.tools, delegateTool)
 
 	logger.Infof("[Dispatcher] initSubAgents: %d sub-agents registered, spawn/collect/list/cancel/delegate tools added", len(d.request.SubAgents))
+
+	// 如果有 sub_agents，初始化 deep agent（opt-in 模式）
+	if len(d.request.SubAgents) > 0 {
+		if err := d.initDeepAgent(ctx); err != nil {
+			logger.Infof("[Dispatcher] initSubAgents: warning - initDeepAgent failed: %v", err)
+			// 不失败，保留原有的 spawn/collect/delegate 工具方式
+		}
+	}
+
 	return nil
+}
+
+// initDeepAgent 初始化 deep agent（仅当配置了 sub_agents 时启用）
+func (d *Dispatcher) initDeepAgent(ctx context.Context) error {
+	logger.Infof("[Dispatcher] initDeepAgent: starting, sub_agents count = %d", len(d.request.SubAgents))
+
+	// 创建 SubAgentAdapter 列表
+	var subAgents []adk.Agent
+	for _, cfg := range d.request.SubAgents {
+		// 创建内部的 adk.Agent
+		innerAgent, err := d.createSubAgent(ctx, &cfg)
+		if err != nil {
+			return fmt.Errorf("createSubAgent %s failed: %w", cfg.Name, err)
+		}
+		adapter := subagent.NewSubAgentAdapter(&cfg, innerAgent)
+		subAgents = append(subAgents, adapter)
+		logger.Infof("[Dispatcher] initDeepAgent: created adapter for sub-agent %s", cfg.Name)
+	}
+
+	// 构建 deep agent 的 tools（Coordinator 自己的工具）
+	// 注意：deep agent 不需要 spawn/collect/delegate 工具，这些是给普通 main_agent 用的
+	var coordinatorTools []tool.BaseTool
+	// 其他工具已经添加到 d.tools，这里只过滤掉 sub-agent 相关的工具
+	for _, t := range d.tools {
+		info, _ := t.Info(ctx)
+		if info == nil {
+			continue
+		}
+		// 排除 sub-agent 管理工具
+		switch info.Name {
+		case "spawn_task", "collect_task", "list_tasks", "cancel_task", "delegate_to_agent":
+			continue
+		}
+		coordinatorTools = append(coordinatorTools, t)
+	}
+
+	// 计算 max iterations
+	maxIterations := 10
+	if d.request.Options != nil && d.request.Options.MaxIterations > 0 {
+		maxIterations = d.request.Options.MaxIterations
+	}
+
+	// 构建 Instruction
+	instruction := d.buildSystemPrompt()
+
+	// 创建 deep agent
+	deepCfg := &deep.Config{
+		Name:        "deep_coordinator",
+		Description: "Deep agent coordinator with sub-agent support",
+		ChatModel:   d.defaultModel,
+		SubAgents:   subAgents,
+		ToolsConfig: adk.ToolsConfig{
+			ToolsNodeConfig: compose.ToolsNodeConfig{
+				Tools: coordinatorTools,
+			},
+		},
+		MaxIteration: maxIterations,
+		Instruction: instruction,
+	}
+
+	var err error
+	d.deepAgent, err = deep.New(ctx, deepCfg)
+	if err != nil {
+		return fmt.Errorf("deep.New failed: %w", err)
+	}
+
+	logger.Infof("[Dispatcher] initDeepAgent: deep agent created with %d sub-agents", len(subAgents))
+	return nil
+}
+
+// createSubAgent 为 deep agent 创建 sub-agent
+func (d *Dispatcher) createSubAgent(ctx context.Context, cfg *subagent.SubAgentConfig) (adk.Agent, error) {
+	// 确定使用的模型
+	model := d.defaultModel
+	if cfg.Model != nil && cfg.Model.Name != "" {
+		if cm, ok := d.models[cfg.Model.Name]; ok {
+			model = cm
+		} else if cm, ok := d.modelsByRole[ModelRole(cfg.Model.Name)]; ok {
+			model = cm
+		}
+		// 如果都没找到，继续使用 defaultModel
+	}
+
+	// 收集该 sub-agent 的工具（根据配置的工具名称）
+	var tools []tool.BaseTool
+	for _, toolName := range cfg.Tools {
+		for _, t := range d.tools {
+			info, _ := t.Info(ctx)
+			if info != nil && info.Name == toolName {
+				tools = append(tools, t)
+				break
+			}
+		}
+	}
+
+	// 构建 instruction
+	instruction := cfg.Prompt
+	if cfg.Description != "" {
+		instruction = cfg.Description + "\n\n" + instruction
+	}
+
+	// 创建 agent
+	agentCfg := &adk.ChatModelAgentConfig{
+		Name:          cfg.Name,
+		Description:   cfg.Description,
+		Instruction:   instruction,
+		Model:         model,
+		MaxIterations: cfg.MaxIterations,
+		ToolsConfig: adk.ToolsConfig{
+			ToolsNodeConfig: compose.ToolsNodeConfig{
+				Tools: tools,
+			},
+		},
+	}
+
+	agent, err := adk.NewChatModelAgent(ctx, agentCfg)
+	if err != nil {
+		return nil, fmt.Errorf("adk.NewChatModelAgent failed: %w", err)
+	}
+
+	return agent, nil
 }
 
 // initMCPs 初始化 MCP 工具
