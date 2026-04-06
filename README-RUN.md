@@ -95,10 +95,6 @@ export WEWORK_MODE=websocket
 
 ## wechat
 ```bash
-http://127.0.0.1:9292/api/xiaoqinglong/agent-frame/v1/weixin/login/qrcode
-
-http://127.0.0.1:9292/api/xiaoqinglong/agent-frame/v1/weixin/login/qrcode/image
-
 http://127.0.0.1:9292/api/xiaoqinglong/agent-frame/v1/weixin/login
 
 export WEIXIN_ACCOUNT_ID=default          # 可选，默认 "default"

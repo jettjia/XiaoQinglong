@@ -2,6 +2,8 @@ package weixin
 
 import (
 	"context"
+	"crypto/rand"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -13,8 +15,8 @@ import (
 // 通过长轮询方式接收消息，存储 context_token 用于回复
 type WsHandler struct {
 	accountID string
-	auth     *WeixinAuth
-	client   *WeixinAPIClient
+	auth      *WeixinAuth
+	client    *WeixinAPIClient
 
 	// 回调配置
 	onMessage func(ctx *MessageContext) error
@@ -47,8 +49,8 @@ func NewWsHandler(cfg WsHandlerConfig) (*WsHandler, error) {
 
 	h := &WsHandler{
 		accountID: cfg.AccountID,
-		auth:     auth,
-		client:   client,
+		auth:      auth,
+		client:    client,
 		onMessage: cfg.OnMessage,
 		stopChan:  make(chan struct{}),
 	}
@@ -155,6 +157,9 @@ func (h *WsHandler) handleInboundMessage(ctx context.Context, msg *WeixinMessage
 	if msg.ContextToken != "" {
 		key := h.contextTokenKey(msg.FromUserID)
 		h.contextTokens.Store(key, msg.ContextToken)
+		logger.GetRunnerLogger().Infof("[Weixin WS] Stored contextToken for %s: %s", msg.FromUserID, msg.ContextToken)
+	} else {
+		logger.GetRunnerLogger().Warnf("[Weixin WS] No contextToken in message from %s, msg_id=%d", msg.FromUserID, msg.MessageID)
 	}
 
 	// 提取文本内容
@@ -224,10 +229,33 @@ func (h *WsHandler) Stop() error {
 
 // SendText 发送文本消息
 func (h *WsHandler) SendText(ctx context.Context, receiveID, msgType, content string) error {
-	logger.GetRunnerLogger().Infof("[Weixin WS] Sending message to %s (length=%d)", receiveID, len(content))
+	// 先调用 GetConfig 获取 typing_ticket
+	config, err := h.client.GetConfig(ctx, receiveID, "")
+	if err != nil {
+		logger.GetRunnerLogger().Warnf("[Weixin WS] GetConfig error: %v", err)
+	} else {
+		logger.GetRunnerLogger().Infof("[Weixin WS] GetConfig ok, typing_ticket=%s", config.TypingTicket)
+		// 发送 typing 状态
+		if config.TypingTicket != "" {
+			if err := h.client.SendTyping(ctx, receiveID, config.TypingTicket, TypingStatusTyping); err != nil {
+				logger.GetRunnerLogger().Warnf("[Weixin WS] SendTyping error: %v", err)
+			} else {
+				logger.GetRunnerLogger().Infof("[Weixin WS] SendTyping ok")
+			}
+		}
+	}
 
-	// 获取 context token
+	// 获取存储的 context_token
 	contextToken := h.getContextToken(receiveID)
+	if contextToken == "" {
+		logger.GetRunnerLogger().Warnf("[Weixin WS] No contextToken found for %s, message may fail", receiveID)
+	}
+
+	// 生成 client_id
+	clientID := generateClientID()
+
+	logger.GetRunnerLogger().Infof("[Weixin WS] Sending message to %s (length=%d), contextToken=%s, clientID=%s",
+		receiveID, len(content), contextToken, clientID)
 
 	// 构建消息
 	item := MessageItem{
@@ -239,6 +267,9 @@ func (h *WsHandler) SendText(ctx context.Context, receiveID, msgType, content st
 
 	req := &SendMessageReq{
 		ToUserID:     receiveID,
+		ClientID:     clientID,
+		MessageType:  MessageTypeBot,  // 2 = Bot
+		MessageState: MessageStateFinish, // 2 = Finish
 		ContextToken: contextToken,
 		ItemList:     []MessageItem{item},
 	}
@@ -250,6 +281,13 @@ func (h *WsHandler) SendText(ctx context.Context, receiveID, msgType, content st
 
 	logger.GetRunnerLogger().Infof("[Weixin WS] Message sent to %s", receiveID)
 	return nil
+}
+
+// generateClientID 生成客户端ID
+func generateClientID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return fmt.Sprintf("go-%x", b)
 }
 
 // IsLoggedIn 检查是否已登录

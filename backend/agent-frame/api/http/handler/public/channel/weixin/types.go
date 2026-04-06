@@ -9,7 +9,7 @@ type MessageContext struct {
 	Header      map[string]string // 额外头部信息
 }
 
-// ================== 微信协议类型 (参考 goclaw) ==================
+// ================== 微信协议类型 ==================
 
 // Message item types for Weixin (proto: MessageItemType)
 const (
@@ -170,6 +170,9 @@ type GetUpdatesResp struct {
 // SendMessageReq is the request for sendMessage API
 type SendMessageReq struct {
 	ToUserID     string        `json:"to_user_id,omitempty"`
+	ClientID    string        `json:"client_id,omitempty"`
+	MessageType int           `json:"message_type,omitempty"`
+	MessageState int          `json:"message_state,omitempty"`
 	ContextToken string        `json:"context_token,omitempty"`
 	ItemList     []MessageItem `json:"item_list,omitempty"`
 }

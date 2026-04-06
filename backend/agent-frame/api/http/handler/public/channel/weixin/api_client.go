@@ -1,6 +1,7 @@
 package weixin
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -10,6 +11,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/jettjia/xiaoqinglong/agent-frame/pkg/logger"
 )
 
 // WeixinAPIClient is the HTTP client for Weixin API
@@ -152,14 +155,54 @@ func (c *WeixinAPIClient) GetUpdates(ctx context.Context, req *GetUpdatesReq) (*
 	body := map[string]interface{}{
 		"get_updates_buf": req.GetUpdatesBuf,
 		"base_info": map[string]string{
-			"channel_version": "1.0.0",
+			"channel_version": "1.0.2",
 		},
 	}
 
-	resp := &GetUpdatesResp{}
-	if err := c.doJSONRequest(ctx, "ilink/bot/getupdates", body, resp); err != nil {
-		return nil, err
+	logger.GetRunnerLogger().Debugf("[Weixin API] GetUpdates request: token=%s, get_updates_buf=%s", c.token, req.GetUpdatesBuf)
+
+	// Use doRequest instead of doJSONRequest to include iLink-App-ClientVersion header
+	fullURL := ensureTrailingSlash(c.baseURL) + "ilink/bot/getupdates"
+
+	jsonData, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Content-Length", fmt.Sprintf("%d", len(jsonData)))
+	httpReq.Header.Set("X-WECHAT-UIN", generateWechatUIN())
+	if c.token != "" {
+		httpReq.Header.Set("AuthorizationType", "ilink_bot_token")
+		httpReq.Header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	resp := &GetUpdatesResp{}
+	httpResp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer httpResp.Body.Close()
+
+	respData, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		logger.GetRunnerLogger().Errorf("[Weixin API] GetUpdates status %d: %s", httpResp.StatusCode, string(respData))
+		return nil, fmt.Errorf("API request failed with status %d: %s", httpResp.StatusCode, string(respData))
+	}
+
+	if err := json.Unmarshal(respData, resp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
 	return resp, nil
 }
 
@@ -168,10 +211,60 @@ func (c *WeixinAPIClient) SendMessage(ctx context.Context, req *SendMessageReq) 
 	body := map[string]interface{}{
 		"msg":        req,
 		"base_info": map[string]string{
-			"channel_version": "1.0.0",
+			"channel_version": "1.0.2",
 		},
 	}
-	return c.doJSONRequest(ctx, "ilink/bot/sendmessage", body, nil)
+
+	fullURL := ensureTrailingSlash(c.baseURL) + "ilink/bot/sendmessage"
+	jsonData, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	logger.GetRunnerLogger().Infof("[Weixin API] SendMessage request: url=%s, token=%s, body=%s", fullURL, c.token, string(jsonData))
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Content-Length", fmt.Sprintf("%d", len(jsonData)))
+	httpReq.Header.Set("X-WECHAT-UIN", generateWechatUIN())
+	if c.token != "" {
+		httpReq.Header.Set("AuthorizationType", "ilink_bot_token")
+		httpReq.Header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+
+	logger.GetRunnerLogger().Infof("[Weixin API] SendMessage response: status=%d, body=%s, req_to_user=%s, req_context_token=%s",
+		resp.StatusCode, string(respData), req.ToUserID, req.ContextToken)
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respData))
+	}
+
+	// Check ret field in response
+	var respObj map[string]interface{}
+	if err := json.Unmarshal(respData, &respObj); err == nil {
+		if ret, ok := respObj["ret"]; ok {
+			if retFloat, ok := ret.(float64); ok && int(retFloat) != 0 {
+				return fmt.Errorf("SendMessage failed with ret=%d", int(retFloat))
+			}
+		}
+	}
+
+	return nil
 }
 
 // GetConfig gets account configuration including typing ticket
@@ -180,14 +273,49 @@ func (c *WeixinAPIClient) GetConfig(ctx context.Context, ilinkUserID, contextTok
 		"ilink_user_id": ilinkUserID,
 		"context_token":  contextToken,
 		"base_info": map[string]string{
-			"channel_version": "1.0.0",
+			"channel_version": "1.0.2",
 		},
 	}
 
-	resp := &GetConfigResp{}
-	if err := c.doJSONRequest(ctx, "ilink/bot/getconfig", body, resp); err != nil {
-		return nil, err
+	fullURL := ensureTrailingSlash(c.baseURL) + "ilink/bot/getconfig"
+	jsonData, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Content-Length", fmt.Sprintf("%d", len(jsonData)))
+	httpReq.Header.Set("X-WECHAT-UIN", generateWechatUIN())
+	if c.token != "" {
+		httpReq.Header.Set("AuthorizationType", "ilink_bot_token")
+		httpReq.Header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	resp := &GetConfigResp{}
+	httpResp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer httpResp.Body.Close()
+
+	respData, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		return nil, fmt.Errorf("API request failed with status %d: %s", httpResp.StatusCode, string(respData))
+	}
+
+	if err := json.Unmarshal(respData, resp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
 	return resp, nil
 }
 
@@ -198,10 +326,41 @@ func (c *WeixinAPIClient) SendTyping(ctx context.Context, ilinkUserID, typingTic
 		"typing_ticket":  typingTicket,
 		"status":         status,
 		"base_info": map[string]string{
-			"channel_version": "1.0.0",
+			"channel_version": "1.0.2",
 		},
 	}
-	return c.doJSONRequest(ctx, "ilink/bot/sendtyping", body, nil)
+
+	fullURL := ensureTrailingSlash(c.baseURL) + "ilink/bot/sendtyping"
+	jsonData, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Content-Length", fmt.Sprintf("%d", len(jsonData)))
+	httpReq.Header.Set("X-WECHAT-UIN", generateWechatUIN())
+	if c.token != "" {
+		httpReq.Header.Set("AuthorizationType", "ilink_bot_token")
+		httpReq.Header.Set("Authorization", "Bearer "+c.token)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respData, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respData))
+	}
+
+	return nil
 }
 
 // GetBotQRCode gets the QR code for bot login (GET request)
