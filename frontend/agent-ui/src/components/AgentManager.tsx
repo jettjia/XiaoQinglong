@@ -337,7 +337,7 @@ export function AgentManager({ onViewChange, onPlayAgent, onEditAgent }: AgentMa
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredAgents.map((agent) => (
           <div
-            key={agent.id}
+            key={agent.ulid || agent.id}
             className={cn(
               "bg-white border border-slate-200 rounded-2xl p-6 transition-all group relative",
               agent.enabled ? "shadow-sm hover:shadow-md" : "opacity-60 grayscale-[0.5]"

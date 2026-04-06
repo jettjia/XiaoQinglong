@@ -16,6 +16,8 @@ export interface Agent {
   knowledgeBases?: string[];
   isBuiltIn?: boolean;
   channels?: string[];
+  is_periodic?: boolean;  // snake_case from backend API
+  cron_rule?: string;     // snake_case from backend API
   isPeriodic?: boolean;
   cronRule?: string;
   logs?: AgentLog[];

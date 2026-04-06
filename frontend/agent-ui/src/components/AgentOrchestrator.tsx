@@ -150,54 +150,78 @@ export function AgentOrchestrator({ editingAgent, onSaved }: AgentOrchestratorPr
   // Load editing agent data
   React.useEffect(() => {
     if (editingAgent) {
-      // Parse config_json if exists
+      console.log('editingAgent received:', editingAgent);
+      console.log('editingAgent.config:', editingAgent.config);
+      console.log('editingAgent.channels:', editingAgent.channels);
+      console.log('editingAgent.is_periodic:', editingAgent.is_periodic);
+      console.log('editingAgent.cron_rule:', editingAgent.cron_rule);
+
+      // Parse config from config field (contains camelCase keys like isPeriodic, cronRule, channels etc.)
       let parsedConfig: any = {};
-      if (editingAgent.config_json) {
-        try {
-          parsedConfig = typeof editingAgent.config_json === 'string'
-            ? JSON.parse(editingAgent.config_json)
-            : editingAgent.config_json;
-        } catch (e) {
-          console.error('Failed to parse config_json:', e);
-        }
-      } else if (editingAgent.config) {
+      if (editingAgent.config) {
         try {
           parsedConfig = typeof editingAgent.config === 'string'
             ? JSON.parse(editingAgent.config)
             : editingAgent.config;
+          console.log('parsedConfig.isPeriodic:', parsedConfig.isPeriodic);
+          console.log('parsedConfig.cronRule:', parsedConfig.cronRule);
+          console.log('parsedConfig.channels:', parsedConfig.channels);
         } catch (e) {
           console.error('Failed to parse config:', e);
         }
       }
 
-      setAgentConfig(prev => ({
+      // Parse channels - from config (camelCase: channels)
+      let parsedChannels: string[] = parsedConfig.channels || ['web'];
+      // Also check top-level string field (API sometimes returns channels as JSON string)
+      if (typeof editingAgent.channels === 'string') {
+        try {
+          parsedChannels = JSON.parse(editingAgent.channels);
+        } catch { /* ignore */ }
+      } else if (Array.isArray(editingAgent.channels)) {
+        parsedChannels = editingAgent.channels;
+      }
+
+      console.log('parsedChannels:', parsedChannels);
+
+      // Parse isPeriodic and cronRule - from config (camelCase: isPeriodic, cronRule)
+      const parsedIsPeriodic = parsedConfig.isPeriodic ?? false;
+      const parsedCronRule = parsedConfig.cronRule ?? '';
+
+      console.log('parsedIsPeriodic:', parsedIsPeriodic, 'parsedCronRule:', parsedCronRule);
+      console.log('setAgentConfig being called with channels:', parsedChannels, 'isPeriodic:', parsedIsPeriodic);
+
+      setAgentConfig(prev => {
+        console.log('setAgentConfig callback, prev.channels:', prev.channels, '-> setting:', parsedChannels);
+        return {
         ...prev,
         name: editingAgent.name || prev.name,
         description: editingAgent.description || prev.description,
-        systemPrompt: parsedConfig.system_prompt || parsedConfig.systemPrompt || prev.systemPrompt,
-        models: parsedConfig.models || prev.models,
-        temperature: parsedConfig.options?.temperature ?? prev.temperature,
-        maxTokens: parsedConfig.options?.max_tokens ?? prev.maxTokens,
-        topK: parsedConfig.top_k ?? parsedConfig.topK ?? prev.topK,
+        systemPrompt: parsedConfig.systemPrompt || prev.systemPrompt,
+        models: parsedConfig.models || prev.models, // { default: 'modelId', ... }
+        temperature: parsedConfig.temperature ?? prev.temperature,
+        maxTokens: parsedConfig.maxTokens ?? prev.maxTokens,
+        topK: parsedConfig.topK ?? prev.topK,
         rerank: parsedConfig.rerank ?? prev.rerank,
-        selectedKBs: parsedConfig.selected_kbs || parsedConfig.selectedKBs || prev.selectedKBs,
-        selectedSkills: parsedConfig.selected_skills || parsedConfig.selectedSkills || prev.selectedSkills,
-        requireApproval: parsedConfig.require_approval ?? prev.requireApproval,
-        approvalThreshold: parsedConfig.approval_threshold || prev.approvalThreshold,
-        channels: parsedConfig.channels || prev.channels,
-        isPeriodic: parsedConfig.is_periodic || parsedConfig.isPeriodic || prev.isPeriodic,
-        cronRule: parsedConfig.cron_rule || parsedConfig.cronRule || prev.cronRule,
-        memoryLimit: parsedConfig.memory_limit || parsedConfig.memoryLimit || prev.memoryLimit,
-        longTermMemory: parsedConfig.long_term_memory || parsedConfig.longTermMemory || prev.longTermMemory,
+        selectedKBs: parsedConfig.selectedKBs || prev.selectedKBs,
+        selectedSkills: parsedConfig.selectedSkills || prev.selectedSkills,
+        requireApproval: parsedConfig.requireApproval ?? prev.requireApproval,
+        approvalThreshold: parsedConfig.approvalThreshold || prev.approvalThreshold,
+        channels: parsedChannels,
+        isPeriodic: parsedIsPeriodic,
+        cronRule: parsedCronRule,
+        memoryLimit: parsedConfig.memoryLimit ?? prev.memoryLimit,
+        longTermMemory: parsedConfig.longTermMemory ?? prev.longTermMemory,
         variables: parsedConfig.variables || prev.variables,
-        retryCount: parsedConfig.retry_count || parsedConfig.retryCount || prev.retryCount,
-        retryInterval: parsedConfig.retry_interval || parsedConfig.retryInterval || prev.retryInterval,
-        timeout: parsedConfig.timeout || prev.timeout,
+        retryCount: parsedConfig.retryCount ?? prev.retryCount,
+        retryInterval: parsedConfig.retryInterval ?? prev.retryInterval,
+        timeout: parsedConfig.timeout ?? prev.timeout,
         endpoint: parsedConfig.endpoint || prev.endpoint,
-        maxIterations: parsedConfig.options?.max_iterations || parsedConfig.max_iterations || prev.maxIterations,
-        stream: parsedConfig.options?.stream ?? prev.stream,
+        maxIterations: parsedConfig.maxIterations ?? prev.maxIterations,
+        stream: parsedConfig.stream ?? prev.stream,
         sandbox: parsedConfig.sandbox || prev.sandbox,
-      }));
+      };
+      });
     }
   }, [editingAgent]);
 
@@ -449,8 +473,11 @@ export function AgentOrchestrator({ editingAgent, onSaved }: AgentOrchestratorPr
     }
   };
 
-  // 加载草稿
+  // 加载草稿 - 只有在没有编辑已有agent时才加载草稿
   React.useEffect(() => {
+    // 如果正在编辑已有agent，不加载草稿
+    if (editingAgent) return;
+
     const savedDraft = localStorage.getItem('orchestrator_draft');
     if (savedDraft) {
       try {
@@ -465,7 +492,7 @@ export function AgentOrchestrator({ editingAgent, onSaved }: AgentOrchestratorPr
         console.error('Failed to load draft:', e);
       }
     }
-  }, []);
+  }, [editingAgent]);
 
   // Test Chat State
   const [testMessages, setTestMessages] = React.useState<Message[]>([]);
@@ -1801,8 +1828,8 @@ export function AgentOrchestrator({ editingAgent, onSaved }: AgentOrchestratorPr
               </div>
               <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2">
                 {backendChannels.length > 0 ? backendChannels.filter(ch => ch.enabled).map(channel => (
-                  <label key={channel.ulid || channel.code} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors">
-                    <span className="text-sm font-medium text-slate-700">{channel.name}</span>
+                  <label key={(channel.ulid || channel.code) + '_debug'} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors">
+                    <span className="text-sm font-medium text-slate-700">{channel.name} (code:{channel.code})</span>
                     <input
                       type="checkbox"
                       checked={agentConfig.channels.includes(channel.code)}
@@ -1811,8 +1838,8 @@ export function AgentOrchestrator({ editingAgent, onSaved }: AgentOrchestratorPr
                     />
                   </label>
                 )) : ['api', 'web', 'feishu', 'dingtalk'].map(channel => (
-                  <label key={channel} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors">
-                    <span className="text-sm font-medium text-slate-700">{t(`orchestrator.${channel}Channel`)}</span>
+                  <label key={channel + '_fallback'} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors">
+                    <span className="text-sm font-medium text-slate-700">{t(`orchestrator.${channel}Channel`)} (fallback)</span>
                     <input
                       type="checkbox"
                       checked={agentConfig.channels.includes(channel)}
