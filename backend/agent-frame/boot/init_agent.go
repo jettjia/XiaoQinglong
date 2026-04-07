@@ -103,6 +103,67 @@ func initDefaultAgents() error {
 			}`,
 			isSystem: true,
 		},
+		{
+			name:        "数据分析",
+			description: "分析 CSV/Excel 数据文件，生成交互式 HTML 报告，支持数据可视化、统计摘要、异常检测等",
+			icon:        "ChartBar",
+			model:       "default",
+			configJson: `{
+				"endpoint": "http://localhost:18080/run",
+				"models": {
+					"default": {
+						"provider": "default",
+						"name": "${OPENAI_MODEL}",
+						"api_key": "${OPENAI_API_KEY}",
+						"api_base": "${OPENAI_BASE_URL}"
+					}
+				},
+				"system_prompt": "你是一个数据分析专家。当用户上传 CSV/Excel 文件并要求分析时，执行以下两步：\n\nStep 1: 使用 csv-data-analysis skill 分析数据文件，执行 csv_analyzer.py 获取统计摘要和图表数据\nStep 2: 根据分析结果生成业务洞察，并返回完整的 HTML 报告\n\n报告应包含：数据概览、分布分析、相关性分析、异常检测、结论与建议。",
+				"skills": [
+					{
+						"id": "csv-data-analysis",
+						"name": "CSV数据分析",
+						"description": "用于分析 CSV 或 Excel 文件，理解数据模式，生成统计摘要和数据可视化",
+						"scope": "both",
+						"trigger": "auto",
+						"risk_level": "low"
+					}
+				],
+				"options": {
+					"temperature": 0.3,
+					"max_tokens": 8000,
+					"max_iterations": 10,
+					"stream": true,
+					"approval_policy": {
+						"enabled": false
+					}
+				},
+				"sandbox": {
+					"enabled": true,
+					"mode": "docker",
+					"image": "sandbox-code-interpreter:v1.0.3",
+					"workdir": "/workspace",
+					"timeout_ms": 120000,
+					"network": "bridge",
+					"env": {
+						"PATH": "/usr/local/bin:/usr/bin:/bin"
+					},
+					"limits": {
+						"cpu": "0.5",
+						"memory": "512m"
+					}
+				},
+				"context_window": {
+					"max_rounds": 10,
+					"max_tokens": 32000,
+					"strategy": "sliding_window"
+				},
+				"long_term_memory": {
+					"enabled": false
+				}
+			}`,
+			isSystem: true,
+		},
 	}
 
 	for _, ag := range defaultAgents {

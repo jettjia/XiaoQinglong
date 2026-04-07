@@ -77,11 +77,25 @@ func (r *SkillRunner) RunSkill(ctx context.Context, name string, input map[strin
 	}
 
 	// 检查 skill 是否有脚本文件需要执行
-	hasScript := skill.FilePath != "" && skill.EntryScript != ""
+	// 自动发现：如果 FilePath 或 EntryScript 未设置，尝试从 skill 目录自动发现
+	skillDir := r.getSkillDir(skill.ID)
+	discoveredFilePath, discoveredEntryScript := r.autoDiscoverScript(skillDir, skill.FilePath, skill.EntryScript)
+
+	hasScript := discoveredFilePath != "" && discoveredEntryScript != ""
+
+	// 如果自动发现了脚本，使用更新后的 skill 副本
+	// 否则使用原始 skill（保持不变）
+	skillForRun := skill
+	if discoveredFilePath != "" {
+		skillForRun.FilePath = discoveredFilePath
+	}
+	if discoveredEntryScript != "" {
+		skillForRun.EntryScript = discoveredEntryScript
+	}
 
 	if hasScript && r.sandboxCfg != nil && r.sandboxCfg.Enabled {
 		// 使用沙箱执行 skill
-		return r.runSkillWithSandbox(ctx, skill, inputStr, sessionID)
+		return r.runSkillWithSandbox(ctx, skillForRun, inputStr, sessionID)
 	}
 
 	// 无沙箱时，使用简单的模型调用方式执行 skill
@@ -207,6 +221,80 @@ func (r *SkillRunner) getSkillDir(skillID string) string {
 		return dir
 	}
 	return ""
+}
+
+// autoDiscoverScript 自动发现 skill 脚本
+// 扫描 skill 目录下的 scripts/ 子目录，查找可执行脚本
+func (r *SkillRunner) autoDiscoverScript(skillDir, existingFilePath, existingEntryScript string) (filePath, entryScript string) {
+	filePath = existingFilePath
+	entryScript = existingEntryScript
+
+	// 如果已经有完整的配置，无需自动发现
+	if filePath != "" && entryScript != "" {
+		return
+	}
+
+	if skillDir == "" {
+		return
+	}
+
+	// 扫描 scripts 目录
+	scriptsDir := filepath.Join(skillDir, "scripts")
+	if info, err := os.Stat(scriptsDir); err != nil || !info.IsDir() {
+		return
+	}
+
+	// 查找 .py 和 .sh 脚本
+	var pyFiles []string
+	var shFiles []string
+
+	filepath.Walk(scriptsDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		ext := filepath.Ext(path)
+		if ext == ".py" {
+			pyFiles = append(pyFiles, path)
+		} else if ext == ".sh" {
+			shFiles = append(shFiles, path)
+		}
+		return nil
+	})
+
+	// 优先级：.py > .sh
+	var foundScript string
+	if len(pyFiles) > 0 {
+		foundScript = pyFiles[0] // 取第一个 .py 文件
+	} else if len(shFiles) > 0 {
+		foundScript = shFiles[0] // 取第一个 .sh 文件
+	}
+
+	if foundScript == "" {
+		return
+	}
+
+	// 计算相对于 skill 目录的路径
+	relPath, err := filepath.Rel(skillDir, foundScript)
+	if err != nil {
+		return
+	}
+
+	// 设置 FilePath
+	if filePath == "" {
+		filePath = relPath
+	}
+
+	// 设置 EntryScript
+	if entryScript == "" {
+		ext := filepath.Ext(foundScript)
+		if ext == ".py" {
+			entryScript = "python3 " + filepath.Join("scripts", filepath.Base(foundScript))
+		} else if ext == ".sh" {
+			entryScript = "bash " + filepath.Join("scripts", filepath.Base(foundScript))
+		}
+	}
+
+	return
 }
 
 // copySkillFiles 复制 skill 文件到目标目录

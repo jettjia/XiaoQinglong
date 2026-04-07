@@ -2,7 +2,7 @@ module github.com/jettjia/xiaoqinglong/agent-frame
 
 go 1.25.0
 
-toolchain go1.25.3
+toolchain go1.26.0
 
 require (
 	github.com/gin-gonic/gin v1.10.0
