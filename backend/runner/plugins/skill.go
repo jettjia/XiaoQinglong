@@ -193,8 +193,10 @@ func (r *SkillRunner) runSkillWithAgent(ctx context.Context, instruction string,
 		},
 	})
 	if err != nil {
+		logger.Errorf("[Skill] create skill agent failed: %v", err)
 		return "", fmt.Errorf("create skill agent failed: %w", err)
 	}
+	logger.Infof("[Skill] Agent created successfully")
 
 	// 设置超时
 	skillCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
@@ -203,25 +205,60 @@ func (r *SkillRunner) runSkillWithAgent(ctx context.Context, instruction string,
 	// 运行 agent
 	logger.Infof("[Skill] Starting agent execution...")
 	runner := adk.NewRunner(skillCtx, adk.RunnerConfig{EnableStreaming: false, Agent: agent})
-	iter := runner.Query(skillCtx, "请执行任务")
+	logger.Infof("[Skill] Runner created, starting query...")
+	iter := runner.Query(skillCtx, "执行任务")
 
 	// 收集结果
 	var lastContent string
+	var eventCount int
 	for {
 		ev, ok := iter.Next()
 		if !ok {
 			break
 		}
-		if ev == nil || ev.Output == nil || ev.Output.MessageOutput == nil {
+		eventCount++
+		if ev == nil {
+			logger.Infof("[Skill] Event[%d]: nil event", eventCount)
 			continue
 		}
-		mo := ev.Output.MessageOutput
-		if mo.Message != nil && strings.TrimSpace(mo.Message.Content) != "" {
-			lastContent = mo.Message.Content
+		if ev.Output == nil {
+			logger.Infof("[Skill] Event[%d]: ev.Output is nil", eventCount)
+			continue
+		}
+		msgOut := ev.Output.MessageOutput
+		if msgOut == nil {
+			logger.Infof("[Skill] Event[%d]: ev.Output.MessageOutput is nil", eventCount)
+			continue
+		}
+
+		// 处理 Message
+		if msgOut.Message != nil && strings.TrimSpace(msgOut.Message.Content) != "" {
+			lastContent = msgOut.Message.Content
+			logger.Infof("[Skill] Event[%d]: got content, length=%d", eventCount, len(lastContent))
+		}
+
+		// 处理 MessageStream (streaming)
+		if msgOut.MessageStream != nil {
+			for {
+				chunk, err := msgOut.MessageStream.Recv()
+				if err != nil {
+					break
+				}
+				if chunk != nil && strings.TrimSpace(chunk.Content) != "" {
+					lastContent += chunk.Content
+					logger.Infof("[Skill] Event[%d]: stream chunk, length=%d", eventCount, len(chunk.Content))
+				}
+			}
 		}
 	}
 
-	logger.Infof("[Skill] Agent execution completed, content length: %d", len(lastContent))
+	logger.Infof("[Skill] Agent execution completed, total events=%d, content length: %d", eventCount, len(lastContent))
+	// 打印返回内容的前500字符用于调试
+	if len(lastContent) > 500 {
+		logger.Infof("[Skill] Final content (first 500 chars): %s", lastContent[:500])
+	} else {
+		logger.Infof("[Skill] Final content: %s", lastContent)
+	}
 	if lastContent == "" {
 		return "", fmt.Errorf("skill execution returned no content")
 	}
@@ -423,13 +460,29 @@ func (r *SkillRunner) buildSkillInstruction(skill types.Skill, input string) str
 		baseInstruction += fmt.Sprintf(`
 
 【%s 的特殊执行指引】
-1. 脚本位置: scripts/csv_analyzer.py
-2. 执行命令格式: python3 scripts/csv_analyzer.py '{"input_file": "<文件路径>"}'
-3. 如果输入中包含 file_path，直接使用该路径
-4. 示例: python3 scripts/csv_analyzer.py '{"input_file": "%s"}'
-5. 执行完脚本后，使用 html_interpreter 工具生成报告
-6. html_interpreter 的 template_path 参数: csv-data-analysis/templates/report_template.html
-7. 注意：html_interpreter 工具已经可用，无需注册`, skill.ID, filePath)
+脚本会输出两部分内容：
+1. [Statistical Summary] - 统计摘要，是纯文本
+2. ###CHART_DATA_JSON_START###...###CHART_DATA_JSON_END### - 图表数据（后端自动提取）
+
+执行步骤：
+1. 调用 execute_skill_script_file 执行脚本，skill_name=csv-data-analysis, script_file_name=csv_analyzer.py, args={"input_file": "%s"}
+2. 读取脚本输出的统计摘要，理解数据特征
+3. 调用 html_interpreter 生成报告，参数如下：
+   - template_path: "csv-data-analysis/templates/report_template.html"
+   - data: JSON对象，必须包含以下9个字段：
+     * LANG: "zh" 或 "en"（根据用户语言）
+     * REPORT_TITLE: 报告标题
+     * REPORT_SUBTITLE: 报告副标题
+     * EXEC_SUMMARY: 执行摘要（HTML格式）
+     * DISTRIBUTION_INSIGHTS: 分布分析洞察（HTML格式）
+     * CORRELATION_INSIGHTS: 相关性分析洞察（HTML格式）
+     * CATEGORICAL_INSIGHTS: 分类分析洞察（HTML格式）
+     * TIME_SERIES_INSIGHTS: 时序分析洞察（HTML格式）
+     * CONCLUSIONS: 结论与建议（HTML格式）
+
+重要：
+- html_interpreter 的 data 参数是对象类型，直接传 JSON 对象，不要嵌套字符串
+- 图表数据会自动从脚本输出中提取，无需手动传入`, skill.ID, filePath)
 	}
 
 	return baseInstruction
@@ -437,14 +490,20 @@ func (r *SkillRunner) buildSkillInstruction(skill types.Skill, input string) str
 
 // extractFilePathFromInput 从 input JSON 中提取文件路径
 func extractFilePathFromInput(input string) string {
-	// 尝试解析 JSON 提取 file_path
+	// 尝试解析 JSON 提取 input_file 或 file_path
 	type inputStruct struct {
-		FilePath string `json:"file_path"`
-		Task     string `json:"task"`
+		InputFile string `json:"input_file"`
+		FilePath  string `json:"file_path"`
+		Task      string `json:"task"`
 	}
 	var data inputStruct
-	if err := json.Unmarshal([]byte(input), &data); err == nil && data.FilePath != "" {
-		return data.FilePath
+	if err := json.Unmarshal([]byte(input), &data); err == nil {
+		if data.InputFile != "" {
+			return data.InputFile
+		}
+		if data.FilePath != "" {
+			return data.FilePath
+		}
 	}
 	// 如果解析失败，返回原输入（可能包含路径信息）
 	if len(input) > 200 {
@@ -871,18 +930,18 @@ func NewHtmlInterpreterTool(workDir string) *htmlInterpreterTool {
 func (t *htmlInterpreterTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "html_interpreter",
-		Desc: "将数据注入 HTML 模板，生成完整的 HTML 报告。输入模板路径和数据 JSON，输出渲染后的 HTML 字符串。",
+		Desc: "将数据注入 HTML 模板，生成完整的 HTML 报告。使用方法：1) template_path 传入模板路径如 csv-data-analysis/templates/report_template.html；2) data 传入 JSON 对象，必须包含 LANG(如zh/en)、REPORT_TITLE、REPORT_SUBTITLE、EXEC_SUMMARY、DISTRIBUTION_INSIGHTS、CORRELATION_INSIGHTS、CATEGORICAL_INSIGHTS、TIME_SERIES_INSIGHTS、CONCLUSIONS 等字段。",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"template_path": {Type: schema.String, Desc: "模板文件路径，如 csv-data-analysis/templates/report_template.html", Required: true},
-			"data":          {Type: schema.String, Desc: "JSON 格式的数据对象，包含所有占位符的值", Required: true},
+			"data":          {Type: schema.Object, Desc: "JSON对象，必须包含: LANG(语言zh/en)、REPORT_TITLE(报告标题)、REPORT_SUBTITLE(副标题)、EXEC_SUMMARY(执行摘要)、DISTRIBUTION_INSIGHTS、CORRELATION_INSIGHTS、CATEGORICAL_INSIGHTS、TIME_SERIES_INSIGHTS、CONCLUSIONS", Required: true},
 		}),
 	}, nil
 }
 
 func (t *htmlInterpreterTool) InvokableRun(ctx context.Context, argumentsInJSON string, opt ...tool.Option) (string, error) {
 	type req struct {
-		TemplatePath string `json:"template_path"`
-		Data         string `json:"data"`
+		TemplatePath string         `json:"template_path"`
+		Data         map[string]any `json:"data"`
 	}
 	var r req
 	if err := json.Unmarshal([]byte(argumentsInJSON), &r); err != nil {
@@ -892,15 +951,12 @@ func (t *htmlInterpreterTool) InvokableRun(ctx context.Context, argumentsInJSON 
 	if r.TemplatePath == "" {
 		return "", fmt.Errorf("template_path is required")
 	}
-	if r.Data == "" {
+	if r.Data == nil {
 		return "", fmt.Errorf("data is required")
 	}
 
-	// 解析 data JSON
-	var data map[string]any
-	if err := json.Unmarshal([]byte(r.Data), &data); err != nil {
-		return "", fmt.Errorf("parse data JSON failed: %w", err)
-	}
+	// data 已经是 map[string]any，无需再解析
+	data := r.Data
 
 	// 读取模板文件
 	templatePath := r.TemplatePath
