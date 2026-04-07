@@ -17,6 +17,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
+	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 	"github.com/jettjia/XiaoQinglong/runner/types"
 )
 
@@ -63,6 +64,13 @@ func (r *SkillRunner) RunSkill(ctx context.Context, name string, input map[strin
 
 	log.Printf("[Skill] Running skill: %s, input: %v, sessionID: %s", name, input, sessionID)
 
+	// 调试：检查 sandbox 配置
+	if r.sandboxCfg != nil {
+		logger.Infof("[Skill] sandbox enabled=%v, mode=%s, image=%s", r.sandboxCfg.Enabled, r.sandboxCfg.Mode, r.sandboxCfg.Image)
+	} else {
+		logger.Infof("[Skill] sandbox cfg is nil")
+	}
+
 	// 转换 input 为字符串
 	var inputStr string
 	if input != nil {
@@ -93,12 +101,17 @@ func (r *SkillRunner) RunSkill(ctx context.Context, name string, input map[strin
 		skillForRun.EntryScript = discoveredEntryScript
 	}
 
+	// 调试：检查 hasScript 状态
+	logger.Infof("[Skill] hasScript=%v, sandboxCfg=%v, enabled=%v", hasScript, r.sandboxCfg != nil, r.sandboxCfg != nil && r.sandboxCfg.Enabled)
+
 	if hasScript && r.sandboxCfg != nil && r.sandboxCfg.Enabled {
 		// 使用沙箱执行 skill
+		logger.Infof("[Skill] Using sandbox execution")
 		return r.runSkillWithSandbox(ctx, skillForRun, inputStr, sessionID)
 	}
 
 	// 无沙箱时，使用简单的模型调用方式执行 skill
+	logger.Infof("[Skill] Falling back to simple execution (sandbox disabled or no script)")
 	return r.runSkillSimple(ctx, skill, inputStr)
 }
 
@@ -138,14 +151,18 @@ func (r *SkillRunner) runSkillWithSandbox(ctx context.Context, skill types.Skill
 	if err := r.copySkillFiles(skillDir, tmpDir); err != nil {
 		return "", fmt.Errorf("copy skill files failed: %w", err)
 	}
+	logger.Infof("[Skill] Copied skill files from %s to %s", skillDir, tmpDir)
 
-	// 5. 创建沙箱工具：list_skill_files, read_skill_file, exec_skill_command
+	// 5. 创建沙箱工具：list_skill_files, read_skill_file, execute_skill_script_file
 	tools := r.buildSkillSandboxTools(tmpDir, skill, input)
+	logger.Infof("[Skill] Built %d sandbox tools", len(tools))
 
 	// 5. 构建执行 instruction
 	instruction := r.buildSkillInstruction(skill, input)
+	logger.Infof("[Skill] Instruction length: %d", len(instruction))
 
 	// 6. 使用 adk agent 渐进式执行
+	logger.Infof("[Skill] Calling runSkillWithAgent...")
 	return r.runSkillWithAgent(ctx, instruction, tools)
 }
 
@@ -153,6 +170,14 @@ func (r *SkillRunner) runSkillWithSandbox(ctx context.Context, skill types.Skill
 func (r *SkillRunner) runSkillWithAgent(ctx context.Context, instruction string, tools []tool.BaseTool) (string, error) {
 	if r.model == nil {
 		return "", fmt.Errorf("model not configured for skill execution")
+	}
+
+	logger.Infof("[Skill] Creating skill executor agent with %d tools", len(tools))
+	for i, t := range tools {
+		info, _ := t.Info(ctx)
+		if info != nil {
+			logger.Infof("[Skill]   Tool[%d]: %s", i, info.Name)
+		}
 	}
 
 	// 创建 skill 执行 agent
@@ -177,6 +202,7 @@ func (r *SkillRunner) runSkillWithAgent(ctx context.Context, instruction string,
 	defer cancel()
 
 	// 运行 agent
+	logger.Infof("[Skill] Starting agent execution...")
 	runner := adk.NewRunner(skillCtx, adk.RunnerConfig{EnableStreaming: false, Agent: agent})
 	iter := runner.Query(skillCtx, "请执行任务")
 
@@ -196,6 +222,7 @@ func (r *SkillRunner) runSkillWithAgent(ctx context.Context, instruction string,
 		}
 	}
 
+	logger.Infof("[Skill] Agent execution completed, content length: %d", len(lastContent))
 	if lastContent == "" {
 		return "", fmt.Errorf("skill execution returned no content")
 	}
@@ -380,13 +407,13 @@ func (r *SkillRunner) buildSkillInstruction(skill types.Skill, input string) str
 1. 首先调用 read_skill_file 读取 SKILL.md，这是最重要的入口文件
 2. 仔细阅读 SKILL.md 中的指引，了解脚本结构和执行方式
 3. 读取 scripts 目录下的脚本文件，了解其用法
-4. 根据 SKILL.md 的指引，使用 exec_skill_command 工具执行脚本
+4. 根据 SKILL.md 的指引，使用 execute_skill_script_file 工具执行脚本
 5. 使用 html_interpreter 工具（如适用）生成 HTML 报告
 6. 返回执行结果
 
 重要规则：
 - 必须先读取 SKILL.md，理解 skill 的执行流程
-- 使用 exec_skill_command 工具执行脚本，command 参数传入完整的命令
+- 使用 execute_skill_script_file 工具执行脚本，传入 skill_name、script_file_name 和 args 参数
 - 使用 html_interpreter 工具生成 HTML 报告（如果 SKILL.md 要求）
 - 不要先调用 list_skill_files`, skill.Name, input, r.skillsDir)
 
@@ -516,30 +543,55 @@ type skillExecCommandTool struct {
 
 func (t *skillExecCommandTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
-		Name: "exec_skill_command",
-		Desc: "在沙箱中执行 bash 命令",
+		Name: "execute_skill_script_file",
+		Desc: "执行 skill 目录下的脚本文件。输入脚本文件名和参数，脚本会在沙箱中执行并返回结果。",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-			"command": {Type: schema.String, Desc: "要执行的命令", Required: true},
+			"skill_name":       {Type: schema.String, Desc: "Skill 名称", Required: true},
+			"script_file_name": {Type: schema.String, Desc: "要执行的脚本文件名，如 csv_analyzer.py", Required: true},
+			"args":             {Type: schema.Object, Desc: "传递给脚本的参数对象，如 {\"input_file\": \"/path/to/file.csv\"}", Required: false},
 		}),
 	}, nil
 }
 
 func (t *skillExecCommandTool) InvokableRun(ctx context.Context, argumentsInJSON string, opt ...tool.Option) (string, error) {
 	type req struct {
-		Command string `json:"command"`
+		SkillName      string         `json:"skill_name"`
+		ScriptFileName string         `json:"script_file_name"`
+		Args           map[string]any `json:"args"`
 	}
 	var r req
 	if err := json.Unmarshal([]byte(argumentsInJSON), &r); err != nil {
 		return "", err
 	}
 
-	command := strings.TrimSpace(r.Command)
-	if command == "" {
-		return "", fmt.Errorf("command is required")
+	if r.SkillName == "" {
+		return "", fmt.Errorf("skill_name is required")
+	}
+	if r.ScriptFileName == "" {
+		return "", fmt.Errorf("script_file_name is required")
 	}
 
-	// 替换 baseDirectory 占位符
-	command = strings.ReplaceAll(command, "{{.BaseDirectory}}", t.baseDir)
+	// 构建脚本路径：skills/{skill_name}/scripts/{script_file_name}
+	scriptRelPath := r.ScriptFileName
+	scriptRelPath = strings.TrimPrefix(scriptRelPath, "scripts/")
+	scriptRelPath = strings.TrimPrefix(scriptRelPath, "scripts\\")
+
+	scriptPath := filepath.Join("skills", r.SkillName, "scripts", scriptRelPath)
+	fullScriptPath := filepath.Join(t.workDir, scriptPath)
+
+	// 检查脚本是否存在
+	if _, err := os.Stat(fullScriptPath); os.IsNotExist(err) {
+		return "", fmt.Errorf("script file not found: %s", fullScriptPath)
+	}
+
+	// 构建 Python 命令
+	var command string
+	if r.Args != nil {
+		argsJSON, _ := json.Marshal(r.Args)
+		command = fmt.Sprintf("python3 %s '%s'", fullScriptPath, string(argsJSON))
+	} else {
+		command = fmt.Sprintf("python3 %s", fullScriptPath)
+	}
 
 	// 使用沙箱执行命令
 	if t.sandboxCfg != nil && t.sandboxCfg.Enabled {
@@ -547,13 +599,8 @@ func (t *skillExecCommandTool) InvokableRun(ctx context.Context, argumentsInJSON
 	}
 
 	// 本地执行
-	workDir := t.workDir
-	if t.baseDir != "" {
-		workDir = filepath.Join(workDir, t.baseDir)
-	}
-
 	cmd := exec.Command("sh", "-c", command)
-	cmd.Dir = workDir
+	cmd.Dir = t.workDir
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -815,7 +862,7 @@ func (t *htmlInterpreterTool) Info(ctx context.Context) (*schema.ToolInfo, error
 		Desc: "将数据注入 HTML 模板，生成完整的 HTML 报告。输入模板路径和数据 JSON，输出渲染后的 HTML 字符串。",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"template_path": {Type: schema.String, Desc: "模板文件路径，如 csv-data-analysis/templates/report_template.html", Required: true},
-			"data": {Type: schema.String, Desc: "JSON 格式的数据对象，包含所有占位符的值", Required: true},
+			"data":          {Type: schema.String, Desc: "JSON 格式的数据对象，包含所有占位符的值", Required: true},
 		}),
 	}, nil
 }
@@ -823,7 +870,7 @@ func (t *htmlInterpreterTool) Info(ctx context.Context) (*schema.ToolInfo, error
 func (t *htmlInterpreterTool) InvokableRun(ctx context.Context, argumentsInJSON string, opt ...tool.Option) (string, error) {
 	type req struct {
 		TemplatePath string `json:"template_path"`
-		Data        string `json:"data"`
+		Data         string `json:"data"`
 	}
 	var r req
 	if err := json.Unmarshal([]byte(argumentsInJSON), &r); err != nil {

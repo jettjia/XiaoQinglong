@@ -10,6 +10,7 @@ import (
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 	"github.com/jettjia/XiaoQinglong/runner/types"
 )
 
@@ -347,10 +348,10 @@ func (p *SkillPlanner) Execute(ctx context.Context, plan *ExecutionPlan) (map[st
 			select {
 			case res := <-resultsCh:
 				if res.err != nil {
-					log.Printf("[SkillPlanner] Skill %s failed: %v", res.skillID, res.err)
+					logger.Errorf("[SkillPlanner] Skill %s failed: %v", res.skillID, res.err)
 					results[res.skillID+"_error"] = res.err.Error()
 				} else {
-					log.Printf("[SkillPlanner] Skill %s completed", res.skillID)
+					logger.Infof("[SkillPlanner] Skill %s completed", res.skillID)
 					results[res.skillID+"_result"] = res.result
 				}
 			case <-ctx.Done():
@@ -374,7 +375,7 @@ func (p *SkillPlanner) executeSkill(ctx context.Context, skill types.Skill, inpu
 	result, err := p.skillRunner.RunSkill(ctx, skill.ID, inputCtx, "")
 
 	latency := time.Since(start).Milliseconds()
-	log.Printf("[SkillPlanner] Skill %s executed in %dms", skill.ID, latency)
+	logger.Infof("[SkillPlanner] Skill %s executed in %dms", skill.ID, latency)
 
 	if err != nil {
 		return nil, fmt.Errorf("skill %s execution failed: %w", skill.ID, err)
