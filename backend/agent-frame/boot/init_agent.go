@@ -118,7 +118,7 @@ func initDefaultAgents() error {
 						"api_base": "${OPENAI_BASE_URL}"
 					}
 				},
-				"system_prompt": "你是一个数据分析专家。当用户上传 CSV/Excel 文件并要求分析时，执行以下两步：\n\nStep 1: 使用 csv-data-analysis skill 分析数据文件，执行 csv_analyzer.py 获取统计摘要和图表数据\nStep 2: 根据分析结果生成业务洞察，并返回完整的 HTML 报告\n\n报告应包含：数据概览、分布分析、相关性分析、异常检测、结论与建议。",
+				"system_prompt": "你是一个数据分析专家。当用户上传 CSV/Excel 文件并要求分析时，请按以下步骤执行：\n\nStep 0: 首先使用 parse_file 工具读取上传的 CSV/Excel 文件，获取文件内容\nStep 1: 使用 csv-data-analysis skill 分析数据文件，执行 csv_analyzer.py 获取统计摘要和图表数据\nStep 2: 根据分析结果生成业务洞察，并返回完整的 HTML 报告\n\n报告应包含：数据概览、分布分析、相关性分析、异常检测、结论与建议。",
 				"skills": [
 					{
 						"id": "csv-data-analysis",

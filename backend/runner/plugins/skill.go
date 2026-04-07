@@ -203,11 +203,32 @@ func (r *SkillRunner) runSkillWithAgent(ctx context.Context, instruction string,
 	return lastContent, nil
 }
 
-// runSkillSimple 简单模式执行 skill（无沙箱）
+// runSkillSimple 简单模式执行 skill（使用模型分析）
 func (r *SkillRunner) runSkillSimple(ctx context.Context, skill types.Skill, input string) (string, error) {
-	// 简单返回 skill instruction 作为执行指引
-	return fmt.Sprintf("Skill: %s\nDescription: %s\nInstruction: %s\nInput: %s",
-		skill.Name, skill.Description, skill.Instruction, input), nil
+	if r.model == nil {
+		return "", fmt.Errorf("model not configured for skill execution")
+	}
+
+	// 构建分析 prompt：skill instruction + input (包含文件内容)
+	prompt := fmt.Sprintf(`%s
+
+请分析以下数据内容：
+
+%s
+
+请按照 skill instruction 中的要求执行分析任务。`, skill.Instruction, input)
+
+	messages := []adk.Message{
+		schema.SystemMessage("你是一个数据分析专家，擅长从数据中提取洞察并生成报告。"),
+		schema.UserMessage(prompt),
+	}
+
+	resp, err := r.model.Generate(ctx, messages)
+	if err != nil {
+		return "", fmt.Errorf("model generate failed: %w", err)
+	}
+
+	return resp.Content, nil
 }
 
 // getSkillDir 获取 skill 目录

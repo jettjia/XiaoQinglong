@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/adk"
@@ -504,7 +506,7 @@ func (d *Dispatcher) initSkills(ctx context.Context) error {
 	// 转换 skills 和 sandbox 到 types 包类型
 	var skills []types.Skill
 	for _, s := range d.request.Skills {
-		skills = append(skills, types.Skill{
+		skill := types.Skill{
 			ID:          s.ID,
 			Name:        s.Name,
 			Description: s.Description,
@@ -516,7 +518,17 @@ func (d *Dispatcher) initSkills(ctx context.Context) error {
 			Inputs:      s.Inputs,
 			Outputs:     s.Outputs,
 			RiskLevel:   s.RiskLevel,
-		})
+		}
+
+		// 如果 Instruction 为空，尝试从 SKILL.md 文件加载
+		if skill.Instruction == "" && skillsDir != "" {
+			skillPath := filepath.Join(skillsDir, skill.ID, "SKILL.md")
+			if data, err := os.ReadFile(skillPath); err == nil {
+				skill.Instruction = string(data)
+			}
+		}
+
+		skills = append(skills, skill)
 	}
 
 	var sandboxCfg *types.SandboxConfig
@@ -546,6 +558,24 @@ func (d *Dispatcher) initSkills(ctx context.Context) error {
 			Env:       d.request.Sandbox.Env,
 			Limits:    limits,
 			Volumes:   volumes,
+		}
+
+		// 如果沙箱启用且有 uploadsBaseDir，自动添加 /mnt/uploads volume
+		if d.request.Sandbox.Enabled && d.uploadsBaseDir != "" {
+			hasUploadsVolume := false
+			for _, vol := range sandboxCfg.Volumes {
+				if vol.ContainerPath == "/mnt/uploads" {
+					hasUploadsVolume = true
+					break
+				}
+			}
+			if !hasUploadsVolume {
+				sandboxCfg.Volumes = append(sandboxCfg.Volumes, types.VolumeMount{
+					HostPath:      d.uploadsBaseDir,
+					ContainerPath: "/mnt/uploads",
+					ReadOnly:      true,
+				})
+			}
 		}
 	}
 
