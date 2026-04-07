@@ -16,7 +16,8 @@
 ### 启动服务
 
 ```bash
-cd backend/runner
+export RUNNER_LOG=true
+export SKILLS_DIR=/home/jett/self/XiaoQinglong/skills
 go build -o runner .
 ./runner
 ```

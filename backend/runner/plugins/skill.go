@@ -365,27 +365,66 @@ func (r *SkillRunner) buildSkillSandboxTools(workDir string, skill types.Skill, 
 		skillInput: skillInput,
 	}
 
-	return []tool.BaseTool{listTool, readTool, execTool}
+	return []tool.BaseTool{listTool, readTool, execTool, NewHtmlInterpreterTool(workDir)}
 }
 
 // buildSkillInstruction 构建 skill 执行 instruction
 func (r *SkillRunner) buildSkillInstruction(skill types.Skill, input string) string {
-	return fmt.Sprintf(`你是一个 Skill 执行助手。
+	// 构建基础 instruction
+	baseInstruction := fmt.Sprintf(`你是一个 Skill 执行助手。
 当前 Skill 名称: %s
 输入: %s
+工作目录: %s
 
 执行步骤：
 1. 首先调用 read_skill_file 读取 SKILL.md，这是最重要的入口文件
-2. 仔细阅读 SKILL.md 中的 Quick Reference 表，它会告诉你该读取哪个文件
-3. 按照 SKILL.md 的指引，读取对应的文档
-4. 根据文档指引，调用 exec_skill_command 执行所需命令
-5. 返回执行结果
+2. 仔细阅读 SKILL.md 中的指引，了解脚本结构和执行方式
+3. 读取 scripts 目录下的脚本文件，了解其用法
+4. 根据 SKILL.md 的指引，使用 exec_skill_command 工具执行脚本
+5. 使用 html_interpreter 工具（如适用）生成 HTML 报告
+6. 返回执行结果
 
 重要规则：
-- 必须先读取 SKILL.md，不要先调用 list_skill_files
-- 遵循 SKILL.md 中 Quick Reference 的指引去执行任务
-- 调用 exec_skill_command 执行实际操作
-- 工作目录为 %s`, skill.Name, input, r.skillsDir)
+- 必须先读取 SKILL.md，理解 skill 的执行流程
+- 使用 exec_skill_command 工具执行脚本，command 参数传入完整的命令
+- 使用 html_interpreter 工具生成 HTML 报告（如果 SKILL.md 要求）
+- 不要先调用 list_skill_files`, skill.Name, input, r.skillsDir)
+
+	// 针对 csv-data-analysis skill，提供具体的执行指引
+	if skill.ID == "csv-data-analysis" {
+		// 从 input 中提取文件路径
+		filePath := extractFilePathFromInput(input)
+		baseInstruction += fmt.Sprintf(`
+
+【%s 的特殊执行指引】
+1. 脚本位置: scripts/csv_analyzer.py
+2. 执行命令格式: python3 scripts/csv_analyzer.py '{"input_file": "<文件路径>"}'
+3. 如果输入中包含 file_path，直接使用该路径
+4. 示例: python3 scripts/csv_analyzer.py '{"input_file": "%s"}'
+5. 执行完脚本后，使用 html_interpreter 工具生成报告
+6. html_interpreter 的 template_path 参数: csv-data-analysis/templates/report_template.html
+7. 注意：html_interpreter 工具已经可用，无需注册`, skill.ID, filePath)
+	}
+
+	return baseInstruction
+}
+
+// extractFilePathFromInput 从 input JSON 中提取文件路径
+func extractFilePathFromInput(input string) string {
+	// 尝试解析 JSON 提取 file_path
+	type inputStruct struct {
+		FilePath string `json:"file_path"`
+		Task     string `json:"task"`
+	}
+	var data inputStruct
+	if err := json.Unmarshal([]byte(input), &data); err == nil && data.FilePath != "" {
+		return data.FilePath
+	}
+	// 如果解析失败，返回原输入（可能包含路径信息）
+	if len(input) > 200 {
+		return input[:200] + "..."
+	}
+	return input
 }
 
 // ========== Skill Tools ==========
@@ -756,6 +795,90 @@ func (t *skillExecCommandTool) execInDocker(ctx context.Context, command string)
 		return stderrText, nil
 	}
 	return "", nil
+}
+
+// ========== htmlInterpreterTool ==========
+
+// htmlInterpreterTool HTML 模板解释器工具
+type htmlInterpreterTool struct {
+	workDir string // 工作目录，用于解析模板路径
+}
+
+// NewHtmlInterpreterTool 创建 HTML 解释器工具
+func NewHtmlInterpreterTool(workDir string) *htmlInterpreterTool {
+	return &htmlInterpreterTool{workDir: workDir}
+}
+
+func (t *htmlInterpreterTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
+	return &schema.ToolInfo{
+		Name: "html_interpreter",
+		Desc: "将数据注入 HTML 模板，生成完整的 HTML 报告。输入模板路径和数据 JSON，输出渲染后的 HTML 字符串。",
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"template_path": {Type: schema.String, Desc: "模板文件路径，如 csv-data-analysis/templates/report_template.html", Required: true},
+			"data": {Type: schema.String, Desc: "JSON 格式的数据对象，包含所有占位符的值", Required: true},
+		}),
+	}, nil
+}
+
+func (t *htmlInterpreterTool) InvokableRun(ctx context.Context, argumentsInJSON string, opt ...tool.Option) (string, error) {
+	type req struct {
+		TemplatePath string `json:"template_path"`
+		Data        string `json:"data"`
+	}
+	var r req
+	if err := json.Unmarshal([]byte(argumentsInJSON), &r); err != nil {
+		return "", fmt.Errorf("parse arguments failed: %w", err)
+	}
+
+	if r.TemplatePath == "" {
+		return "", fmt.Errorf("template_path is required")
+	}
+	if r.Data == "" {
+		return "", fmt.Errorf("data is required")
+	}
+
+	// 解析 data JSON
+	var data map[string]any
+	if err := json.Unmarshal([]byte(r.Data), &data); err != nil {
+		return "", fmt.Errorf("parse data JSON failed: %w", err)
+	}
+
+	// 读取模板文件
+	templatePath := r.TemplatePath
+	if !filepath.IsAbs(templatePath) {
+		templatePath = filepath.Join(t.workDir, templatePath)
+	}
+	templateContent, err := os.ReadFile(templatePath)
+	if err != nil {
+		return "", fmt.Errorf("read template failed: %w", err)
+	}
+
+	// 注入数据到模板
+	html := string(templateContent)
+
+	// 替换占位符
+	for key, value := range data {
+		placeholder := "{{" + key + "}}"
+		var replacement string
+		switch v := value.(type) {
+		case string:
+			replacement = v
+		case float64:
+			replacement = fmt.Sprintf("%v", v)
+		case bool:
+			replacement = fmt.Sprintf("%v", v)
+		default:
+			// 对于复杂对象，序列化为 JSON
+			if jsonBytes, err := json.Marshal(v); err == nil {
+				replacement = string(jsonBytes)
+			} else {
+				replacement = fmt.Sprintf("%v", v)
+			}
+		}
+		html = strings.ReplaceAll(html, placeholder, replacement)
+	}
+
+	return html, nil
 }
 
 // listSkillFiles 列出 skill 目录下的所有文件
