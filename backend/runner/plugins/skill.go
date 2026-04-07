@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -62,7 +61,7 @@ func (r *SkillRunner) RunSkill(ctx context.Context, name string, input map[strin
 		return "", fmt.Errorf("skill not found: %s", name)
 	}
 
-	log.Printf("[Skill] Running skill: %s, input: %v, sessionID: %s", name, input, sessionID)
+	logger.Infof((fmt.Sprintf("[Skill] Running skill: %s, input: %v, sessionID: %s", name, input, sessionID)))
 
 	// 调试：检查 sandbox 配置
 	if r.sandboxCfg != nil {
@@ -136,7 +135,7 @@ func (r *SkillRunner) runSkillWithSandbox(ctx context.Context, skill types.Skill
 	if existingDir, ok := r.sessions[sessionID]; ok {
 		// 复用已有 session 目录
 		tmpDir = existingDir
-		log.Printf("[Skill] Reusing session workdir: %s for session: %s", tmpDir, sessionID)
+		logger.Infof("[Skill] Reusing existing session workdir: %s for session: %s", tmpDir, sessionID)
 	} else {
 		// 首次创建 session 工作目录
 		tmpDir, err = os.MkdirTemp("", "skill-session-*")
@@ -144,7 +143,7 @@ func (r *SkillRunner) runSkillWithSandbox(ctx context.Context, skill types.Skill
 			return "", fmt.Errorf("create session dir failed: %w", err)
 		}
 		r.sessions[sessionID] = tmpDir
-		log.Printf("[Skill] Created new session workdir: %s for session: %s", tmpDir, sessionID)
+		logger.Infof("[Skill] Created new session workdir: %s for session: %s", tmpDir, sessionID)
 	}
 
 	// 4. 复制 skill 文件到工作目录
@@ -554,6 +553,8 @@ func (t *skillExecCommandTool) Info(ctx context.Context) (*schema.ToolInfo, erro
 }
 
 func (t *skillExecCommandTool) InvokableRun(ctx context.Context, argumentsInJSON string, opt ...tool.Option) (string, error) {
+	logger.Infof("[execute_skill_script_file] Received arguments: %s", argumentsInJSON)
+
 	type req struct {
 		SkillName      string         `json:"skill_name"`
 		ScriptFileName string         `json:"script_file_name"`
@@ -571,6 +572,8 @@ func (t *skillExecCommandTool) InvokableRun(ctx context.Context, argumentsInJSON
 		return "", fmt.Errorf("script_file_name is required")
 	}
 
+	logger.Infof("[execute_skill_script_file] skill_name=%s, script_file_name=%s, args=%v", r.SkillName, r.ScriptFileName, r.Args)
+
 	// 构建脚本路径：skills/{skill_name}/scripts/{script_file_name}
 	scriptRelPath := r.ScriptFileName
 	scriptRelPath = strings.TrimPrefix(scriptRelPath, "scripts/")
@@ -578,6 +581,8 @@ func (t *skillExecCommandTool) InvokableRun(ctx context.Context, argumentsInJSON
 
 	scriptPath := filepath.Join("skills", r.SkillName, "scripts", scriptRelPath)
 	fullScriptPath := filepath.Join(t.workDir, scriptPath)
+
+	logger.Infof("[execute_skill_script_file] workDir=%s, fullScriptPath=%s", t.workDir, fullScriptPath)
 
 	// 检查脚本是否存在
 	if _, err := os.Stat(fullScriptPath); os.IsNotExist(err) {
@@ -592,6 +597,8 @@ func (t *skillExecCommandTool) InvokableRun(ctx context.Context, argumentsInJSON
 	} else {
 		command = fmt.Sprintf("python3 %s", fullScriptPath)
 	}
+
+	logger.Infof("[execute_skill_script_file] command: %s", command)
 
 	// 使用沙箱执行命令
 	if t.sandboxCfg != nil && t.sandboxCfg.Enabled {
@@ -752,6 +759,8 @@ func (t *skillExecCommandTool) execInDocker(ctx context.Context, command string)
 	// 生成容器名称
 	containerName := fmt.Sprintf("skill-exec-%d", time.Now().UnixNano())
 
+	logger.Infof("[execInDocker] image=%s, workdir=%s, command=%s", image, workdir, command)
+
 	// 构建 docker run 参数
 	args := []string{"run", "--rm", "--name", containerName, "-w", workdir}
 	if network != "" {
@@ -810,6 +819,8 @@ func (t *skillExecCommandTool) execInDocker(ctx context.Context, command string)
 
 	args = append(args, "--entrypoint", "", image, "sh", "-c", command)
 
+	logger.Infof("[execInDocker] docker args: %v", args)
+
 	// 执行命令
 	callCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMs)*time.Millisecond)
 	defer cancel()
@@ -825,6 +836,7 @@ func (t *skillExecCommandTool) execInDocker(ctx context.Context, command string)
 		if stderrText == "" {
 			stderrText = err.Error()
 		}
+		logger.Errorf("[execInDocker] failed: %s, stderr: %s", err, stderrText)
 		// 清理容器
 		exec.Command(dockerBin, "rm", "-f", containerName).Run()
 		return "", fmt.Errorf("sandbox exec failed: %s", stderrText)

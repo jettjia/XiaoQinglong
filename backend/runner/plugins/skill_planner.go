@@ -3,7 +3,6 @@ package plugins
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -323,7 +322,7 @@ func (p *SkillPlanner) Execute(ctx context.Context, plan *ExecutionPlan) (map[st
 	results := make(map[string]any)
 
 	for stageIdx, stage := range plan.Stages {
-		log.Printf("[SkillPlanner] Executing stage %d with %d skills (parallel)", stageIdx, len(stage.Skills))
+		logger.Infof("[SkillPlanner] Executing stage %d with %d skills (parallel)", stageIdx, len(stage.Skills))
 
 		// 并行执行同阶段的 skill
 		resultsCh := make(chan struct {
