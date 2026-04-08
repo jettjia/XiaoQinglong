@@ -114,7 +114,8 @@ const resources = {
         dropFiles: 'Drop files to upload',
         dropSubtitle: 'Images, documents, and data files supported',
         input: 'Input',
-        output: 'Output'
+        output: 'Output',
+        solving: 'Solving the problem...'
       },
       knowledge: {
         title: 'Knowledge Base',
@@ -542,7 +543,8 @@ const resources = {
         dropFiles: '拖放文件上传',
         dropSubtitle: '支持图片、文档和数据文件',
         input: '输入',
-        output: '输出'
+        output: '输出',
+        solving: '正在解决问题中...'
       },
       knowledge: {
         title: '知识库',

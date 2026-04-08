@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 
@@ -141,6 +142,29 @@ func NewChatMessageService() *ChatMessageService {
 // CreateChatMessage 创建消息
 func (s *ChatMessageService) CreateChatMessage(ctx context.Context, req *dto.CreateChatMessageReq) (*dto.CreateChatMessageRsp, error) {
 	en := s.chatDto.D2ECreateChatMessage(req)
+
+	// Merge files into metadata JSON
+	if req.Files != "" {
+		var metadata map[string]any
+		if en.Metadata != "" {
+			if err := json.Unmarshal([]byte(en.Metadata), &metadata); err != nil {
+				metadata = make(map[string]any)
+			}
+		} else {
+			metadata = make(map[string]any)
+		}
+		// Parse files JSON
+		var files []map[string]any
+		if err := json.Unmarshal([]byte(req.Files), &files); err != nil {
+			// Silently ignore parse errors - files won't be stored
+		} else {
+			metadata["files"] = files
+			// Re-serialize metadata with files
+			if metadataBytes, err := json.Marshal(metadata); err == nil {
+				en.Metadata = string(metadataBytes)
+			}
+		}
+	}
 
 	ulid, err := s.sessionSrv.CreateMessage(ctx, en)
 	if err != nil {

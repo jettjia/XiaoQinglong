@@ -702,6 +702,7 @@ export const chatApi = {
     status?: string;
     error_msg?: string;
     metadata?: string;
+    files?: string; // JSON array of file info
   }): Promise<{ ulid: string }> {
     const res = await fetch(`${API_BASE}/chat/message`, {
       method: 'POST',

@@ -254,15 +254,34 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
   const loadSessionMessages = async (sessionId: string) => {
     try {
       const msgs = await chatApi.getMessagesBySessionId(sessionId);
-      const mapped: Message[] = msgs.map(m => ({
-        id: m.ulid,
-        role: m.role as 'user' | 'assistant',
-        content: m.content,
-        timestamp: new Date(m.created_at),
-        status: m.status as 'pending_approval' | 'completed' | 'failed' | undefined,
-        thinking: m.trace ? JSON.parse(m.trace)?.thinking : undefined,
-        trace: m.trace ? JSON.parse(m.trace)?.trace : undefined
-      }));
+      const mapped: Message[] = msgs.map(m => {
+        // Reconstruct htmlContent and reportUrl from content (same as streaming done message)
+        const { html, markdown, reportUrl } = extractHtmlFromMarkdown(m.content);
+        // Parse files from metadata if present
+        let files: FileInfo[] | undefined;
+        if (m.metadata) {
+          try {
+            const meta = JSON.parse(m.metadata);
+            if (meta.files && Array.isArray(meta.files)) {
+              files = meta.files;
+            }
+          } catch (e) {
+            // Ignore parse errors
+          }
+        }
+        return {
+          id: m.ulid,
+          role: m.role as 'user' | 'assistant',
+          content: html ? markdown : m.content,
+          htmlContent: html || undefined,
+          reportUrl: reportUrl || undefined,
+          files,
+          timestamp: new Date(m.created_at),
+          status: m.status as 'pending_approval' | 'completed' | 'failed' | undefined,
+          thinking: m.trace ? JSON.parse(m.trace)?.thinking : undefined,
+          trace: m.trace ? JSON.parse(m.trace)?.trace : undefined
+        };
+      });
       setMessages(mapped);
     } catch (err) {
       console.error('Failed to load messages:', err);
@@ -428,14 +447,16 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
         console.log('[handleSend] No pending files to upload, using currentFiles:', currentFiles);
       }
 
-      // Save user message to database
+      // Save user message to database (with files if present)
       let userMessageUlid: string | null = null;
       try {
+        const filesJson = filesToSend.length > 0 ? JSON.stringify(filesToSend) : undefined;
         const userMsgResult = await chatApi.createMessage({
           session_id: sessionId,
           role: 'user',
           content: input,
-          status: 'completed'
+          status: 'completed',
+          files: filesJson
         });
         userMessageUlid = userMsgResult.ulid;
       } catch (err) {
@@ -743,7 +764,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
           role: 'assistant',
           content: data.content || data.output || '',
           model: data.metadata?.model || activeAgent.model || '',
-          tokens: data.metadata?.tokens_used || 0,
+          total_tokens: data.metadata?.tokens_used || 0,
           latency_ms: data.metadata?.latency_ms || 0,
           status: data.pending_approvals?.length > 0 ? 'pending_approval' : 'completed',
           trace: data.trace ? JSON.stringify({ thinking: data.thinking, trace: data.trace }) : undefined
@@ -1147,7 +1168,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                 )}>
                   {msg.role === 'assistant' ? (
                     msg.status === 'streaming' ? (
-                      <div className="text-slate-800 whitespace-pre-wrap">{msg.content}</div>
+                      <div className="text-slate-800 whitespace-pre-wrap">{msg.content || t('chat.solving')}</div>
                     ) : (
                       <MessageContent content={msg.content} htmlContent={msg.htmlContent} reportUrl={msg.reportUrl} />
                     )

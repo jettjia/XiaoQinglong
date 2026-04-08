@@ -107,6 +107,7 @@ type (
 		Status       string `json:"status"`
 		ErrorMsg     string `json:"error_msg"`
 		Metadata     string `json:"metadata"`
+		Files        string `json:"files"` // JSON array of file info: [{"name":"file.csv","virtual_path":"/uploads/..."}]
 	}
 
 	// UpdateChatMessageReq 更新消息请求对象
