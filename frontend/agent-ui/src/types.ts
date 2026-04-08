@@ -148,6 +148,7 @@ export interface Message {
   videoUrl?: string;
   htmlContent?: string;  // 提取的HTML内容（如数据分析报告）
   reportUrl?: string;   // HTML报告的URL（如 /uploads/{sessionID}/reports/xxx.html）
+  pptUrl?: string;      // PPT文件的URL（如 /uploads/{sessionID}/reports/xxx.pptx）
   status?: 'pending_approval' | 'completed' | 'failed' | 'streaming';
   interruptId?: string;  // 用于审批时调用 resume
 }

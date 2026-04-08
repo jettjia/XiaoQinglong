@@ -263,9 +263,15 @@ func (t *pptxInterpreterTool) generatePptxJs(title, author string, slides []Slid
 			contentSize = 18
 		}
 
-		// 转义内容中的特殊字符
-		content := strings.ReplaceAll(slide.Content, `"`, `\"`)
-		content = strings.ReplaceAll(content, "`", `\"`)
+		// 转义内容中的特殊字符 - 使用json.Marshal正确转义所有字符
+		var content string
+		contentBytes, _ := json.Marshal(slide.Content)
+		content = string(contentBytes)[1 : len(contentBytes)-1] // 去掉首尾的双引号
+
+		// 转义标题
+		var title string
+		titleBytes, _ := json.Marshal(slide.Title)
+		title = string(titleBytes)[1 : len(titleBytes)-1]
 
 		slideCode.WriteString(fmt.Sprintf(`
 	const slide%d = pres.addSlide();
@@ -281,8 +287,15 @@ func (t *pptxInterpreterTool) generatePptxJs(title, author string, slides []Slid
 		fontSize: %d,
 		color: "%s",
 		valign: "top"
-	});`, i, i, bg, i, slide.Title, titleSize, titleColor, i, content, contentSize, contentColor))
+	});`, i, i, bg, i, title, titleSize, titleColor, i, content, contentSize, contentColor))
 	}
+
+	// 转义title和author
+	var titleEscaped, authorEscaped string
+	titleBytes, _ := json.Marshal(title)
+	titleEscaped = string(titleBytes)[1 : len(titleBytes)-1]
+	authorBytes, _ := json.Marshal(author)
+	authorEscaped = string(authorBytes)[1 : len(authorBytes)-1]
 
 	js := fmt.Sprintf(`const pptxgen = require("pptxgenjs");
 const pres = new pptxgen();
@@ -293,7 +306,7 @@ pres.author = "%s";
 pres.writeFile({ fileName: "{{OUTPUT_PATH}}" })
 	.then(() => console.log("Created:", "{{OUTPUT_PATH}}"))
 	.catch(err => console.error("Error:", err));
-`, title, author, slideCode.String())
+`, titleEscaped, authorEscaped, slideCode.String())
 
 	return js
 }

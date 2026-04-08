@@ -45,7 +45,8 @@ import {
   ShieldAlert,
   UserCheck,
   XCircle,
-  Clock
+  Clock,
+  Presentation
 } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'motion/react';
@@ -60,7 +61,7 @@ const API_BASE = '/api/xiaoqinglong/agent-frame/v1';
 const CURRENT_USER_ID = 'user-1'; // TODO: Get from auth context
 
 // 辅助函数：检测并提取 Markdown 中的 HTML 代码块
-function extractHtmlFromMarkdown(content: string): { html: string | null; markdown: string; reportUrl: string | null } {
+function extractHtmlFromMarkdown(content: string): { html: string | null; markdown: string; reportUrl: string | null; pptUrl: string | null } {
   // 匹配 ```html ... ``` 代码块
   const htmlBlockRegex = /```html\s*([\s\S]*?)```/gi;
   const matches = [...content.matchAll(htmlBlockRegex)];
@@ -70,8 +71,13 @@ function extractHtmlFromMarkdown(content: string): { html: string | null; markdo
   const reportUrlMatch = content.match(reportUrlRegex);
   const reportUrl = reportUrlMatch ? reportUrlMatch[0] : null;
 
-  if (matches.length === 0 && !reportUrl) {
-    return { html: null, markdown: content, reportUrl: null };
+  // 检测 PPT URL: /uploads/{sessionID}/reports/*.pptx 格式
+  const pptUrlRegex = /\/uploads\/[^\/]+\/reports\/[^\s]+\.pptx/gi;
+  const pptUrlMatch = content.match(pptUrlRegex);
+  const pptUrl = pptUrlMatch ? pptUrlMatch[0] : null;
+
+  if (matches.length === 0 && !reportUrl && !pptUrl) {
+    return { html: null, markdown: content, reportUrl: null, pptUrl: null };
   }
 
   // 提取所有 HTML 代码块并合并
@@ -84,12 +90,16 @@ function extractHtmlFromMarkdown(content: string): { html: string | null; markdo
   if (reportUrl) {
     markdown = markdown.replace(/\S+\/uploads\/[^\/]+\/reports\/[^\s]+\.html\n?/gi, '').trim();
   }
+  // 移除 PPT URL 行
+  if (pptUrl) {
+    markdown = markdown.replace(/\S+\/uploads\/[^\/]+\/reports\/[^\s]+\.pptx\n?/gi, '').trim();
+  }
 
-  return { html: fullHtml, markdown, reportUrl };
+  return { html: fullHtml, markdown, reportUrl, pptUrl };
 }
 
 // 渲染消息内容组件
-function MessageContent({ content, htmlContent, reportUrl }: { content: string; htmlContent?: string; reportUrl?: string }) {
+function MessageContent({ content, htmlContent, reportUrl, pptUrl }: { content: string; htmlContent?: string; reportUrl?: string; pptUrl?: string }) {
   const [iframeKey, setIframeKey] = React.useState(0);
 
   // 构建报告的完整访问 URL
@@ -104,6 +114,38 @@ function MessageContent({ content, htmlContent, reportUrl }: { content: string; 
     const filename = match[2];
     return `${API_BASE}/runner/reports/${sessionID}/${filename}`;
   };
+
+  // 构建 PPT 的完整访问 URL
+  const getPptFullUrl = (url: string) => {
+    if (!url) return '';
+    // 提取 /uploads/{sessionID}/reports/{filename} 中的 sessionID 和 filename
+    const match = url.match(/\/uploads\/([^\/]+)\/reports\/([^/]+\.pptx)$/);
+    if (!match) return '';
+    const sessionID = match[1];
+    const filename = match[2];
+    return `${API_BASE}/runner/reports/${sessionID}/${filename}`;
+  };
+
+  // 如果有 PPT URL，显示下载链接
+  if (pptUrl) {
+    return (
+      <div className="w-full">
+        <div className="flex items-center justify-between mb-2 text-xs text-slate-500">
+          <span className="flex items-center gap-1">
+            <Presentation size={12} className="text-purple-500" />
+            PPT 演示文稿
+          </span>
+          <a
+            href={getPptFullUrl(pptUrl)}
+            download
+            className="text-blue-500 hover:text-blue-600 font-medium"
+          >
+            下载 PPT
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   // 如果有报告 URL，通过 iframe 加载报告
   if (reportUrl) {
@@ -256,7 +298,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
       const msgs = await chatApi.getMessagesBySessionId(sessionId);
       const mapped: Message[] = msgs.map(m => {
         // Reconstruct htmlContent and reportUrl from content (same as streaming done message)
-        const { html, markdown, reportUrl } = extractHtmlFromMarkdown(m.content);
+        const { html, markdown, reportUrl, pptUrl } = extractHtmlFromMarkdown(m.content);
         // Parse files from metadata if present
         let files: FileInfo[] | undefined;
         if (m.metadata) {
@@ -275,6 +317,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
           content: html ? markdown : m.content,
           htmlContent: html || undefined,
           reportUrl: reportUrl || undefined,
+          pptUrl: pptUrl || undefined,
           files,
           timestamp: new Date(m.created_at),
           status: m.status as 'pending_approval' | 'completed' | 'failed' | undefined,
@@ -590,11 +633,12 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                       total_tokens: data.total_tokens
                     };
                     const finalContent = data.content || accumulatedContent;
-                    const { html, markdown, reportUrl } = extractHtmlFromMarkdown(finalContent);
+                    const { html, markdown, reportUrl, pptUrl } = extractHtmlFromMarkdown(finalContent);
                     updateMessage({
                       content: markdown || finalContent,
                       htmlContent: html || undefined,
                       reportUrl: reportUrl || undefined,
+                      pptUrl: pptUrl || undefined,
                       status: 'completed',
                       toolCalls: [...toolCalls]
                     });
@@ -668,11 +712,12 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                       total_tokens: data.total_tokens
                     };
                     const finalContent = data.content || accumulatedContent;
-                    const { html, markdown, reportUrl } = extractHtmlFromMarkdown(finalContent);
+                    const { html, markdown, reportUrl, pptUrl } = extractHtmlFromMarkdown(finalContent);
                     updateMessage({
                       content: markdown || finalContent,
                       htmlContent: html || undefined,
                       reportUrl: reportUrl || undefined,
+                      pptUrl: pptUrl || undefined,
                       status: 'completed',
                       toolCalls: [...toolCalls]
                     });
@@ -743,13 +788,14 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
       }
 
       const assistantMessageRaw = data.content || data.output || "I'm sorry, I couldn't generate a response.";
-      const { html, markdown, reportUrl } = extractHtmlFromMarkdown(assistantMessageRaw);
+      const { html, markdown, reportUrl, pptUrl } = extractHtmlFromMarkdown(assistantMessageRaw);
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
         content: markdown || assistantMessageRaw,
         htmlContent: html || undefined,
         reportUrl: reportUrl || undefined,
+        pptUrl: pptUrl || undefined,
         timestamp: new Date(),
         thinking: data.thinking,
         trace: data.trace,
@@ -1170,7 +1216,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                     msg.status === 'streaming' ? (
                       <div className="text-slate-800 whitespace-pre-wrap">{msg.content || t('chat.solving')}</div>
                     ) : (
-                      <MessageContent content={msg.content} htmlContent={msg.htmlContent} reportUrl={msg.reportUrl} />
+                      <MessageContent content={msg.content} htmlContent={msg.htmlContent} reportUrl={msg.reportUrl} pptUrl={msg.pptUrl} />
                     )
                   ) : (
                     msg.content
