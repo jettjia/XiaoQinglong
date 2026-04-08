@@ -85,13 +85,14 @@ type InternalAgentConfig struct {
 
 // ModelConfig 模型配置
 type ModelConfig struct {
-	Provider    string  `json:"provider"`
-	Name        string  `json:"name"`
-	APIKey      string  `json:"api_key"`
-	APIBase     string  `json:"api_base"`
-	Temperature float64 `json:"temperature"`
-	MaxTokens   int     `json:"max_tokens"`
-	TopP        float64 `json:"top_p"`
+	Provider    string         `json:"provider"`
+	Name        string         `json:"name"`
+	APIKey      string         `json:"api_key"`
+	APIBase     string         `json:"api_base"`
+	Temperature float64        `json:"temperature"`
+	MaxTokens   int            `json:"max_tokens"`
+	TopP        float64        `json:"top_p"`
+	ExtraFields map[string]any `json:"extra_fields,omitempty"` // 额外参数，如 reasoning_split
 }
 
 // RunOptions 运行选项

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jettjia/XiaoQinglong/runner/memory"
+	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 	"github.com/jettjia/XiaoQinglong/runner/types"
 )
 
@@ -77,14 +78,14 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 					break
 				}
 			}
-			log.Printf("[Memory Debug] userInput: %s, assistantOutput: %s", userInput[:min(50, len(userInput))], assistantOutput[:min(50, len(assistantOutput))])
+			logger.Infof("[Memory Debug] userInput: %s, assistantOutput: %s", userInput[:min(50, len(userInput))], assistantOutput[:min(50, len(assistantOutput))])
 			if userInput != "" && assistantOutput != "" {
 				memories, err := extractor.ExtractMemories(r.Context(), userInput, assistantOutput)
-				log.Printf("[Memory Debug] ExtractMemories returned, err=%v, len(memories)=%d", err, len(memories))
+				logger.Infof("[Memory Debug] ExtractMemories returned, err=%v, len(memories)=%d", err, len(memories))
 				if err != nil {
-					log.Printf("[Memory] Failed to extract memories: %v", err)
+					logger.Errorf("[Memory] Failed to extract memories: %v", err)
 				} else if len(memories) > 0 {
-					log.Printf("[Memory] Extracted %d memories from conversation", len(memories))
+					logger.Infof("[Memory] Extracted %d memories from conversation", len(memories))
 					resp.Memories = memories
 
 					// 流结束后，回调保存记忆
@@ -93,13 +94,13 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 						go extractAndSaveMemoriesCallback(req.Context, callbackURL, req.Models, req.Messages)
 					}
 				} else {
-					log.Printf("[Memory] No memories extracted (empty result)")
+					logger.Infof("[Memory] No memories extracted (empty result)")
 				}
 			} else {
-				log.Printf("[Memory Debug] userInput or assistantOutput is empty, skipping")
+				logger.Infof("[Memory Debug] userInput or assistantOutput is empty, skipping")
 			}
 		} else {
-			log.Printf("[Memory Debug] extractor is nil, modelConfig: %+v", modelConfig)
+			logger.Infof("[Memory Debug] extractor is nil, modelConfig: %+v", modelConfig)
 		}
 	}
 

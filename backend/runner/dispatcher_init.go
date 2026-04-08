@@ -30,11 +30,36 @@ func (d *Dispatcher) initModels(ctx context.Context) error {
 	d.modelsByRole = make(map[ModelRole]model.ToolCallingChatModel)
 
 	for key, cfg := range d.request.Models {
-		cm, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
+		openaiCfg := &openai.ChatModelConfig{
 			APIKey:  cfg.APIKey,
 			Model:   cfg.Name,
 			BaseURL: cfg.APIBase,
-		})
+		}
+		// 传递其他可选参数
+		if cfg.Temperature > 0 {
+			t := float32(cfg.Temperature)
+			openaiCfg.Temperature = &t
+		}
+		if cfg.MaxTokens > 0 {
+			openaiCfg.MaxTokens = &cfg.MaxTokens
+		}
+		if cfg.TopP > 0 {
+			t := float32(cfg.TopP)
+			openaiCfg.TopP = &t
+		}
+		// 如果配置了 ExtraFields，使用配置的
+		if len(cfg.ExtraFields) > 0 {
+			openaiCfg.ExtraFields = cfg.ExtraFields
+		}
+		// TODO: MiniMax reasoning_split 需要进一步验证，暂时禁用
+		// else if strings.Contains(strings.ToLower(cfg.APIBase), "minimaxi") || strings.Contains(strings.ToLower(cfg.APIBase), "minimax") {
+		// 	// MiniMax API 自动添加 reasoning_split 参数
+		// 	openaiCfg.ExtraFields = map[string]any{"reasoning_split": true}
+		// 	logger.Infof("[Dispatcher] initModels: detected MiniMax API, auto-added reasoning_split to ExtraFields")
+		// }
+		logger.Infof("[Dispatcher] initModels: key=%s, model=%s, baseURL=%s, openaiCfg.ExtraFields=%v",
+			key, cfg.Name, cfg.APIBase, openaiCfg.ExtraFields)
+		cm, err := openai.NewChatModel(ctx, openaiCfg)
 		if err != nil {
 			return fmt.Errorf("create model %s failed: %w", key, err)
 		}
@@ -348,7 +373,7 @@ func (d *Dispatcher) initDeepAgent(ctx context.Context) error {
 			},
 		},
 		MaxIteration: maxIterations,
-		Instruction: instruction,
+		Instruction:  instruction,
 	}
 
 	var err error
