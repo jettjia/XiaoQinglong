@@ -5,25 +5,82 @@ import (
 	"log"
 
 	dtoAgent "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/agent"
+	dtoModel "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/model"
 	"github.com/jettjia/xiaoqinglong/agent-frame/application/service/agent"
+	modelSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/model"
 )
 
-// initDefaultAgents 初始化默认智能体
-func initDefaultAgents() error {
-	log.Println("[Init] Initializing default agents")
+// defaultModelConfig 默认模型配置（从 sys_model 表读取）
+type defaultModelConfig struct {
+	provider string
+	name     string
+	apiKey   string
+	baseURL  string
+}
 
-	agentSvc := agent.NewSysAgentService()
-	ctx := context.Background()
+// getDefaultModelConfig 从 sys_model 表获取默认模型配置
+func getDefaultModelConfig(ctx context.Context) *defaultModelConfig {
+	cfg := &defaultModelConfig{
+		provider: "default",
+		name:     "${OPENAI_MODEL}",
+		apiKey:   "${OPENAI_API_KEY}",
+		baseURL:  "${OPENAI_BASE_URL}",
+	}
 
-	// 默认智能体列表
-	defaultAgents := []struct {
-		name        string
-		description string
-		icon        string
-		model       string
-		configJson  string
-		isSystem    bool
-	}{
+	// 尝试从 sys_model 表读取 category=default 的模型
+	modelService := modelSvc.NewSysModelService()
+	models, err := modelService.FindSysModelAll(ctx, &dtoModel.FindSysModelAllReq{})
+	if err != nil {
+		log.Printf("[Init] Failed to query sys_model: %v, using default env values", err)
+		return cfg
+	}
+
+	// 查找 category 为 "default" 的模型
+	for _, m := range models {
+		if m.Category == "default" || m.Category == "" {
+			// 找到默认模型，使用数据库中的配置
+			cfg.provider = m.Provider
+			cfg.name = m.Name
+			cfg.apiKey = m.ApiKey
+			cfg.baseURL = m.BaseUrl
+			log.Printf("[Init] Found default model from sys_model: provider=%s, name=%s, baseURL=%s",
+				cfg.provider, cfg.name, cfg.baseURL)
+			return cfg
+		}
+	}
+
+	log.Printf("[Init] No default model found in sys_model, using default env values")
+	return cfg
+}
+
+// buildModelConfigJson 根据模型配置生成 models JSON
+func buildModelConfigJson(modelCfg *defaultModelConfig) string {
+	return `{
+					"default": {
+						"provider": "` + modelCfg.provider + `",
+						"name": "` + modelCfg.name + `",
+						"api_key": "` + modelCfg.apiKey + `",
+						"api_base": "` + modelCfg.baseURL + `"
+					}
+				}`
+}
+
+// agentConfig 定义智能体配置结构
+type agentConfig struct {
+	name        string
+	description string
+	icon        string
+	model       string
+	configJson  string
+	isSystem    bool
+}
+
+// getBuiltInAgents 获取内置智能体配置列表
+func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
+	// 通用模型配置
+	modelJSON := buildModelConfigJson(modelCfg)
+
+	return []agentConfig{
 		{
 			name:        "翻译",
 			description: "多语言实时翻译，支持中英日韩等常用语言互译",
@@ -31,14 +88,7 @@ func initDefaultAgents() error {
 			model:       "default",
 			configJson: `{
 				"endpoint": "http://localhost:18080/run",
-				"models": {
-					"default": {
-						"provider": "default",
-						"name": "${OPENAI_MODEL}",
-						"api_key": "${OPENAI_API_KEY}",
-						"api_base": "${OPENAI_BASE_URL}"
-					}
-				},
+				"models": ` + modelJSON + `,
 				"system_prompt": "你是一个专业的翻译助手。用户输入一段文字，你将其翻译成目标语言。请保持原文风格和语气。如果用户没有指定目标语言，如果是输入的是中文，就翻译成英文。如果输入的是英文，就翻译成中文。其他语言请翻译成英文。",
 				"options": {
 					"temperature": 0.3,
@@ -68,14 +118,7 @@ func initDefaultAgents() error {
 			model:       "default",
 			configJson: `{
 				"endpoint": "http://localhost:18080/run",
-				"models": {
-					"default": {
-						"provider": "default",
-						"name": "${OPENAI_MODEL}",
-						"api_key": "${OPENAI_API_KEY}",
-						"api_base": "${OPENAI_BASE_URL}"
-					}
-				},
+				"models": ` + modelJSON + `,
 				"system_prompt": "你是一个专业的文档问答助手。根据用户提供的文档内容，准确回答用户的问题。如果文档中没有相关信息，请明确告知。",
 				"options": {
 					"temperature": 0.2,
@@ -110,14 +153,7 @@ func initDefaultAgents() error {
 			model:       "default",
 			configJson: `{
 				"endpoint": "http://localhost:18080/run",
-				"models": {
-					"default": {
-						"provider": "default",
-						"name": "${OPENAI_MODEL}",
-						"api_key": "${OPENAI_API_KEY}",
-						"api_base": "${OPENAI_BASE_URL}"
-					}
-				},
+				"models": ` + modelJSON + `,
 				"system_prompt": "你是一个数据分析专家。当用户上传 CSV/Excel 文件并要求分析时，请按以下步骤执行：\n\nStep 0: 首先使用 parse_file 工具读取上传的 CSV/Excel 文件，获取文件内容\nStep 1: 使用 csv-data-analysis skill 分析数据文件，执行 csv_analyzer.py 获取统计摘要和图表数据\nStep 2: 根据分析结果生成业务洞察，并返回完整的 HTML 报告\n\n报告应包含：数据概览、分布分析、相关性分析、异常检测、结论与建议。",
 				"skills": [
 					{
@@ -165,6 +201,20 @@ func initDefaultAgents() error {
 			isSystem: true,
 		},
 	}
+}
+
+// initDefaultAgents 初始化默认智能体
+func initDefaultAgents() error {
+	log.Println("[Init] Initializing default agents")
+
+	agentSvc := agent.NewSysAgentService()
+	ctx := context.Background()
+
+	// 获取默认模型配置（优先从 sys_model 表读取）
+	modelCfg := getDefaultModelConfig(ctx)
+
+	// 获取内置智能体配置
+	defaultAgents := getBuiltInAgents(modelCfg)
 
 	for _, ag := range defaultAgents {
 		// 检查是否已存在同名智能体
