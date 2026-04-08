@@ -54,9 +54,9 @@ func NewSkillRunner(skills []types.Skill, skillsDir string, sandboxCfg *types.Sa
 	return &SkillRunner{
 		skills:         skillMap,
 		skillsDir:      skillsDir,
-		sandboxCfg:    sandboxCfg,
-		model:         model,
-		configMgr:     configMgr,
+		sandboxCfg:     sandboxCfg,
+		model:          model,
+		configMgr:      configMgr,
 		uploadsBaseDir: uploadsBaseDir,
 	}
 }
@@ -97,52 +97,6 @@ func (r *SkillRunner) GetAutoData(sessionID string) map[string]string {
 		return nil
 	}
 	return r.autoData[sessionID]
-}
-
-// ExtractAutoDataFromText 从文本中提取 ###KEY_START###...###KEY_END### 格式的 marker 数据
-func (r *SkillRunner) ExtractAutoDataFromText(sessionID string, text string) map[string]string {
-	extracted := make(map[string]string)
-	if text == "" || !strings.Contains(text, "###") {
-		return extracted
-	}
-
-	// 使用简单的字符串查找来提取 marker 数据
-	startPattern := "_START###"
-	workingText := text
-	for {
-		idx := strings.Index(workingText, startPattern)
-		if idx == -1 {
-			break
-		}
-		startMarkerStart := strings.LastIndex(workingText[:idx], "###")
-		if startMarkerStart == -1 {
-			workingText = workingText[idx+len(startPattern):]
-			continue
-		}
-		keyStart := startMarkerStart + 3
-		keyEnd := idx
-		key := workingText[keyStart:keyEnd]
-		if key == "" || strings.Contains(key, "###") {
-			workingText = workingText[idx+len(startPattern):]
-			continue
-		}
-		endMarker := "###" + key + "_END###"
-		contentStart := idx + len(startPattern)
-		endIdx := strings.Index(workingText[contentStart:], endMarker)
-		if endIdx != -1 {
-			value := strings.TrimSpace(workingText[contentStart : contentStart+endIdx])
-			if value != "" {
-				extracted[key] = value
-			}
-		}
-		workingText = workingText[contentStart:]
-	}
-
-	// 存储提取的数据
-	for k, v := range extracted {
-		r.SetAutoData(sessionID, k, v)
-	}
-	return extracted
 }
 
 // RunSkill runs a skill with given input using sliding-window approach
@@ -371,148 +325,6 @@ func (r *SkillRunner) runSkillWithAgent(ctx context.Context, instruction string,
 	return finalContent, nil
 }
 
-// postProcessSkillOutput 后处理 skill 输出，检测并处理未填充的模板
-// 当 inner agent 没有正确调用 htmlInterpreterTool 时，由 outer agent 后处理
-func (r *SkillRunner) postProcessSkillOutput(content string, tools []tool.BaseTool) string {
-	// 调试：记录原始内容
-	logger.Infof("[Skill] PostProcess: input content length=%d, preview=%.200s...", len(content), content[:min(200, len(content))])
-
-	// 检查是否是 csv_analyzer 的原始 JSON 输出（包含 ###CHART_DATA_JSON_START### 标记）
-	if strings.Contains(content, "###CHART_DATA_JSON_START###") {
-		logger.Infof("[Skill] PostProcess: Detected csv_analyzer raw output with chart data markers, processing...")
-		return r.processCsvAnalyzerOutput(content, tools)
-	}
-
-	// 检查是否包含未填充的模板占位符
-	if !strings.Contains(content, "{{") {
-		// 如果内容不包含模板占位符，检查是否是报告 URL
-		// 报告 URL 格式：/uploads/{sessionID}/reports/report_xxx.html
-		if strings.Contains(content, "/uploads/") && strings.Contains(content, "/reports/report_") {
-			logger.Infof("[Skill] PostProcess: Detected report URL: %s", content)
-			// 读取实际的 HTML 文件并检查是否有未填充的占位符
-			htmlContent := r.readReportHTMLFile(content)
-			if htmlContent != "" && strings.Contains(htmlContent, "{{CHART_DATA_JSON}}") {
-				logger.Infof("[Skill] PostProcess: Report HTML has unfilled {{CHART_DATA_JSON}}, attempting to fix")
-				// 尝试提取 chart data 并注入
-				chartData := extractChartDataFromMarkers(htmlContent)
-				if chartData != "" {
-					htmlContent = strings.ReplaceAll(htmlContent, "{{CHART_DATA_JSON}}", chartData)
-					r.saveReportHTMLFile(content, htmlContent)
-					logger.Infof("[Skill] PostProcess: Injected chart data into report HTML")
-				}
-			}
-			return content
-		}
-		logger.Infof("[Skill] PostProcess: content does not contain {{ or report URL, returning as-is")
-		return content
-	}
-
-	// 检查是否是 HTML 模板（包含 DOCTYPE 或 <html>）
-	if !strings.Contains(content, "<!DOCTYPE") && !strings.Contains(content, "<html") {
-		return content
-	}
-
-	logger.Infof("[Skill] PostProcess: Detected unfilled HTML template, attempting to process")
-
-	// 找到 htmlInterpreterTool
-	var htmlTool *htmlInterpreterTool
-	for _, t := range tools {
-		if info, _ := t.Info(context.Background()); info != nil && info.Name == "html_interpreter" {
-			if hit, ok := t.(*htmlInterpreterTool); ok {
-				htmlTool = hit
-				break
-			}
-		}
-	}
-	if htmlTool == nil {
-		logger.Infof("[Skill] PostProcess: html_interpreter tool not found")
-		return content
-	}
-
-	// 尝试提取模板路径和数据
-	templatePath, data := r.extractTemplateData(content)
-	if templatePath == "" || data == nil {
-		logger.Infof("[Skill] PostProcess: Could not extract template path or data")
-		return content
-	}
-
-	// 调用 html_interpreter
-	args := map[string]any{
-		"template_path": templatePath,
-		"data":          data,
-	}
-	argsJSON, _ := json.Marshal(args)
-	result, err := htmlTool.InvokableRun(context.Background(), string(argsJSON))
-	if err != nil {
-		logger.Infof("[Skill] PostProcess: html_interpreter failed: %v", err)
-		return content
-	}
-
-		logger.Infof("[Skill] PostProcess: html_interpreter succeeded, result length=%d", len(result))
-
-	// 检查结果中是否还包含未替换的 {{CHART_DATA_JSON}}
-	if strings.Contains(result, "{{CHART_DATA_JSON}}") {
-		logger.Infof("[Skill] PostProcess: Result still contains {{CHART_DATA_JSON}} placeholder, attempting to inject chart data")
-		// 从 content 中提取图表数据
-		chartData := extractChartDataFromMarkers(content)
-		if chartData != "" {
-			result = strings.ReplaceAll(result, "{{CHART_DATA_JSON}}", chartData)
-			logger.Infof("[Skill] PostProcess: Re-extracted and injected chart data, new length=%d", len(result))
-		} else {
-			logger.Infof("[Skill] PostProcess: Failed to extract chart data from content")
-		}
-	}
-
-	return result
-}
-
-// processCsvAnalyzerOutput 处理 csv_analyzer 的原始输出，调用 htmlInterpreterTool 生成报告
-func (r *SkillRunner) processCsvAnalyzerOutput(content string, tools []tool.BaseTool) string {
-	// 找到 htmlInterpreterTool
-	var htmlTool *htmlInterpreterTool
-	for _, t := range tools {
-		if info, _ := t.Info(context.Background()); info != nil && info.Name == "html_interpreter" {
-			if hit, ok := t.(*htmlInterpreterTool); ok {
-				htmlTool = hit
-				break
-			}
-		}
-	}
-	if htmlTool == nil {
-		logger.Infof("[Skill] PostProcess: html_interpreter tool not found")
-		return content
-	}
-
-	// 使用 ExtractCsvInsightsFromRawText 提取数据
-	insights := ExtractCsvInsightsFromRawText(content)
-	data := insights.ToMap()
-
-	// 调试日志：检查提取的数据
-	logger.Infof("[Skill] PostProcess: ChartDataJSON present in map: %v", data["CHART_DATA_JSON"] != nil && data["CHART_DATA_JSON"] != "")
-	if data["CHART_DATA_JSON"] != nil {
-		logger.Infof("[Skill] PostProcess: ChartDataJSON length: %d, preview: %.100s...",
-			len(data["CHART_DATA_JSON"].(string)), data["CHART_DATA_JSON"].(string))
-	}
-	logger.Infof("[Skill] PostProcess: Extracted chart data length=%d, execSummary length=%d",
-		len(insights.ChartDataJSON), len(insights.ExecSummary))
-
-	// 调用 html_interpreter
-	templatePath := "templates/report_template.html"
-	args := map[string]any{
-		"template_path": templatePath,
-		"data":          data,
-	}
-	argsJSON, _ := json.Marshal(args)
-	result, err := htmlTool.InvokableRun(context.Background(), string(argsJSON))
-	if err != nil {
-		logger.Infof("[Skill] PostProcess: html_interpreter failed: %v", err)
-		return content
-	}
-
-	logger.Infof("[Skill] PostProcess: html_interpreter succeeded, result length=%d", len(result))
-	return result
-}
-
 // extractTemplateData 从 HTML 模板内容中提取模板路径和数据
 func (r *SkillRunner) extractTemplateData(htmlContent string) (string, map[string]any) {
 	// 从上次读取的文件路径记录中获取模板路径
@@ -545,7 +357,7 @@ func (r *SkillRunner) extractTemplateData(htmlContent string) (string, map[strin
 	// 提取数据：从 HTML 内容中尝试提取可用的数据
 	// 由于原始数据已丢失，只能返回空
 	data := map[string]any{
-		"LANG":                   "zh",
+		"LANG":                  "zh",
 		"REPORT_TITLE":          "数据分析报告",
 		"REPORT_SUBTITLE":       "自动生成",
 		"EXEC_SUMMARY":          "数据概览完成",
@@ -754,7 +566,14 @@ func (r *SkillRunner) buildSkillSandboxTools(workDir string, skill types.Skill, 
 		skillInput: skillInput,
 	}
 
-	return []tool.BaseTool{listTool, readTool, execTool, NewHtmlInterpreterTool(workDir, r.getReportsDir(), r.getReportsURL())}
+	tools := []tool.BaseTool{listTool, readTool, execTool, NewHtmlInterpreterTool(workDir, r.getReportsDir(), r.getReportsURL())}
+
+	// 对于 pptx skill，添加 pptxInterpreterTool
+	if skill.ID == "pptx" {
+		tools = append(tools, NewPptxInterpreterTool(workDir, r.getReportsDir(), r.getReportsURL()))
+	}
+
+	return tools
 }
 
 // buildSkillInstruction 构建 skill 执行 instruction
@@ -813,6 +632,41 @@ func (r *SkillRunner) buildSkillInstruction(skill types.Skill, input string) str
 - CHART_DATA_JSON 必须是从脚本输出中提取的图表数据 JSON 字符串
 - 如果某项无数据，填 "无数据"
 - html_interpreter 返回 HTML 后直接输出，不要再调用任何工具`, skill.ID, filePath)
+	}
+
+	// 针对 pptx skill，提供具体的执行指引
+	if skill.ID == "pptx" {
+		baseInstruction += `
+
+【pptx skill 的特殊执行指引】
+使用 pptx_interpreter 工具直接生成 PPT 文件。
+
+执行步骤：
+1. 理解用户需求，规划 PPT 结构：
+   - 封面页：标题、副标题、作者
+   - 内容页：根据主题设计 3-10 页内容，每页包含标题和内容
+   - 总结页：核心要点回顾
+2. 调用 pptx_interpreter 工具生成 PPT：
+   - title: PPT 标题
+   - author: 作者（可选，默认 "AI Assistant"）
+   - filename: 保存的文件名（可选，默认 "presentation_时间戳.pptx"）
+   - slides: 幻灯片数组，每个 slide 是对象：
+     * title: 幻灯片标题
+     * content: 幻灯片内容（支持多行文本）
+     * bg: 背景色（可选，如 "FFFFFF" 白色，"1E2761" 深蓝色）
+     * title_color: 标题颜色（可选）
+     * content_color: 内容颜色（可选）
+     * title_size: 标题字号（可选，默认 36）
+     * content_size: 内容字号（可选，默认 18）
+
+3. pptx_interpreter 返回 PPT 文件的 URL 后直接输出该 URL，不要再调用任何工具
+
+关键：
+- slides 数组不能为空
+- 每页内容要简洁，突出重点
+- 建议使用深色背景（bg: "1E2761"）+ 白色文字做封面，内容页用浅色背景
+- title 和 content 中的双引号需要转义
+- 生成后直接输出 URL 即可，不需要额外解释`
 	}
 
 	return baseInstruction
@@ -1340,9 +1194,9 @@ func (t *skillExecCommandTool) execInDocker(ctx context.Context, command string)
 
 // htmlInterpreterTool HTML 模板解释器工具
 type htmlInterpreterTool struct {
-	workDir     string // 工作目录，用于解析模板路径
-	reportsDir  string // HTML 报告输出目录
-	baseURL     string // 报告访问的基础 URL
+	workDir    string // 工作目录，用于解析模板路径
+	reportsDir string // HTML 报告输出目录
+	baseURL    string // 报告访问的基础 URL
 }
 
 // NewHtmlInterpreterTool 创建 HTML 解释器工具

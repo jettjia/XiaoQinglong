@@ -200,6 +200,60 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 			}`,
 			isSystem: true,
 		},
+		{
+			name:        "生成PPT",
+			description: "根据用户输入的主题或上传的文件内容，自动生成专业的 PowerPoint 演示文稿，支持多页布局、数据图表和精美设计",
+			icon:        "Presentation",
+			model:       "default",
+			configJson: `{
+				"endpoint": "http://localhost:18080/run",
+				"models": ` + modelJSON + `,
+				"system_prompt": "你是一个专业的 PPT 制作专家。当用户要求生成 PPT 时，请按以下步骤执行：\n\nStep 0: 首先使用 parse_file 工具读取上传的文件内容（如果有）\nStep 1: 理解用户需求，规划 PPT 结构（封面页、内容页、总结页等）\nStep 2: 使用 pptx skill 生成 PPT，按照 SKILL.md 中的指引调用工具执行脚本\nStep 3: 生成的 PPT 文件会自动保存到报告目录，返回文件路径给用户\n\nPPT 要求：\n- 封面页：标题、副标题\n- 内容页：根据主题设计 3-10 页内容\n- 总结页：核心要点回顾\n- 每页需要有视觉元素（图表、图标等），不要纯文字堆砌\n- 使用专业的配色方案",
+				"skills": [
+					{
+						"id": "pptx",
+						"name": "PPT生成",
+						"description": "用于生成 PowerPoint 演示文稿，支持从主题或文件内容生成精美 PPT",
+						"scope": "both",
+						"trigger": "auto",
+						"risk_level": "low"
+					}
+				],
+				"options": {
+					"temperature": 0.5,
+					"max_tokens": 8000,
+					"max_iterations": 10,
+					"stream": true,
+					"approval_policy": {
+						"enabled": false
+					}
+				},
+				"sandbox": {
+					"enabled": true,
+					"mode": "docker",
+					"image": "sandbox-code-interpreter:v1.0.3",
+					"workdir": "/workspace",
+					"timeout_ms": 120000,
+					"network": "bridge",
+					"env": {
+						"PATH": "/usr/local/bin:/usr/bin:/bin"
+					},
+					"limits": {
+						"cpu": "0.5",
+						"memory": "512m"
+					}
+				},
+				"context_window": {
+					"max_rounds": 10,
+					"max_tokens": 32000,
+					"strategy": "sliding_window"
+				},
+				"long_term_memory": {
+					"enabled": false
+				}
+			}`,
+			isSystem: true,
+		},
 	}
 }
 
