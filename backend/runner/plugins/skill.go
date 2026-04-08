@@ -39,6 +39,10 @@ type SkillRunner struct {
 
 	// uploadsBaseDir 上传文件的基础目录，用于保存生成的报告
 	uploadsBaseDir string
+
+	// autoData 管理：存储脚本输出的 marker 数据（如 CHART_DATA_JSON）
+	// key: sessionID, value: map[key]value (如 "CHART_DATA_JSON": "{...json...}")
+	autoData map[string]map[string]string
 }
 
 // NewSkillRunner creates a new skill runner
@@ -73,6 +77,72 @@ func (r *SkillRunner) getReportsURL() string {
 		return "/reports"
 	}
 	return fmt.Sprintf("/uploads/%s/reports", r.CurrentSessionID)
+}
+
+// SetAutoData 存储脚本输出的 marker 数据
+func (r *SkillRunner) SetAutoData(sessionID string, key string, value string) {
+	if r.autoData == nil {
+		r.autoData = make(map[string]map[string]string)
+	}
+	if r.autoData[sessionID] == nil {
+		r.autoData[sessionID] = make(map[string]string)
+	}
+	r.autoData[sessionID][key] = value
+	logger.Infof("[SkillRunner] SetAutoData for session=%s, key=%s, valueLen=%d", sessionID, key, len(value))
+}
+
+// GetAutoData 获取存储的 marker 数据
+func (r *SkillRunner) GetAutoData(sessionID string) map[string]string {
+	if r.autoData == nil {
+		return nil
+	}
+	return r.autoData[sessionID]
+}
+
+// ExtractAutoDataFromText 从文本中提取 ###KEY_START###...###KEY_END### 格式的 marker 数据
+func (r *SkillRunner) ExtractAutoDataFromText(sessionID string, text string) map[string]string {
+	extracted := make(map[string]string)
+	if text == "" || !strings.Contains(text, "###") {
+		return extracted
+	}
+
+	// 使用简单的字符串查找来提取 marker 数据
+	startPattern := "_START###"
+	workingText := text
+	for {
+		idx := strings.Index(workingText, startPattern)
+		if idx == -1 {
+			break
+		}
+		startMarkerStart := strings.LastIndex(workingText[:idx], "###")
+		if startMarkerStart == -1 {
+			workingText = workingText[idx+len(startPattern):]
+			continue
+		}
+		keyStart := startMarkerStart + 3
+		keyEnd := idx
+		key := workingText[keyStart:keyEnd]
+		if key == "" || strings.Contains(key, "###") {
+			workingText = workingText[idx+len(startPattern):]
+			continue
+		}
+		endMarker := "###" + key + "_END###"
+		contentStart := idx + len(startPattern)
+		endIdx := strings.Index(workingText[contentStart:], endMarker)
+		if endIdx != -1 {
+			value := strings.TrimSpace(workingText[contentStart : contentStart+endIdx])
+			if value != "" {
+				extracted[key] = value
+			}
+		}
+		workingText = workingText[contentStart:]
+	}
+
+	// 存储提取的数据
+	for k, v := range extracted {
+		r.SetAutoData(sessionID, k, v)
+	}
+	return extracted
 }
 
 // RunSkill runs a skill with given input using sliding-window approach
@@ -302,13 +372,42 @@ func (r *SkillRunner) runSkillWithAgent(ctx context.Context, instruction string,
 }
 
 // postProcessSkillOutput 后处理 skill 输出，检测并处理未填充的模板
+// 当 inner agent 没有正确调用 htmlInterpreterTool 时，由 outer agent 后处理
 func (r *SkillRunner) postProcessSkillOutput(content string, tools []tool.BaseTool) string {
+	// 调试：记录原始内容
+	logger.Infof("[Skill] PostProcess: input content length=%d, preview=%.200s...", len(content), content[:min(200, len(content))])
+
+	// 检查是否是 csv_analyzer 的原始 JSON 输出（包含 ###CHART_DATA_JSON_START### 标记）
+	if strings.Contains(content, "###CHART_DATA_JSON_START###") {
+		logger.Infof("[Skill] PostProcess: Detected csv_analyzer raw output with chart data markers, processing...")
+		return r.processCsvAnalyzerOutput(content, tools)
+	}
+
 	// 检查是否包含未填充的模板占位符
 	if !strings.Contains(content, "{{") {
+		// 如果内容不包含模板占位符，检查是否是报告 URL
+		// 报告 URL 格式：/uploads/{sessionID}/reports/report_xxx.html
+		if strings.Contains(content, "/uploads/") && strings.Contains(content, "/reports/report_") {
+			logger.Infof("[Skill] PostProcess: Detected report URL: %s", content)
+			// 读取实际的 HTML 文件并检查是否有未填充的占位符
+			htmlContent := r.readReportHTMLFile(content)
+			if htmlContent != "" && strings.Contains(htmlContent, "{{CHART_DATA_JSON}}") {
+				logger.Infof("[Skill] PostProcess: Report HTML has unfilled {{CHART_DATA_JSON}}, attempting to fix")
+				// 尝试提取 chart data 并注入
+				chartData := extractChartDataFromMarkers(htmlContent)
+				if chartData != "" {
+					htmlContent = strings.ReplaceAll(htmlContent, "{{CHART_DATA_JSON}}", chartData)
+					r.saveReportHTMLFile(content, htmlContent)
+					logger.Infof("[Skill] PostProcess: Injected chart data into report HTML")
+				}
+			}
+			return content
+		}
+		logger.Infof("[Skill] PostProcess: content does not contain {{ or report URL, returning as-is")
 		return content
 	}
 
-	// 检查是否是 HTML 模板（包含 DOCTYPE 或 <html）
+	// 检查是否是 HTML 模板（包含 DOCTYPE 或 <html>）
 	if !strings.Contains(content, "<!DOCTYPE") && !strings.Contains(content, "<html") {
 		return content
 	}
@@ -338,6 +437,67 @@ func (r *SkillRunner) postProcessSkillOutput(content string, tools []tool.BaseTo
 	}
 
 	// 调用 html_interpreter
+	args := map[string]any{
+		"template_path": templatePath,
+		"data":          data,
+	}
+	argsJSON, _ := json.Marshal(args)
+	result, err := htmlTool.InvokableRun(context.Background(), string(argsJSON))
+	if err != nil {
+		logger.Infof("[Skill] PostProcess: html_interpreter failed: %v", err)
+		return content
+	}
+
+		logger.Infof("[Skill] PostProcess: html_interpreter succeeded, result length=%d", len(result))
+
+	// 检查结果中是否还包含未替换的 {{CHART_DATA_JSON}}
+	if strings.Contains(result, "{{CHART_DATA_JSON}}") {
+		logger.Infof("[Skill] PostProcess: Result still contains {{CHART_DATA_JSON}} placeholder, attempting to inject chart data")
+		// 从 content 中提取图表数据
+		chartData := extractChartDataFromMarkers(content)
+		if chartData != "" {
+			result = strings.ReplaceAll(result, "{{CHART_DATA_JSON}}", chartData)
+			logger.Infof("[Skill] PostProcess: Re-extracted and injected chart data, new length=%d", len(result))
+		} else {
+			logger.Infof("[Skill] PostProcess: Failed to extract chart data from content")
+		}
+	}
+
+	return result
+}
+
+// processCsvAnalyzerOutput 处理 csv_analyzer 的原始输出，调用 htmlInterpreterTool 生成报告
+func (r *SkillRunner) processCsvAnalyzerOutput(content string, tools []tool.BaseTool) string {
+	// 找到 htmlInterpreterTool
+	var htmlTool *htmlInterpreterTool
+	for _, t := range tools {
+		if info, _ := t.Info(context.Background()); info != nil && info.Name == "html_interpreter" {
+			if hit, ok := t.(*htmlInterpreterTool); ok {
+				htmlTool = hit
+				break
+			}
+		}
+	}
+	if htmlTool == nil {
+		logger.Infof("[Skill] PostProcess: html_interpreter tool not found")
+		return content
+	}
+
+	// 使用 ExtractCsvInsightsFromRawText 提取数据
+	insights := ExtractCsvInsightsFromRawText(content)
+	data := insights.ToMap()
+
+	// 调试日志：检查提取的数据
+	logger.Infof("[Skill] PostProcess: ChartDataJSON present in map: %v", data["CHART_DATA_JSON"] != nil && data["CHART_DATA_JSON"] != "")
+	if data["CHART_DATA_JSON"] != nil {
+		logger.Infof("[Skill] PostProcess: ChartDataJSON length: %d, preview: %.100s...",
+			len(data["CHART_DATA_JSON"].(string)), data["CHART_DATA_JSON"].(string))
+	}
+	logger.Infof("[Skill] PostProcess: Extracted chart data length=%d, execSummary length=%d",
+		len(insights.ChartDataJSON), len(insights.ExecSummary))
+
+	// 调用 html_interpreter
+	templatePath := "templates/report_template.html"
 	args := map[string]any{
 		"template_path": templatePath,
 		"data":          data,
@@ -397,6 +557,39 @@ func (r *SkillRunner) extractTemplateData(htmlContent string) (string, map[strin
 	}
 
 	return templatePath, data
+}
+
+// readReportHTMLFile 根据报告 URL 读取实际的 HTML 文件内容
+func (r *SkillRunner) readReportHTMLFile(reportURL string) string {
+	// reportURL 格式: /uploads/{sessionID}/reports/report_xxx.html
+	// 需要转换为实际的文件路径
+	parts := strings.Split(reportURL, "/uploads/")
+	if len(parts) < 2 {
+		return ""
+	}
+	relPath := "uploads/" + parts[1]
+	filePath := filepath.Join(r.uploadsBaseDir, relPath)
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		logger.Infof("[Skill] readReportHTMLFile: failed to read %s: %v", filePath, err)
+		return ""
+	}
+	return string(data)
+}
+
+// saveReportHTMLFile 保存 HTML 内容到报告文件
+func (r *SkillRunner) saveReportHTMLFile(reportURL string, htmlContent string) {
+	parts := strings.Split(reportURL, "/uploads/")
+	if len(parts) < 2 {
+		return
+	}
+	relPath := "uploads/" + parts[1]
+	filePath := filepath.Join(r.uploadsBaseDir, relPath)
+	if err := os.WriteFile(filePath, []byte(htmlContent), 0644); err != nil {
+		logger.Infof("[Skill] saveReportHTMLFile: failed to write %s: %v", filePath, err)
+		return
+	}
+	logger.Infof("[Skill] saveReportHTMLFile: saved report to %s", filePath)
 }
 
 // runSkillSimple 简单模式执行 skill（使用模型分析）
@@ -601,7 +794,7 @@ func (r *SkillRunner) buildSkillInstruction(skill types.Skill, input string) str
    - 这是一个 JSON 对象，包含 charts 数组等数据
 3. 调用 html_interpreter 生成报告：
    - template_path="templates/report_template.html"
-   - data 是 JSON 对象，包含以下9个字段：
+   - data 是 JSON 对象，包含以下10个字段：
      * LANG: "zh"
      * REPORT_TITLE: "数据分析报告"
      * REPORT_SUBTITLE: "基于CSV数据的自动分析"
@@ -611,11 +804,13 @@ func (r *SkillRunner) buildSkillInstruction(skill types.Skill, input string) str
      * CATEGORICAL_INSIGHTS: 分类分析洞察
      * TIME_SERIES_INSIGHTS: 时序分析洞察
      * CONCLUSIONS: 结论与建议
+     * CHART_DATA_JSON: 图表数据 JSON 字符串（从 ###CHART_DATA_JSON_START###...###CHART_DATA_JSON_END### 中提取的内容）
    - 从脚本输出的统计摘要中提取数据，填入上述字段
 
 关键：html_interpreter 的 data 参数中：
 - LANG 必须是字符串 "zh"
 - 所有字段都必须是字符串（HTML 格式）
+- CHART_DATA_JSON 必须是从脚本输出中提取的图表数据 JSON 字符串
 - 如果某项无数据，填 "无数据"
 - html_interpreter 返回 HTML 后直接输出，不要再调用任何工具`, skill.ID, filePath)
 	}
@@ -820,7 +1015,76 @@ func (t *skillExecCommandTool) InvokableRun(ctx context.Context, argumentsInJSON
 		return "", fmt.Errorf("exec failed: %s", string(output))
 	}
 
-	return string(output), nil
+	outputText := strings.TrimSpace(string(output))
+	// 提取 auto_data 并保存到文件
+	t.extractAndSaveAutoData(outputText)
+	return outputText, nil
+}
+
+// extractAndSaveAutoData 从脚本输出中提取 ###KEY_START###...###KEY_END### 标记数据并保存到文件
+func (t *skillExecCommandTool) extractAndSaveAutoData(output string) {
+	if output == "" || !strings.Contains(output, "###") {
+		return
+	}
+
+	autoData := make(map[string]string)
+	// 使用简单的字符串查找来提取 marker 数据
+	// 查找所有 _START### 模式的位置
+	startPattern := "_START###"
+	for {
+		idx := strings.Index(output, startPattern)
+		if idx == -1 {
+			break
+		}
+		// 向前找 ### 的位置，得到完整的 start marker
+		startMarkerStart := strings.LastIndex(output[:idx], "###")
+		if startMarkerStart == -1 {
+			output = output[idx+len(startPattern):]
+			continue
+		}
+		// 提取 key（在 ### 和 _START 之间的内容）
+		keyStart := startMarkerStart + 3
+		keyEnd := idx
+		key := output[keyStart:keyEnd]
+		if key == "" || strings.Contains(key, "###") {
+			output = output[idx+len(startPattern):]
+			continue
+		}
+		// 找对应的 end marker
+		endMarker := "###" + key + "_END###"
+		contentStart := idx + len(startPattern)
+		endIdx := strings.Index(output[contentStart:], endMarker)
+		if endIdx != -1 {
+			value := strings.TrimSpace(output[contentStart : contentStart+endIdx])
+			if value != "" {
+				autoData[key] = value
+			}
+		}
+		output = output[contentStart:]
+	}
+
+	if len(autoData) > 0 {
+		// 保存到 workDir 下的 .auto_data.json 文件
+		autoDataFile := filepath.Join(t.workDir, ".auto_data.json")
+		dataJSON, err := json.Marshal(autoData)
+		if err != nil {
+			logger.Infof("[execute_skill_script_file] failed to marshal auto_data: %v", err)
+			return
+		}
+		if err := os.WriteFile(autoDataFile, dataJSON, 0644); err != nil {
+			logger.Infof("[execute_skill_script_file] failed to write auto_data file: %v", err)
+			return
+		}
+		logger.Infof("[execute_skill_script_file] saved auto_data with keys: %v to %s", mapKeys(autoData), autoDataFile)
+	}
+}
+
+func mapKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 func (t *skillExecCommandTool) execInSandbox(ctx context.Context, command string) (string, error) {
@@ -914,6 +1178,8 @@ func (t *skillExecCommandTool) execLocally(ctx context.Context, command string) 
 	stdoutText := strings.TrimSpace(stdout.String())
 	stderrText := strings.TrimSpace(stderr.String())
 	if stdoutText != "" {
+		// 提取 auto_data 并保存到文件
+		t.extractAndSaveAutoData(stdoutText)
 		return stdoutText, nil
 	}
 	if stderrText != "" {
@@ -1060,6 +1326,8 @@ func (t *skillExecCommandTool) execInDocker(ctx context.Context, command string)
 	stdoutText := strings.TrimSpace(stdout.String())
 	stderrText := strings.TrimSpace(stderr.String())
 	if stdoutText != "" {
+		// 提取 auto_data 并保存到文件
+		t.extractAndSaveAutoData(stdoutText)
 		return stdoutText, nil
 	}
 	if stderrText != "" {
@@ -1119,26 +1387,45 @@ func (t *htmlInterpreterTool) InvokableRun(ctx context.Context, argumentsInJSON 
 	switch v := r.Data.(type) {
 	case map[string]any:
 		data = v
+		// 检查是否缺少 CHART_DATA_JSON，如果是，尝试从其他字段提取
+		if _, hasChartData := data["CHART_DATA_JSON"]; !hasChartData {
+			logger.Infof("[htmlInterpreterTool] CHART_DATA_JSON not found in data, attempting to extract from string fields")
+			if chartData := extractChartDataFromMapFields(data); chartData != "" {
+				data["CHART_DATA_JSON"] = chartData
+				logger.Infof("[htmlInterpreterTool] Extracted CHART_DATA_JSON from map fields, length=%d", len(chartData))
+			}
+		}
 	case string:
 		// 如果是字符串，尝试解析为 JSON 对象
 		if err := json.Unmarshal([]byte(v), &data); err != nil {
 			// 如果解析失败，说明传入的是原始文本内容
-			// 这种情况下创建一个默认的 data 对象，使用文本作为 EXEC_SUMMARY
-			logger.Warnf("[htmlInterpreterTool] data string parse failed: %v, treating as plain text", err)
-			data = map[string]any{
-				"LANG":                   "zh",
-				"REPORT_TITLE":          "数据分析报告",
-				"REPORT_SUBTITLE":       "自动生成",
-				"EXEC_SUMMARY":          v, // 直接使用原始文本
-				"DISTRIBUTION_INSIGHTS": "无数据",
-				"CORRELATION_INSIGHTS":  "无数据",
-				"CATEGORICAL_INSIGHTS":  "无数据",
-				"TIME_SERIES_INSIGHTS":  "无数据",
-				"CONCLUSIONS":           "无数据",
-			}
+			// 尝试从 csv-data-analysis 原始输出中提取数据和洞察
+			logger.Warnf("[htmlInterpreterTool] data string parse failed: %v, trying csv-data-analysis extraction", err)
+			insights := ExtractCsvInsightsFromRawText(v)
+			data = insights.ToMap()
+			logger.Infof("[htmlInterpreterTool] Extracted csv-data-analysis insights, chart data length=%d", len(insights.ChartDataJSON))
 		}
 	default:
 		return "", fmt.Errorf("data must be object or JSON string, got %T", r.Data)
+	}
+
+	// 尝试从 .auto_data.json 文件读取 auto_data（如 CHART_DATA_JSON）
+	// 这是 skillExecCommandTool 在执行脚本后提取并保存的 marker 数据
+	autoDataFile := filepath.Join(t.workDir, ".auto_data.json")
+	if autoDataBytes, err := os.ReadFile(autoDataFile); err == nil {
+		var autoData map[string]string
+		if err := json.Unmarshal(autoDataBytes, &autoData); err == nil {
+			for k, v := range autoData {
+				keyUpper := strings.ToUpper(k)
+				placeholderName := keyUpper
+				// 对于 CHART_DATA_JSON 等特殊 key，确保名称匹配
+				if _, exists := data[placeholderName]; !exists {
+					// 将 auto_data 的 key 转换为大写作为占位符名
+					data[placeholderName] = v
+					logger.Infof("[htmlInterpreterTool] Loaded auto_data: %s, len=%d", placeholderName, len(v))
+				}
+			}
+		}
 	}
 
 	// 读取模板文件
@@ -1156,6 +1443,9 @@ func (t *htmlInterpreterTool) InvokableRun(ctx context.Context, argumentsInJSON 
 
 	// 注入数据到模板
 	html := string(templateContent)
+
+	// 保存原始模板的引用，用于后续检查 {{CHART_DATA_JSON}} 是否仍存在
+	hasChartDataPlaceholder := strings.Contains(html, "{{CHART_DATA_JSON}}")
 
 	// 替换占位符
 	for key, value := range data {
@@ -1177,6 +1467,31 @@ func (t *htmlInterpreterTool) InvokableRun(ctx context.Context, argumentsInJSON 
 			}
 		}
 		html = strings.ReplaceAll(html, placeholder, replacement)
+	}
+
+	// 如果 {{CHART_DATA_JSON}} 仍然存在，尝试从 data 中再次提取
+	if hasChartDataPlaceholder && strings.Contains(html, "{{CHART_DATA_JSON}}") {
+		logger.Infof("[htmlInterpreterTool] CHART_DATA_JSON placeholder still unfilled, attempting recovery")
+		// 尝试从 data 的字符串字段中提取
+		if chartData := extractChartDataFromMapFields(data); chartData != "" {
+			html = strings.ReplaceAll(html, "{{CHART_DATA_JSON}}", chartData)
+			logger.Infof("[htmlInterpreterTool] Recovered chart data and injected, length=%d", len(chartData))
+		} else {
+			// 最后尝试：从 data 中找到任何包含 JSON 数组的字符串（charts 通常是数组）
+			for _, v := range data {
+				if str, ok := v.(string); ok {
+					if strings.Contains(str, "[") && strings.Contains(str, "charts") {
+						// 尝试提取 charts 数组
+						chartData := extractChartDataFromMarkers(str)
+						if chartData != "" {
+							html = strings.ReplaceAll(html, "{{CHART_DATA_JSON}}", chartData)
+							logger.Infof("[htmlInterpreterTool] Extracted charts from field content, length=%d", len(chartData))
+							break
+						}
+					}
+				}
+			}
+		}
 	}
 
 	logger.Infof("[htmlInterpreterTool] Generated HTML report, length=%d", len(html))

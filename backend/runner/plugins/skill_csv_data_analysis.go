@@ -52,19 +52,27 @@ func extractChartDataFromMarkers(htmlContent string) string {
 	startMarker := "###CHART_DATA_JSON_START###"
 	endMarker := "###CHART_DATA_JSON_END###"
 
+	logger.Infof("[extractChartDataFromMarkers] Input length=%d, searching for marker: %s", len(htmlContent), startMarker)
+
 	startIdx := strings.Index(htmlContent, startMarker)
 	if startIdx == -1 {
 		// 尝试查找没有 ### 前缀的标记
 		startMarker = "CHART_DATA_JSON_START"
 		endMarker = "CHART_DATA_JSON_END"
 		startIdx = strings.Index(htmlContent, startMarker)
+		logger.Infof("[extractChartDataFromMarkers] Try without ### prefix, found at: %d", startIdx)
 	}
 
 	if startIdx == -1 {
-		logger.Infof("[extractChartDataFromMarkers] No chart data markers found")
+		previewLen := 200
+		if previewLen > len(htmlContent) {
+			previewLen = len(htmlContent)
+		}
+		logger.Infof("[extractChartDataFromMarkers] No chart data markers found. Content preview: %.200s...", htmlContent[:previewLen])
 		return ""
 	}
 
+	logger.Infof("[extractChartDataFromMarkers] Found start marker at index %d", startIdx)
 	startIdx += len(startMarker)
 	endIdx := strings.Index(htmlContent[startIdx:], endMarker)
 	if endIdx == -1 {
@@ -75,7 +83,11 @@ func extractChartDataFromMarkers(htmlContent string) string {
 	chartData := htmlContent[startIdx : startIdx+endIdx]
 	chartData = strings.TrimSpace(chartData)
 
-	logger.Infof("[extractChartDataFromMarkers] Extracted chart data, length=%d", len(chartData))
+	previewLen := 100
+	if previewLen > len(chartData) {
+		previewLen = len(chartData)
+	}
+	logger.Infof("[extractChartDataFromMarkers] Extracted chart data, length=%d, preview: %.100s...", len(chartData), chartData[:previewLen])
 	return chartData
 }
 
