@@ -1142,7 +1142,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                 <div className={cn(
                   "p-3 lg:p-4 rounded-2xl text-sm leading-relaxed shadow-sm",
                   msg.role === 'user'
-                    ? "bg-slate-900 text-white rounded-tr-none max-w-[95%]"
+                    ? "bg-slate-900 text-white rounded-tr-none w-full max-w-2xl"
                     : "bg-white border border-slate-200 text-slate-800 rounded-tl-none w-fit w-full max-w-2xl"
                 )}>
                   {msg.role === 'assistant' ? (
