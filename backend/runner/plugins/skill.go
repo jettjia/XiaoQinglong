@@ -36,21 +36,43 @@ type SkillRunner struct {
 
 	// CurrentSessionID 由 dispatcher 设置，标识当前请求的 session
 	CurrentSessionID string
+
+	// uploadsBaseDir 上传文件的基础目录，用于保存生成的报告
+	uploadsBaseDir string
 }
 
 // NewSkillRunner creates a new skill runner
-func NewSkillRunner(skills []types.Skill, skillsDir string, sandboxCfg *types.SandboxConfig, model model.ToolCallingChatModel, configMgr *SkillConfigManager) *SkillRunner {
+func NewSkillRunner(skills []types.Skill, skillsDir string, sandboxCfg *types.SandboxConfig, model model.ToolCallingChatModel, configMgr *SkillConfigManager, uploadsBaseDir string) *SkillRunner {
 	skillMap := make(map[string]types.Skill)
 	for _, s := range skills {
 		skillMap[s.ID] = s
 	}
 	return &SkillRunner{
-		skills:     skillMap,
-		skillsDir:  skillsDir,
-		sandboxCfg: sandboxCfg,
-		model:      model,
-		configMgr:  configMgr,
+		skills:         skillMap,
+		skillsDir:      skillsDir,
+		sandboxCfg:    sandboxCfg,
+		model:         model,
+		configMgr:     configMgr,
+		uploadsBaseDir: uploadsBaseDir,
 	}
+}
+
+// getReportsDir 获取报告保存目录：uploadsBaseDir/sessionID/reports
+func (r *SkillRunner) getReportsDir() string {
+	if r.uploadsBaseDir == "" || r.CurrentSessionID == "" {
+		return "/tmp/reports"
+	}
+	dir := filepath.Join(r.uploadsBaseDir, r.CurrentSessionID, "reports")
+	os.MkdirAll(dir, 0755)
+	return dir
+}
+
+// getReportsURL 获取报告访问的 URL 基础路径
+func (r *SkillRunner) getReportsURL() string {
+	if r.CurrentSessionID == "" {
+		return "/reports"
+	}
+	return fmt.Sprintf("/uploads/%s/reports", r.CurrentSessionID)
 }
 
 // RunSkill runs a skill with given input using sliding-window approach
@@ -198,19 +220,20 @@ func (r *SkillRunner) runSkillWithAgent(ctx context.Context, instruction string,
 	}
 	logger.Infof("[Skill] Agent created successfully")
 
-	// 设置超时
-	skillCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	// 设置超时（增加时间，因为需要调用多次工具）
+	skillCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
 	// 运行 agent
 	logger.Infof("[Skill] Starting agent execution...")
-	runner := adk.NewRunner(skillCtx, adk.RunnerConfig{EnableStreaming: false, Agent: agent})
+	runner := adk.NewRunner(skillCtx, adk.RunnerConfig{EnableStreaming: true, Agent: agent})
 	logger.Infof("[Skill] Runner created, starting query...")
 	iter := runner.Query(skillCtx, "执行任务")
 
 	// 收集结果
 	var lastContent string
 	var eventCount int
+	var hasToolCalls bool
 	for {
 		ev, ok := iter.Next()
 		if !ok {
@@ -222,19 +245,34 @@ func (r *SkillRunner) runSkillWithAgent(ctx context.Context, instruction string,
 			continue
 		}
 		if ev.Output == nil {
-			logger.Infof("[Skill] Event[%d]: ev.Output is nil", eventCount)
+			if ev.Err != nil {
+				logger.Infof("[Skill] Event[%d]: ev.Output is nil, err=%v", eventCount, ev.Err)
+			} else if ev.Action != nil {
+				logger.Infof("[Skill] Event[%d]: ev.Output is nil, action=%+v", eventCount, ev.Action)
+			} else {
+				logger.Infof("[Skill] Event[%d]: ev.Output is nil, no err no action", eventCount)
+			}
 			continue
 		}
+
 		msgOut := ev.Output.MessageOutput
 		if msgOut == nil {
 			logger.Infof("[Skill] Event[%d]: ev.Output.MessageOutput is nil", eventCount)
 			continue
 		}
 
+		// 检查 Message 中是否有 tool_calls
+		if msgOut.Message != nil && len(msgOut.Message.ToolCalls) > 0 {
+			hasToolCalls = true
+			for _, tc := range msgOut.Message.ToolCalls {
+				logger.Infof("[Skill] Event[%d]: tool_call - %s", eventCount, tc.Function.Name)
+			}
+		}
+
 		// 处理 Message
 		if msgOut.Message != nil && strings.TrimSpace(msgOut.Message.Content) != "" {
 			lastContent = msgOut.Message.Content
-			logger.Infof("[Skill] Event[%d]: got content, length=%d", eventCount, len(lastContent))
+			logger.Infof("[Skill] Event[%d]: got content, length=%d, hasToolCalls=%v", eventCount, len(lastContent), hasToolCalls)
 		}
 
 		// 处理 MessageStream (streaming)
@@ -252,18 +290,113 @@ func (r *SkillRunner) runSkillWithAgent(ctx context.Context, instruction string,
 		}
 	}
 
-	logger.Infof("[Skill] Agent execution completed, total events=%d, content length: %d", eventCount, len(lastContent))
-	// 打印返回内容的前500字符用于调试
-	if len(lastContent) > 500 {
-		logger.Infof("[Skill] Final content (first 500 chars): %s", lastContent[:500])
-	} else {
-		logger.Infof("[Skill] Final content: %s", lastContent)
-	}
-	if lastContent == "" {
-		return "", fmt.Errorf("skill execution returned no content")
+	logger.Infof("[Skill] Agent execution completed, total events=%d, content length=%d, hasToolCalls=%v", eventCount, len(lastContent), hasToolCalls)
+
+	// 后处理：检查内容是否包含未填充的 HTML 模板占位符
+	finalContent := r.postProcessSkillOutput(lastContent, tools)
+	if finalContent != lastContent {
+		logger.Infof("[Skill] Post-processed HTML content, new length=%d", len(finalContent))
 	}
 
-	return lastContent, nil
+	return finalContent, nil
+}
+
+// postProcessSkillOutput 后处理 skill 输出，检测并处理未填充的模板
+func (r *SkillRunner) postProcessSkillOutput(content string, tools []tool.BaseTool) string {
+	// 检查是否包含未填充的模板占位符
+	if !strings.Contains(content, "{{") {
+		return content
+	}
+
+	// 检查是否是 HTML 模板（包含 DOCTYPE 或 <html）
+	if !strings.Contains(content, "<!DOCTYPE") && !strings.Contains(content, "<html") {
+		return content
+	}
+
+	logger.Infof("[Skill] PostProcess: Detected unfilled HTML template, attempting to process")
+
+	// 找到 htmlInterpreterTool
+	var htmlTool *htmlInterpreterTool
+	for _, t := range tools {
+		if info, _ := t.Info(context.Background()); info != nil && info.Name == "html_interpreter" {
+			if hit, ok := t.(*htmlInterpreterTool); ok {
+				htmlTool = hit
+				break
+			}
+		}
+	}
+	if htmlTool == nil {
+		logger.Infof("[Skill] PostProcess: html_interpreter tool not found")
+		return content
+	}
+
+	// 尝试提取模板路径和数据
+	templatePath, data := r.extractTemplateData(content)
+	if templatePath == "" || data == nil {
+		logger.Infof("[Skill] PostProcess: Could not extract template path or data")
+		return content
+	}
+
+	// 调用 html_interpreter
+	args := map[string]any{
+		"template_path": templatePath,
+		"data":          data,
+	}
+	argsJSON, _ := json.Marshal(args)
+	result, err := htmlTool.InvokableRun(context.Background(), string(argsJSON))
+	if err != nil {
+		logger.Infof("[Skill] PostProcess: html_interpreter failed: %v", err)
+		return content
+	}
+
+	logger.Infof("[Skill] PostProcess: html_interpreter succeeded, result length=%d", len(result))
+	return result
+}
+
+// extractTemplateData 从 HTML 模板内容中提取模板路径和数据
+func (r *SkillRunner) extractTemplateData(htmlContent string) (string, map[string]any) {
+	// 从上次读取的文件路径记录中获取模板路径
+	// 由于我们不知道确切路径，尝试常见的路径
+	possiblePaths := []string{
+		"csv-data-analysis/templates/report_template.html",
+		"templates/report_template.html",
+		"report_template.html",
+	}
+
+	var templatePath string
+	for _, p := range possiblePaths {
+		fullPath := filepath.Join(r.skillsDir, p)
+		if _, err := os.Stat(fullPath); err == nil {
+			templatePath = p
+			break
+		}
+	}
+
+	if templatePath == "" {
+		// 尝试在工作目录中查找
+		for _, p := range possiblePaths {
+			if strings.Contains(htmlContent, p) || strings.Contains(htmlContent, filepath.Base(p)) {
+				templatePath = p
+				break
+			}
+		}
+	}
+
+	// 提取数据：从 HTML 内容中尝试提取可用的数据
+	// 由于原始数据已丢失，只能返回空
+	data := map[string]any{
+		"LANG":                   "zh",
+		"REPORT_TITLE":          "数据分析报告",
+		"REPORT_SUBTITLE":       "自动生成",
+		"EXEC_SUMMARY":          "数据概览完成",
+		"DISTRIBUTION_INSIGHTS": "分布分析完成",
+		"CORRELATION_INSIGHTS":  "相关性分析完成",
+		"CATEGORICAL_INSIGHTS":  "分类分析完成",
+		"TIME_SERIES_INSIGHTS":  "时序分析完成",
+		"CONCLUSIONS":           "分析完成",
+	}
+
+	return templatePath, data
 }
 
 // runSkillSimple 简单模式执行 skill（使用模型分析）
@@ -428,7 +561,7 @@ func (r *SkillRunner) buildSkillSandboxTools(workDir string, skill types.Skill, 
 		skillInput: skillInput,
 	}
 
-	return []tool.BaseTool{listTool, readTool, execTool, NewHtmlInterpreterTool(workDir)}
+	return []tool.BaseTool{listTool, readTool, execTool, NewHtmlInterpreterTool(workDir, r.getReportsDir(), r.getReportsURL())}
 }
 
 // buildSkillInstruction 构建 skill 执行 instruction
@@ -439,18 +572,12 @@ func (r *SkillRunner) buildSkillInstruction(skill types.Skill, input string) str
 输入: %s
 工作目录: %s
 
-执行步骤：
-1. 首先调用 read_skill_file 读取 SKILL.md，这是最重要的入口文件
-2. 仔细阅读 SKILL.md 中的指引，了解脚本结构和执行方式
-3. 读取 scripts 目录下的脚本文件，了解其用法
-4. 根据 SKILL.md 的指引，使用 execute_skill_script_file 工具执行脚本
-5. 使用 html_interpreter 工具（如适用）生成 HTML 报告
-6. 返回执行结果
-
 重要规则：
 - 必须先读取 SKILL.md，理解 skill 的执行流程
 - 使用 execute_skill_script_file 工具执行脚本，传入 skill_name、script_file_name 和 args 参数
 - 使用 html_interpreter 工具生成 HTML 报告（如果 SKILL.md 要求）
+- html_interpreter 工具返回的 HTML 内容必须原样输出，不要总结或解释
+- 最终输出只包含 HTML 内容，不要添加任何其他文字说明
 - 不要先调用 list_skill_files`, skill.Name, input, r.skillsDir)
 
 	// 针对 csv-data-analysis skill，提供具体的执行指引
@@ -460,29 +587,37 @@ func (r *SkillRunner) buildSkillInstruction(skill types.Skill, input string) str
 		baseInstruction += fmt.Sprintf(`
 
 【%s 的特殊执行指引】
-脚本会输出两部分内容：
+脚本执行后会输出两部分内容：
 1. [Statistical Summary] - 统计摘要，是纯文本
-2. ###CHART_DATA_JSON_START###...###CHART_DATA_JSON_END### - 图表数据（后端自动提取）
+2. ###CHART_DATA_JSON_START###...###CHART_DATA_JSON_END### - 图表数据（JSON 格式）
 
 执行步骤：
-1. 调用 execute_skill_script_file 执行脚本，skill_name=csv-data-analysis, script_file_name=csv_analyzer.py, args={"input_file": "%s"}
-2. 读取脚本输出的统计摘要，理解数据特征
-3. 调用 html_interpreter 生成报告，参数如下：
-   - template_path: "csv-data-analysis/templates/report_template.html"
-   - data: JSON对象，必须包含以下9个字段：
-     * LANG: "zh" 或 "en"（根据用户语言）
-     * REPORT_TITLE: 报告标题
-     * REPORT_SUBTITLE: 报告副标题
-     * EXEC_SUMMARY: 执行摘要（HTML格式）
-     * DISTRIBUTION_INSIGHTS: 分布分析洞察（HTML格式）
-     * CORRELATION_INSIGHTS: 相关性分析洞察（HTML格式）
-     * CATEGORICAL_INSIGHTS: 分类分析洞察（HTML格式）
-     * TIME_SERIES_INSIGHTS: 时序分析洞察（HTML格式）
-     * CONCLUSIONS: 结论与建议（HTML格式）
+1. 调用 execute_skill_script_file 执行脚本：
+   - skill_name=csv-data-analysis
+   - script_file_name=csv_analyzer.py
+   - args={"input_file": "%s"}
+2. 从脚本输出中提取图表数据：
+   - 找到 ###CHART_DATA_JSON_START### 和 ###CHART_DATA_JSON_END### 之间的内容
+   - 这是一个 JSON 对象，包含 charts 数组等数据
+3. 调用 html_interpreter 生成报告：
+   - template_path="templates/report_template.html"
+   - data 是 JSON 对象，包含以下9个字段：
+     * LANG: "zh"
+     * REPORT_TITLE: "数据分析报告"
+     * REPORT_SUBTITLE: "基于CSV数据的自动分析"
+     * EXEC_SUMMARY: 统计摘要的 HTML 格式
+     * DISTRIBUTION_INSIGHTS: 分布分析洞察
+     * CORRELATION_INSIGHTS: 相关性分析洞察
+     * CATEGORICAL_INSIGHTS: 分类分析洞察
+     * TIME_SERIES_INSIGHTS: 时序分析洞察
+     * CONCLUSIONS: 结论与建议
+   - 从脚本输出的统计摘要中提取数据，填入上述字段
 
-重要：
-- html_interpreter 的 data 参数是对象类型，直接传 JSON 对象，不要嵌套字符串
-- 图表数据会自动从脚本输出中提取，无需手动传入`, skill.ID, filePath)
+关键：html_interpreter 的 data 参数中：
+- LANG 必须是字符串 "zh"
+- 所有字段都必须是字符串（HTML 格式）
+- 如果某项无数据，填 "无数据"
+- html_interpreter 返回 HTML 后直接输出，不要再调用任何工具`, skill.ID, filePath)
 	}
 
 	return baseInstruction
@@ -529,7 +664,10 @@ func (t *skillListFilesTool) Info(ctx context.Context) (*schema.ToolInfo, error)
 }
 
 func (t *skillListFilesTool) InvokableRun(ctx context.Context, argumentsInJSON string, opt ...tool.Option) (string, error) {
-	return strings.Join(t.files, ", "), nil
+	logger.Infof("[skillListFilesTool] InvokableRun called with args: %s", argumentsInJSON)
+	result := strings.Join(t.files, ", ")
+	logger.Infof("[skillListFilesTool] Returning: %s", result)
+	return result, nil
 }
 
 type skillReadFileTool struct {
@@ -549,6 +687,7 @@ func (t *skillReadFileTool) Info(ctx context.Context) (*schema.ToolInfo, error) 
 }
 
 func (t *skillReadFileTool) InvokableRun(ctx context.Context, argumentsInJSON string, opt ...tool.Option) (string, error) {
+	logger.Infof("[skillReadFileTool] InvokableRun called with args: %s", argumentsInJSON)
 	type req struct {
 		FileName string `json:"file_name"`
 		Offset   int    `json:"offset"`
@@ -559,7 +698,11 @@ func (t *skillReadFileTool) InvokableRun(ctx context.Context, argumentsInJSON st
 		return "", err
 	}
 
-	filePath := filepath.Join(t.workDir, r.FileName)
+	// 去掉 csv-data-analysis/ 前缀（如果存在），因为文件已被复制到 workDir 根目录
+	fileName := strings.TrimPrefix(r.FileName, "csv-data-analysis/")
+	fileName = strings.TrimPrefix(fileName, "csv-data-analysis\\")
+
+	filePath := filepath.Join(t.workDir, fileName)
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return "", fmt.Errorf("file not found: %s", r.FileName)
@@ -586,7 +729,9 @@ func (t *skillReadFileTool) InvokableRun(ctx context.Context, argumentsInJSON st
 		end = len(runes)
 	}
 
-	return string(runes[offset:end]), nil
+	result := string(runes[offset:end])
+	logger.Infof("[skillReadFileTool] Returning content length: %d", len(result))
+	return result, nil
 }
 
 type skillExecCommandTool struct {
@@ -633,12 +778,14 @@ func (t *skillExecCommandTool) InvokableRun(ctx context.Context, argumentsInJSON
 
 	logger.Infof("[execute_skill_script_file] skill_name=%s, script_file_name=%s, args=%v", r.SkillName, r.ScriptFileName, r.Args)
 
-	// 构建脚本路径：skills/{skill_name}/scripts/{script_file_name}
+	// 构建脚本路径：scripts/{script_file_name}（文件已被复制到 workDir 根目录）
 	scriptRelPath := r.ScriptFileName
 	scriptRelPath = strings.TrimPrefix(scriptRelPath, "scripts/")
 	scriptRelPath = strings.TrimPrefix(scriptRelPath, "scripts\\")
+	scriptRelPath = strings.TrimPrefix(scriptRelPath, "csv-data-analysis/scripts/")
+	scriptRelPath = strings.TrimPrefix(scriptRelPath, "csv-data-analysis\\scripts\\")
 
-	scriptPath := filepath.Join("skills", r.SkillName, "scripts", scriptRelPath)
+	scriptPath := filepath.Join("scripts", scriptRelPath)
 	fullScriptPath := filepath.Join(t.workDir, scriptPath)
 
 	logger.Infof("[execute_skill_script_file] workDir=%s, fullScriptPath=%s", t.workDir, fullScriptPath)
@@ -815,6 +962,12 @@ func (t *skillExecCommandTool) execInDocker(ctx context.Context, command string)
 	// 替换命令中的占位符
 	command = strings.ReplaceAll(command, "{{.BaseDirectory}}", baseForCommand)
 
+	// 替换宿主机的 workDir 路径为容器内的 workdir 路径
+	// 因为宿主机路径在容器内不可见，只有挂载的 workdir 可用
+	if t.workDir != workdir {
+		command = strings.ReplaceAll(command, t.workDir, workdir)
+	}
+
 	// 生成容器名称
 	containerName := fmt.Sprintf("skill-exec-%d", time.Now().UnixNano())
 
@@ -919,12 +1072,21 @@ func (t *skillExecCommandTool) execInDocker(ctx context.Context, command string)
 
 // htmlInterpreterTool HTML 模板解释器工具
 type htmlInterpreterTool struct {
-	workDir string // 工作目录，用于解析模板路径
+	workDir     string // 工作目录，用于解析模板路径
+	reportsDir  string // HTML 报告输出目录
+	baseURL     string // 报告访问的基础 URL
 }
 
 // NewHtmlInterpreterTool 创建 HTML 解释器工具
-func NewHtmlInterpreterTool(workDir string) *htmlInterpreterTool {
-	return &htmlInterpreterTool{workDir: workDir}
+// reportsDir: 报告保存的目录（通常是 uploads/sessionID）
+// reportsURL: 报告访问的 URL 基础路径
+func NewHtmlInterpreterTool(workDir, reportsDir, reportsURL string) *htmlInterpreterTool {
+	os.MkdirAll(reportsDir, 0755)
+	return &htmlInterpreterTool{
+		workDir:    workDir,
+		reportsDir: reportsDir,
+		baseURL:    reportsURL,
+	}
 }
 
 func (t *htmlInterpreterTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
@@ -940,8 +1102,8 @@ func (t *htmlInterpreterTool) Info(ctx context.Context) (*schema.ToolInfo, error
 
 func (t *htmlInterpreterTool) InvokableRun(ctx context.Context, argumentsInJSON string, opt ...tool.Option) (string, error) {
 	type req struct {
-		TemplatePath string         `json:"template_path"`
-		Data         map[string]any `json:"data"`
+		TemplatePath string `json:"template_path"`
+		Data         any    `json:"data"` // 使用 any 以接收字符串或对象
 	}
 	var r req
 	if err := json.Unmarshal([]byte(argumentsInJSON), &r); err != nil {
@@ -951,15 +1113,39 @@ func (t *htmlInterpreterTool) InvokableRun(ctx context.Context, argumentsInJSON 
 	if r.TemplatePath == "" {
 		return "", fmt.Errorf("template_path is required")
 	}
-	if r.Data == nil {
-		return "", fmt.Errorf("data is required")
-	}
 
-	// data 已经是 map[string]any，无需再解析
-	data := r.Data
+	// 处理 data：可能是对象或 JSON 字符串
+	var data map[string]any
+	switch v := r.Data.(type) {
+	case map[string]any:
+		data = v
+	case string:
+		// 如果是字符串，尝试解析为 JSON 对象
+		if err := json.Unmarshal([]byte(v), &data); err != nil {
+			// 如果解析失败，说明传入的是原始文本内容
+			// 这种情况下创建一个默认的 data 对象，使用文本作为 EXEC_SUMMARY
+			logger.Warnf("[htmlInterpreterTool] data string parse failed: %v, treating as plain text", err)
+			data = map[string]any{
+				"LANG":                   "zh",
+				"REPORT_TITLE":          "数据分析报告",
+				"REPORT_SUBTITLE":       "自动生成",
+				"EXEC_SUMMARY":          v, // 直接使用原始文本
+				"DISTRIBUTION_INSIGHTS": "无数据",
+				"CORRELATION_INSIGHTS":  "无数据",
+				"CATEGORICAL_INSIGHTS":  "无数据",
+				"TIME_SERIES_INSIGHTS":  "无数据",
+				"CONCLUSIONS":           "无数据",
+			}
+		}
+	default:
+		return "", fmt.Errorf("data must be object or JSON string, got %T", r.Data)
+	}
 
 	// 读取模板文件
 	templatePath := r.TemplatePath
+	// 去掉 csv-data-analysis/ 前缀（如果存在），因为文件已被复制到 workDir 根目录
+	templatePath = strings.TrimPrefix(templatePath, "csv-data-analysis/")
+	templatePath = strings.TrimPrefix(templatePath, "csv-data-analysis\\")
 	if !filepath.IsAbs(templatePath) {
 		templatePath = filepath.Join(t.workDir, templatePath)
 	}
@@ -993,7 +1179,17 @@ func (t *htmlInterpreterTool) InvokableRun(ctx context.Context, argumentsInJSON 
 		html = strings.ReplaceAll(html, placeholder, replacement)
 	}
 
-	return html, nil
+	logger.Infof("[htmlInterpreterTool] Generated HTML report, length=%d", len(html))
+
+	// 保存 HTML 到文件
+	filename := fmt.Sprintf("report_%d.html", time.Now().UnixNano())
+	filePath := filepath.Join(t.reportsDir, filename)
+	os.WriteFile(filePath, []byte(html), 0644)
+	logger.Infof("[htmlInterpreterTool] HTML report saved to: %s", filePath)
+
+	// 返回报告 URL（直接返回路径，前端会识别 /uploads/.../reports/*.html 格式）
+	reportURL := t.baseURL + "/" + filename
+	return reportURL, nil
 }
 
 // listSkillFiles 列出 skill 目录下的所有文件

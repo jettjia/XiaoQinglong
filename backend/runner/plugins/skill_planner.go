@@ -362,23 +362,40 @@ func (p *SkillPlanner) Execute(ctx context.Context, plan *ExecutionPlan) (map[st
 	return results, nil
 }
 
-// executeSkill 执行单个 skill
+// executeSkill 执行单个 skill（带重试机制）
 func (p *SkillPlanner) executeSkill(ctx context.Context, skill types.Skill, inputCtx map[string]any) (any, error) {
 	if p.skillRunner == nil {
 		return nil, fmt.Errorf("skill runner not initialized")
 	}
 
 	start := time.Now()
+	maxRetries := 2 // 最多重试 2 次
 
-	// 执行 skill (调用 SkillRunner.RunSkill)
-	result, err := p.skillRunner.RunSkill(ctx, skill.ID, inputCtx, "")
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			logger.Infof("[SkillPlanner] Skill %s retry attempt %d/%d", skill.ID, attempt, maxRetries)
+		}
 
-	latency := time.Since(start).Milliseconds()
-	logger.Infof("[SkillPlanner] Skill %s executed in %dms", skill.ID, latency)
+		// 执行 skill (调用 SkillRunner.RunSkill)
+		result, err := p.skillRunner.RunSkill(ctx, skill.ID, inputCtx, "")
 
-	if err != nil {
-		return nil, fmt.Errorf("skill %s execution failed: %w", skill.ID, err)
+		if err == nil {
+			latency := time.Since(start).Milliseconds()
+			logger.Infof("[SkillPlanner] Skill %s executed successfully in %dms", skill.ID, latency)
+			return result, nil
+		}
+
+		lastErr = err
+		logger.Warnf("[SkillPlanner] Skill %s attempt %d failed: %v", skill.ID, attempt+1, err)
+
+		// 如果是上下文超时等错误，不重试
+		if strings.Contains(err.Error(), "context") {
+			break
+		}
 	}
 
-	return result, nil
+	latency := time.Since(start).Milliseconds()
+	logger.Errorf("[SkillPlanner] Skill %s failed after %d attempts, latency=%dms, last error: %v", skill.ID, maxRetries+1, latency, lastErr)
+	return nil, fmt.Errorf("skill %s execution failed after %d attempts: %w", skill.ID, maxRetries+1, lastErr)
 }

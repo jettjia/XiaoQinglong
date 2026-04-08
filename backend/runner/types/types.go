@@ -22,6 +22,16 @@ type Skill struct {
 	Inputs      []string `json:",omitempty"`
 	Outputs     []string `json:",omitempty"`
 	RiskLevel   string   `json:"risk_level,omitempty"`
+	// OutputPatterns 指定脚本执行后要提取的文件模式（支持 glob 匹配）
+	// 例如：["templates/*.html", "outputs/*.json"]
+	OutputPatterns []string `json:"output_patterns,omitempty"`
+}
+
+// SkillOutputFile Skill 输出文件（用于存储提取的文件内容）
+type SkillOutputFile struct {
+	Name   string `json:"name"`
+	Base64 string `json:"base64"`
+	Mime   string `json:"mime,omitempty"`
 }
 
 // MCPConfig MCP 服务配置

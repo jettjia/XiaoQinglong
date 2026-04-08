@@ -17,6 +17,15 @@ type FileInfo struct {
 	Type        string `json:"type"`
 }
 
+// getUploadsDir 获取上传文件的基础目录
+func getUploadsDir() string {
+	uploadDir := os.Getenv("APP_DATA")
+	if uploadDir == "" {
+		uploadDir = "/tmp/xiaoqinglong/data"
+	}
+	return filepath.Join(uploadDir, "uploads")
+}
+
 // Upload 文件上传
 func (h *Handler) Upload(c *gin.Context) {
 	// 1. 获取 session_id
@@ -27,11 +36,8 @@ func (h *Handler) Upload(c *gin.Context) {
 	}
 
 	// 2. 获取上传目录
-	uploadDir := os.Getenv("APP_DATA")
-	if uploadDir == "" {
-		uploadDir = "/tmp/xiaoqinglong/data"
-	}
-	uploadDir = filepath.Join(uploadDir, "uploads", sessionID)
+	uploadDir := getUploadsDir()
+	uploadDir = filepath.Join(uploadDir, sessionID)
 
 	// 3. 创建上传目录
 	if err := os.MkdirAll(uploadDir, 0755); err != nil {
@@ -88,4 +94,54 @@ func (h *Handler) Upload(c *gin.Context) {
 		"files": uploadedFiles,
 		"count": len(uploadedFiles),
 	})
+}
+
+// ServeReports serves HTML report files
+// GET /api/xiaoqinglong/agent-frame/v1/runner/reports/:sessionID/:filename
+func (h *Handler) ServeReports(c *gin.Context) {
+	sessionID := c.Param("sessionID")
+	filename := c.Param("filename")
+
+	if sessionID == "" || filename == "" {
+		c.JSON(400, gin.H{"error": "session_id and filename are required"})
+		return
+	}
+
+	// 安全检查：只允许 alphanumeric、-、_、. 字符
+	if !isSafeFilename(filename) {
+		c.JSON(400, gin.H{"error": "invalid filename"})
+		return
+	}
+
+	// 构建报告文件路径: {uploadsDir}/{sessionID}/reports/{filename}
+	reportsDir := filepath.Join(getUploadsDir(), sessionID, "reports")
+	filePath := filepath.Join(reportsDir, filename)
+
+	// 检查文件是否存在
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		c.JSON(404, gin.H{"error": "report not found"})
+		return
+	}
+
+	// 设置缓存头
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Content-Type", "text/html; charset=utf-8")
+
+	// 直接发送文件内容
+	c.File(filePath)
+}
+
+// isSafeFilename 检查文件名是否安全（防止路径遍历攻击）
+func isSafeFilename(filename string) bool {
+	for _, c := range filename {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '/') {
+			return false
+		}
+	}
+	return true && len(filename) < 256 && !containsPathTraversal(filename)
+}
+
+// containsPathTraversal 检查是否包含路径遍历
+func containsPathTraversal(filename string) bool {
+	return filepath.Clean(filename) != filename
 }

@@ -25,7 +25,9 @@ func main() {
 	http.HandleFunc("/run", handleRun)
 	http.HandleFunc("/resume", handleResume)
 	http.HandleFunc("/stop", handleStop)
+	http.Handle("/reports/", http.StripPrefix("/reports/", http.FileServer(http.Dir("/tmp/reports"))))
 	log.Println("Runner server starting on :18080")
+	log.Println("HTML reports available at /reports/")
 	log.Fatal(http.ListenAndServe(":18080", nil))
 }
 

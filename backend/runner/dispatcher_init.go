@@ -600,6 +600,7 @@ func (d *Dispatcher) initSkills(ctx context.Context) error {
 		sandboxCfg,
 		d.defaultModel,
 		configMgr,
+		d.uploadsBaseDir,
 	)
 
 	// 设置 session ID（从 context 中获取）

@@ -59,6 +59,118 @@ import { useTranslation } from 'react-i18next';
 const API_BASE = '/api/xiaoqinglong/agent-frame/v1';
 const CURRENT_USER_ID = 'user-1'; // TODO: Get from auth context
 
+// 辅助函数：检测并提取 Markdown 中的 HTML 代码块
+function extractHtmlFromMarkdown(content: string): { html: string | null; markdown: string; reportUrl: string | null } {
+  // 匹配 ```html ... ``` 代码块
+  const htmlBlockRegex = /```html\s*([\s\S]*?)```/gi;
+  const matches = [...content.matchAll(htmlBlockRegex)];
+
+  // 检测报告 URL: /uploads/{sessionID}/reports/*.html 格式
+  const reportUrlRegex = /\/uploads\/[^\/]+\/reports\/[^\s]+\.html/gi;
+  const reportUrlMatch = content.match(reportUrlRegex);
+  const reportUrl = reportUrlMatch ? reportUrlMatch[0] : null;
+
+  if (matches.length === 0 && !reportUrl) {
+    return { html: null, markdown: content, reportUrl: null };
+  }
+
+  // 提取所有 HTML 代码块并合并
+  const htmlParts = matches.map(m => m[1].trim()).filter(h => h.length > 0);
+  const fullHtml = htmlParts.join('\n');
+
+  // 从 Markdown 中移除 HTML 代码块，保留其他内容
+  let markdown = content.replace(htmlBlockRegex, '').trim();
+  // 移除报告 URL 行
+  if (reportUrl) {
+    markdown = markdown.replace(/\S+\/uploads\/[^\/]+\/reports\/[^\s]+\.html\n?/gi, '').trim();
+  }
+
+  return { html: fullHtml, markdown, reportUrl };
+}
+
+// 渲染消息内容组件
+function MessageContent({ content, htmlContent, reportUrl }: { content: string; htmlContent?: string; reportUrl?: string }) {
+  const [iframeKey, setIframeKey] = React.useState(0);
+
+  // 构建报告的完整访问 URL
+  // url 格式: /uploads/{sessionID}/reports/{filename}
+  // 需要转换成: /api/xiaoqinglong/agent-frame/v1/runner/reports/{sessionID}/{filename}
+  const getReportFullUrl = (url: string) => {
+    if (!url) return '';
+    // 提取 /uploads/{sessionID}/reports/{filename} 中的 sessionID 和 filename
+    const match = url.match(/\/uploads\/([^\/]+)\/reports\/([^/]+\.html)$/);
+    if (!match) return '';
+    const sessionID = match[1];
+    const filename = match[2];
+    return `${API_BASE}/runner/reports/${sessionID}/${filename}`;
+  };
+
+  // 如果有报告 URL，通过 iframe 加载报告
+  if (reportUrl) {
+    return (
+      <div className="w-full">
+        <div className="flex items-center justify-between mb-2 text-xs text-slate-500">
+          <span className="flex items-center gap-1">
+            <BarChart3 size={12} className="text-green-500" />
+            数据分析报告
+          </span>
+          <a
+            href={getReportFullUrl(reportUrl)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-500 hover:text-blue-600 font-medium"
+          >
+            在新窗口打开
+          </a>
+        </div>
+        <iframe
+          key={iframeKey}
+          src={getReportFullUrl(reportUrl)}
+          className="w-full border border-slate-200 rounded-xl"
+          style={{ height: '600px' }}
+          sandbox="allow-scripts allow-same-origin"
+          title="数据分析报告"
+        />
+      </div>
+    );
+  }
+
+  // 如果有 HTML 内容，通过 iframe srcDoc 渲染
+  if (htmlContent) {
+    return (
+      <div className="w-full">
+        <div className="flex items-center justify-between mb-2 text-xs text-slate-500">
+          <span className="flex items-center gap-1">
+            <BarChart3 size={12} className="text-green-500" />
+            数据分析报告
+          </span>
+          <button
+            onClick={() => setIframeKey(k => k + 1)}
+            className="text-blue-500 hover:text-blue-600 font-medium"
+          >
+            刷新图表
+          </button>
+        </div>
+        <iframe
+          key={iframeKey}
+          srcDoc={htmlContent}
+          className="w-full border border-slate-200 rounded-xl"
+          style={{ height: '600px' }}
+          sandbox="allow-scripts allow-same-origin"
+          title="数据分析报告"
+        />
+      </div>
+    );
+  }
+
+  // 否则渲染 Markdown
+  return (
+    <div className="markdown-body prose prose-slate prose-sm max-w-none">
+      <ReactMarkdown>{content}</ReactMarkdown>
+    </div>
+  );
+}
+
 interface ChatInterfaceProps {
   preselectedAgent?: Agent | null;
   onAgentUsed?: () => void;
@@ -456,7 +568,15 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                       completion_tokens: data.completion_tokens,
                       total_tokens: data.total_tokens
                     };
-                    updateMessage({ content: data.content || accumulatedContent, status: 'completed', toolCalls: [...toolCalls] });
+                    const finalContent = data.content || accumulatedContent;
+                    const { html, markdown, reportUrl } = extractHtmlFromMarkdown(finalContent);
+                    updateMessage({
+                      content: markdown || finalContent,
+                      htmlContent: html || undefined,
+                      reportUrl: reportUrl || undefined,
+                      status: 'completed',
+                      toolCalls: [...toolCalls]
+                    });
                   }
 
                   if (currentEventType === 'error') {
@@ -526,7 +646,15 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                       completion_tokens: data.completion_tokens,
                       total_tokens: data.total_tokens
                     };
-                    updateMessage({ content: data.content || accumulatedContent, status: 'completed', toolCalls: [...toolCalls] });
+                    const finalContent = data.content || accumulatedContent;
+                    const { html, markdown, reportUrl } = extractHtmlFromMarkdown(finalContent);
+                    updateMessage({
+                      content: markdown || finalContent,
+                      htmlContent: html || undefined,
+                      reportUrl: reportUrl || undefined,
+                      status: 'completed',
+                      toolCalls: [...toolCalls]
+                    });
                   }
 
                   if (currentEventType === 'error') {
@@ -593,10 +721,14 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
         }
       }
 
+      const assistantMessageRaw = data.content || data.output || "I'm sorry, I couldn't generate a response.";
+      const { html, markdown, reportUrl } = extractHtmlFromMarkdown(assistantMessageRaw);
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: data.content || data.output || "I'm sorry, I couldn't generate a response.",
+        content: markdown || assistantMessageRaw,
+        htmlContent: html || undefined,
+        reportUrl: reportUrl || undefined,
         timestamp: new Date(),
         thinking: data.thinking,
         trace: data.trace,
@@ -1017,9 +1149,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                     msg.status === 'streaming' ? (
                       <div className="text-slate-800 whitespace-pre-wrap">{msg.content}</div>
                     ) : (
-                      <div className="markdown-body prose prose-slate prose-sm max-w-none">
-                        <ReactMarkdown>{msg.content}</ReactMarkdown>
-                      </div>
+                      <MessageContent content={msg.content} htmlContent={msg.htmlContent} reportUrl={msg.reportUrl} />
                     )
                   ) : (
                     msg.content

@@ -141,6 +141,31 @@ func GetSkillsSection(skills []types.Skill) string {
 	lines = append(lines, "")
 	lines = append(lines, "Use the load_skill tool to get full skill instructions.")
 
+	// 检查是否有生成 HTML 的 skill（如 csv-data-analysis）
+	hasHtmlSkills := false
+	for _, skill := range skills {
+		// 检查 skill 名称或描述中是否包含分析/报告相关关键词
+		lowerName := strings.ToLower(skill.Name)
+		lowerDesc := strings.ToLower(skill.Description)
+		if strings.Contains(lowerName, "analysis") || strings.Contains(lowerName, "report") ||
+			strings.Contains(lowerDesc, "analysis") || strings.Contains(lowerDesc, "report") ||
+			strings.Contains(lowerName, "csv") || strings.Contains(lowerDesc, "csv") {
+			hasHtmlSkills = true
+			break
+		}
+	}
+
+	// 添加 HTML 输出指导
+	if hasHtmlSkills {
+		lines = append(lines, "")
+		lines = append(lines, "# HTML Report Output Handling")
+		lines = append(lines, "CRITICAL: When a skill returns a message containing a report link (like \"/reports/report_*.html\" or \"📊 查看数据分析报告\"),")
+		lines = append(lines, "treat it as the FINAL response. Output the link text EXACTLY as-is without calling ANY tools.")
+		lines = append(lines, "Do NOT call parse_file, read_file, or any other tool to read or process the HTML report.")
+		lines = append(lines, "The report link should be displayed directly to the user - they can click it to view in browser.")
+		lines = append(lines, "Stop processing immediately after receiving a report link. Do not summarize or analyze further.")
+	}
+
 	return strings.Join(lines, "\n")
 }
 

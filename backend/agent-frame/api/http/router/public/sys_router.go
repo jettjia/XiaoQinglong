@@ -174,6 +174,7 @@ func SetPublicRouter(Router *gin.RouterGroup) {
 		RunnerRouter.POST("/stop", handRunner.Stop)        // 代理runner stop请求
 		RunnerRouter.POST("/upload", handRunner.Upload)      // 文件上传
 		RunnerRouter.POST("/memory", handRunner.SaveMemoriesHandler) // runner回调保存记忆
+		RunnerRouter.GET("/reports/:sessionID/:filename", handRunner.ServeReports) // HTML报告文件访问
 	}
 
 	// job execution
