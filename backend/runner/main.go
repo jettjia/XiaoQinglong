@@ -25,9 +25,7 @@ func main() {
 	http.HandleFunc("/run", handleRun)
 	http.HandleFunc("/resume", handleResume)
 	http.HandleFunc("/stop", handleStop)
-	http.Handle("/reports/", http.StripPrefix("/reports/", http.FileServer(http.Dir("/tmp/reports"))))
 	log.Println("Runner server starting on :18080")
-	log.Println("HTML reports available at /reports/")
 	log.Fatal(http.ListenAndServe(":18080", nil))
 }
 
@@ -344,7 +342,7 @@ func extractAndSaveMemoriesCallback(ctx map[string]any, callbackURL string, mode
 		"agent_id":   getContextStr(ctx, "agent_id"),
 		"user_id":    getContextStr(ctx, "user_id"),
 		"session_id": getContextStr(ctx, "session_id"),
-		"memories":  memories,
+		"memories":   memories,
 	}
 
 	reqBytes, _ := json.Marshal(callbackReq)
