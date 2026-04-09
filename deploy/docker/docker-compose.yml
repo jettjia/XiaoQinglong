@@ -32,8 +32,7 @@ services:
     volumes:
       - ../../backend/agent-frame/manifest:/app/manifest
     depends_on:
-      postgres:
-        condition: service_healthy
+      postgres
 
   # Runner Service
   runner:
