@@ -1,5 +1,5 @@
 # 表示依赖 alpine 最新版
-FROM registry.cn-shanghai.aliyuncs.com/xdata-atom/golang:1.25-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 # 设置工作目录
 WORKDIR /workspace
@@ -12,7 +12,7 @@ RUN chmod +x ./go-main
 COPY manifest /workspace/manifest
 
 # 运行阶段
-FROM registry.cn-shanghai.aliyuncs.com/xdata-atom/busybox:latest
+FROM busybox:latest
 
 # 拷贝配置文件到容器中
 COPY --from=builder /workspace/manifest /app/manifest
@@ -21,7 +21,7 @@ COPY --from=builder /workspace/manifest /app/manifest
 COPY --from=builder /workspace/go-main /app/go-main
 
 # 暴露端口
-EXPOSE 6666 6667 6668
+EXPOSE 9292
 
 # 运行golang程序的命令
 WORKDIR /app

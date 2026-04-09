@@ -1,5 +1,5 @@
 # Build stage
-FROM registry.cn-shanghai.aliyuncs.com/xdata-atom/golang:1.25-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /workspace
 
@@ -11,7 +11,7 @@ RUN go mod download
 COPY . .
 
 # Build
-RUN CGO_ENABLED=0 GOOS=linux go build -o runner main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -o runner .
 
 # Runtime stage
 FROM alpine:latest

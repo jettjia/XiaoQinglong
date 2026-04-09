@@ -49,6 +49,7 @@ golangci:
 .PHONY: gbuild ## 构建go项目
 gbuild:
 	@GOWORK=off CGO_ENABLED=0 go build -mod=mod -ldflags="-s -w" -o deploy/bin/${APP} .
+	@if command -v upx > /dev/null 2>&1; then upx -9 deploy/bin/${APP}; else echo "UPX not found, skipping compression"; fi
 
 .PHONY: dbuild
 dbuild: ## docker-build build项目镜像

@@ -27,11 +27,14 @@ build: build-frame build-runner build-ui
 
 build-frame:
 	@echo "Building agent-frame..."
-	@cd $(AGENT_FRAME) && make gbuild
+	@mkdir -p $(AGENT_FRAME)/deploy/bin
+	@GOWORK=off CGO_ENABLED=0 go build -C $(AGENT_FRAME) -mod=mod -ldflags="-s -w" -o deploy/bin/go-main .
+	@if command -v upx > /dev/null 2>&1; then upx -9 $(AGENT_FRAME)/deploy/bin/go-main; else echo "UPX not found, skipping compression"; fi
 
 build-runner:
 	@echo "Building runner..."
-	@cd $(RUNNER) && go build -o bin/runner main.go
+	@cd $(RUNNER) && GOWORK=off CGO_ENABLED=0 go build -mod=mod -ldflags="-s -w" -o bin/runner .
+	@if command -v upx > /dev/null 2>&1; then upx -9 $(RUNNER)/bin/runner; else echo "UPX not found, skipping compression"; fi
 
 build-ui:
 	@echo "Building agent-ui..."
@@ -49,7 +52,7 @@ docker-build: docker-build-frame docker-build-runner docker-build-ui
 
 docker-build-frame:
 	@echo "Building agent-frame docker image..."
-	@cd $(AGENT_FRAME) && make dbuild
+	@docker build -t $(AGENT_FRAME_IMAGE) -f $(AGENT_FRAME)/deploy/Dockerfile-ez $(AGENT_FRAME)
 
 docker-build-runner:
 	@echo "Building runner docker image..."
@@ -64,7 +67,7 @@ docker-build-all: docker-build-frame docker-build-runner docker-build-ui
 
 docker-push:
 	@echo "Pushing docker images..."
-	@cd $(AGENT_FRAME) && make dpush
+	@docker push $(AGENT_FRAME_IMAGE)
 	@docker push $(RUNNER_IMAGE)
 	@docker push $(AGENT_UI_IMAGE)
 
@@ -135,7 +138,7 @@ dev: dev-frame dev-runner dev-ui
 
 dev-frame:
 	@echo "Starting agent-frame in dev mode..."
-	@cd $(AGENT_FRAME) && make run
+	@cd $(AGENT_FRAME) && go run main.go
 
 dev-runner:
 	@echo "Starting runner in dev mode..."
