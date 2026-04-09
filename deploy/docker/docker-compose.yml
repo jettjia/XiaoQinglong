@@ -57,7 +57,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - VITE_AGENT_FRAME_API_URL=http://agent-frame:9292
+      - AGENT_FRAME_API_URL=http://agent-frame:9292
     depends_on:
       - agent-frame
 

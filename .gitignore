@@ -20,4 +20,6 @@ frontend/dist/
 
 .claude
 
+**docker-context**
+
 postgres_data
