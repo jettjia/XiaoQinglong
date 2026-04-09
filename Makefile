@@ -125,7 +125,11 @@ mock-status:
 .PHONY: deploy-start deploy-stop deploy-restart deploy-logs deploy-status
 
 deploy-start:
-	@echo "Starting all services with docker-compose..."
+	@echo "Starting all services with docker-compose (without building)..."
+	@cd $(DEPLOY_DIR) && docker compose up -d
+
+deploy-build-start:
+	@echo "Building and starting all services..."
 	@cd $(DEPLOY_DIR) && ./start.sh
 
 deploy-stop:
@@ -205,12 +209,12 @@ help:
 	@echo "  docker-push         - Push all docker images"
 	@echo ""
 	@echo "Deploy Targets (with PostgreSQL):"
-	@echo "  deploy-start       - Start all services via docker-compose"
+	@echo "  deploy-start       - Start all services via docker-compose (requires images built)"
+	@echo "  deploy-build-start - Build images and start services"
 	@echo "  deploy-stop        - Stop all services"
 	@echo "  deploy-restart     - Restart all services"
 	@echo "  deploy-logs        - Show logs for all services"
 	@echo "  deploy-status      - Show status of all services"
-	@echo "  deploy-rebuild     - Rebuild images and recreate containers"
 	@echo ""
 	@echo "Mock Service Targets:"
 	@echo "  mock-start     - Start all mock services (go run main.go)"

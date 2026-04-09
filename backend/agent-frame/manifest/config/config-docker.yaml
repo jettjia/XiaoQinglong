@@ -1,0 +1,25 @@
+# Application Configuration
+server:
+  lang: "zh-CN"
+  public_port: 9292
+  private_port: 9293
+  server_name: "agent-frame"
+  mode: "debug"
+  dev: true
+  enable_event: false
+  enable_job: true
+  enable_grpc: false
+
+db:
+  db_type: "postgres"
+  username: "root"
+  password: "admin123"
+  db_host: "postgres"
+  db_port: 5432
+  db_name: "xiaoqinglong"
+  charset: "utf8mb4"
+  max_open_conn: 50
+  max_idle_conn: 10
+  conn_max_lifetime: 500
+  log_mode: 4
+  slow_threshold: 10

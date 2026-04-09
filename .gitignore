@@ -19,3 +19,5 @@ frontend/dist/
 **dev-skills-config.yaml
 
 .claude
+
+postgres_data

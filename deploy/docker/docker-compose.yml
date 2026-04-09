@@ -22,45 +22,30 @@ services:
 
   # Agent Frame Backend
   agent-frame:
-    build:
-      context: ../../backend/agent-frame
-      dockerfile: deploy/Dockerfile-ez
+    image: xiaoqinglong/agent-frame:latest
     container_name: xiaoqinglong-agent-frame
     restart: unless-stopped
     ports:
-      - "6666:6666"
-      - "6667:6667"
-      - "6668:6668"
+      - "9292:9292"
     environment:
       env: docker
     volumes:
-      - ./config/agent-frame/manifest:/app/manifest
+      - ../../backend/agent-frame/manifest:/app/manifest
     depends_on:
       postgres:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:6666/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
   # Runner Service
   runner:
-    build:
-      context: ../../backend/runner
-      dockerfile: Dockerfile
+    image: xiaoqinglong/runner:latest
     container_name: xiaoqinglong-runner
     restart: unless-stopped
     ports:
       - "18080:18080"
     environment:
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_USER=${POSTGRES_USER:-root}
-      - DB_PASSWORD=${POSTGRES_PASSWORD:-admin123}
-      - DB_NAME=${POSTGRES_DB:-xiaoqinglong}
-      - AGENT_FRAME_URL=http://agent-frame:6666
-      - A2A_HOSTPORTS=agent-frame:6667
+      - AGENT_FRAME_URL=http://agent-frame:9292
+    volumes:
+      - ../../backend/runner/dev-skills-config.yaml:/app/skills-config.yaml:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -69,15 +54,13 @@ services:
 
   # Agent UI Frontend
   agent-ui:
-    build:
-      context: ../../frontend/agent-ui
-      dockerfile: Dockerfile
+    image: xiaoqinglong/agent-ui:latest
     container_name: xiaoqinglong-agent-ui
     restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
-      - VITE_AGENT_FRAME_API_URL=http://localhost:6666
+      - VITE_AGENT_FRAME_API_URL=http://agent-frame:9292
     depends_on:
       - agent-frame
 
