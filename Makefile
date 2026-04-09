@@ -34,7 +34,6 @@ build-frame:
 build-runner:
 	@echo "Building runner..."
 	@cd $(RUNNER) && GOWORK=off CGO_ENABLED=0 go build -mod=mod -ldflags="-s -w" -o bin/runner .
-	@if command -v upx > /dev/null 2>&1; then upx -9 $(RUNNER)/bin/runner; else echo "UPX not found, skipping compression"; fi
 
 build-ui:
 	@echo "Building agent-ui..."
