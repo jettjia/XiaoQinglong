@@ -3,9 +3,12 @@ package logger
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/sirupsen/logrus"
+
+	"github.com/jettjia/XiaoQinglong/runner/pkg/xqldir"
 )
 
 var (
@@ -19,7 +22,7 @@ func IsRunnerLogEnabled() bool {
 }
 
 // GetRunnerLogger returns a logger instance for runner
-// If RUNNER_LOG=true, logs are written to runner.log in current directory
+// If RUNNER_LOG=true, logs are written to ~/.xiaoqinglong/logs/runner.log
 // Otherwise, logs are discarded
 func GetRunnerLogger() *logrus.Logger {
 	runnerLogOnce.Do(func() {
@@ -27,8 +30,17 @@ func GetRunnerLogger() *logrus.Logger {
 		fmt.Printf("[DEBUG] GetRunnerLogger: RUNNER_LOG=%q, IsEnabled=%v\n", os.Getenv("RUNNER_LOG"), IsRunnerLogEnabled())
 
 		if IsRunnerLogEnabled() {
-			// Open runner.log file in current directory
-			file, err := os.OpenFile("runner.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+			// Ensure logs directory exists
+			logsDir := xqldir.GetLogsDir()
+			if err := os.MkdirAll(logsDir, 0755); err != nil {
+				runnerLog.SetOutput(os.Stdout)
+				runnerLog.WithError(err).Error("Failed to create logs directory, falling back to stdout")
+				return
+			}
+
+			// Open runner.log in unified logs directory
+			logFile := filepath.Join(logsDir, "runner.log")
+			file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 			if err != nil {
 				runnerLog.SetOutput(os.Stdout)
 				runnerLog.WithError(err).Error("Failed to open runner.log, falling back to stdout")
