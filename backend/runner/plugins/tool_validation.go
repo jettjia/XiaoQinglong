@@ -189,26 +189,26 @@ func (t *ValidatableTool) CheckPermissions(ctx context.Context, argumentsInJSON 
 
 // InvokableRun 执行验证和权限检查，然后执行工具
 func (t *ValidatableTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
-	logger.GetRunnerLogger().Printf("[ValidatableTool] Validating input for tool invocation")
+	logger.GetRunnerLogger().Infof("[ValidatableTool] Validating input for tool invocation")
 
 	// 1. 验证输入
 	result := t.validator.ValidateInput(ctx, argumentsInJSON)
 	if !result.Valid {
-		logger.GetRunnerLogger().Printf("[ValidatableTool] >>> VALIDATION FAILED: %s (code: %d)", result.Message, result.ErrorCode)
+		logger.GetRunnerLogger().Infof("[ValidatableTool] >>> VALIDATION FAILED: %s (code: %d)", result.Message, result.ErrorCode)
 		return "", fmt.Errorf("input validation failed: %s (code: %d)", result.Message, result.ErrorCode)
 	}
-	logger.GetRunnerLogger().Printf("[ValidatableTool] >>> Input validated successfully")
+	logger.GetRunnerLogger().Infof("[ValidatableTool] >>> Input validated successfully")
 
 	// 2. 检查权限
 	decision := t.permissions.CheckPermissions(ctx, argumentsInJSON)
 	if !decision.Allowed {
-		logger.GetRunnerLogger().Printf("[ValidatableTool] >>> PERMISSION DENIED: %s", decision.Message)
+		logger.GetRunnerLogger().Infof("[ValidatableTool] >>> PERMISSION DENIED: %s", decision.Message)
 		return "", fmt.Errorf("permission denied: %s", decision.Message)
 	}
-	logger.GetRunnerLogger().Printf("[ValidatableTool] >>> Permission granted")
+	logger.GetRunnerLogger().Infof("[ValidatableTool] >>> Permission granted")
 
 	// 3. 执行工具
-	logger.GetRunnerLogger().Printf("[ValidatableTool] Executing tool...")
+	logger.GetRunnerLogger().Infof("[ValidatableTool] Executing tool...")
 	return t.InvokableTool.InvokableRun(ctx, argumentsInJSON, opts...)
 }
 
@@ -246,7 +246,7 @@ func (t *DeferredTool) Load() (tool.BaseTool, error) {
 	if t.loadedTool != nil {
 		return t.loadedTool, nil
 	}
-	logger.GetRunnerLogger().Printf("[DeferredTool] >>> LAZY LOADING tool: %s (first time use)", t.name)
+	logger.GetRunnerLogger().Infof("[DeferredTool] >>> LAZY LOADING tool: %s (first time use)", t.name)
 	loaded, err := t.loader()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load tool %s: %w", t.name, err)

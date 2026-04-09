@@ -33,10 +33,10 @@ func (f *FileCheckPointStore) Set(ctx context.Context, key string, value []byte)
 	filePath := f.filePath(key)
 	err := os.WriteFile(filePath, value, 0644)
 	if err != nil {
-		logger.GetRunnerLogger().Printf("[FileCheckPointStore] Failed to write checkpoint %s: %v", key, err)
+		logger.GetRunnerLogger().Infof("[FileCheckPointStore] Failed to write checkpoint %s: %v", key, err)
 		return err
 	}
-	logger.GetRunnerLogger().Printf("[FileCheckPointStore] Saved checkpoint %s (%d bytes)", key, len(value))
+	logger.GetRunnerLogger().Infof("[FileCheckPointStore] Saved checkpoint %s (%d bytes)", key, len(value))
 	return nil
 }
 
@@ -48,13 +48,13 @@ func (f *FileCheckPointStore) Get(ctx context.Context, key string) ([]byte, bool
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			logger.GetRunnerLogger().Printf("[FileCheckPointStore] Checkpoint %s not found", key)
+			logger.GetRunnerLogger().Infof("[FileCheckPointStore] Checkpoint %s not found", key)
 			return nil, false, nil
 		}
-		logger.GetRunnerLogger().Printf("[FileCheckPointStore] Failed to read checkpoint %s: %v", key, err)
+		logger.GetRunnerLogger().Infof("[FileCheckPointStore] Failed to read checkpoint %s: %v", key, err)
 		return nil, false, err
 	}
-	logger.GetRunnerLogger().Printf("[FileCheckPointStore] Loaded checkpoint %s (%d bytes)", key, len(data))
+	logger.GetRunnerLogger().Infof("[FileCheckPointStore] Loaded checkpoint %s (%d bytes)", key, len(data))
 	return data, true, nil
 }
 

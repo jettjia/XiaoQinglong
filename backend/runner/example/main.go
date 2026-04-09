@@ -301,9 +301,9 @@ func main() {
 	}
 
 	// 调试：在构建请求前打印 config.SubAgents
-	logger.GetRunnerLogger().Printf(">>> DEBUG: config.SubAgents count = %d", len(config.SubAgents))
+	logger.GetRunnerLogger().Infof(">>> DEBUG: config.SubAgents count = %d", len(config.SubAgents))
 	for i, sa := range config.SubAgents {
-		logger.GetRunnerLogger().Printf(">>> DEBUG: config.SubAgents[%d] = %+v", i, sa)
+		logger.GetRunnerLogger().Infof(">>> DEBUG: config.SubAgents[%d] = %+v", i, sa)
 	}
 
 	// 发送请求

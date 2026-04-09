@@ -18,9 +18,9 @@ type approvalToolMiddleware struct {
 
 // newApprovalToolMiddleware 创建审批中间件
 func newApprovalToolMiddleware(toolRiskLevels map[string]string) *approvalToolMiddleware {
-	logger.GetRunnerLogger().Printf("[ApprovalMiddleware] Created with %d tools", len(toolRiskLevels))
+	logger.GetRunnerLogger().Infof("[ApprovalMiddleware] Created with %d tools", len(toolRiskLevels))
 	for k, v := range toolRiskLevels {
-		logger.GetRunnerLogger().Printf("[ApprovalMiddleware]   - %s: %s", k, v)
+		logger.GetRunnerLogger().Infof("[ApprovalMiddleware]   - %s: %s", k, v)
 	}
 	return &approvalToolMiddleware{
 		toolRiskLevels: toolRiskLevels,
@@ -29,7 +29,7 @@ func newApprovalToolMiddleware(toolRiskLevels map[string]string) *approvalToolMi
 
 // Wrap 包装工具调用，添加审批拦截
 func (m *approvalToolMiddleware) Wrap(endpoint compose.InvokableToolEndpoint) compose.InvokableToolEndpoint {
-	logger.GetRunnerLogger().Printf("[ApprovalMiddleware] Wrap called!")
+	logger.GetRunnerLogger().Infof("[ApprovalMiddleware] Wrap called!")
 	return func(ctx context.Context, input *compose.ToolInput) (*compose.ToolOutput, error) {
 		toolName := input.Name
 
@@ -39,21 +39,21 @@ func (m *approvalToolMiddleware) Wrap(endpoint compose.InvokableToolEndpoint) co
 			riskLevel = m.toolRiskLevels[toolName]
 		}
 
-		logger.GetRunnerLogger().Printf("[ApprovalMiddleware] tool=%s, risk_level=%s", toolName, riskLevel)
+		logger.GetRunnerLogger().Infof("[ApprovalMiddleware] tool=%s, risk_level=%s", toolName, riskLevel)
 
 		// 如果没有风险级别或风险级别不需要审批，直接执行
 		if riskLevel == "" || !shouldApproveByRiskLevel(riskLevel) {
-			logger.GetRunnerLogger().Printf("[ApprovalMiddleware] tool=%s skipped (no approval needed)", toolName)
+			logger.GetRunnerLogger().Infof("[ApprovalMiddleware] tool=%s skipped (no approval needed)", toolName)
 			return endpoint(ctx, input)
 		}
 
-		logger.GetRunnerLogger().Printf("[ApprovalMiddleware] tool=%s requires approval (risk=%s)", toolName, riskLevel)
+		logger.GetRunnerLogger().Infof("[ApprovalMiddleware] tool=%s requires approval (risk=%s)", toolName, riskLevel)
 
 		// 检查是否已被中断过（resume 的情况）
 		wasInterrupted, _, storedArgs := tool.GetInterruptState[string](ctx)
 		if !wasInterrupted {
 			// 第一次执行，触发中断等待审批
-			logger.GetRunnerLogger().Printf("[ApprovalMiddleware] tool=%s triggering interrupt", toolName)
+			logger.GetRunnerLogger().Infof("[ApprovalMiddleware] tool=%s triggering interrupt", toolName)
 			approvalInfo := &ApprovalInfo{
 				ToolName:        toolName,
 				ToolType:        "http",
@@ -73,7 +73,7 @@ func (m *approvalToolMiddleware) Wrap(endpoint compose.InvokableToolEndpoint) co
 		isTarget, hasData, data := tool.GetResumeContext[*ApprovalResult](ctx)
 		if isTarget && hasData {
 			if data.Approved {
-				logger.GetRunnerLogger().Printf("[ApprovalMiddleware] tool=%s approved, executing", toolName)
+				logger.GetRunnerLogger().Infof("[ApprovalMiddleware] tool=%s approved, executing", toolName)
 				// 使用存储的参数执行
 				input.Arguments = storedArgs
 				return endpoint(ctx, input)
@@ -89,7 +89,7 @@ func (m *approvalToolMiddleware) Wrap(endpoint compose.InvokableToolEndpoint) co
 		}
 
 		// 继续等待审批
-		logger.GetRunnerLogger().Printf("[ApprovalMiddleware] tool=%s continuing to wait for approval", toolName)
+		logger.GetRunnerLogger().Infof("[ApprovalMiddleware] tool=%s continuing to wait for approval", toolName)
 		approvalInfo := &ApprovalInfo{
 			ToolName:        toolName,
 			ToolType:        "http",

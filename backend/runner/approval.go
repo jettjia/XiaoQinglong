@@ -70,7 +70,7 @@ func (t *InvokableApprovableTool) Info(ctx context.Context) (*schema.ToolInfo, e
 }
 
 func (t *InvokableApprovableTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
-	logger.GetRunnerLogger().Printf("[Approval] InvokableRun called for tool: %s, risk_level: %s", t.toolName, t.riskLevel)
+	logger.GetRunnerLogger().Infof("[Approval] InvokableRun called for tool: %s, risk_level: %s", t.toolName, t.riskLevel)
 
 	// 获取实际的风险级别（如果是动态的）
 	actualRiskLevel := t.riskLevel
@@ -78,7 +78,7 @@ func (t *InvokableApprovableTool) InvokableRun(ctx context.Context, argumentsInJ
 		actualRiskLevel = t.riskLevelGetter(argumentsInJSON)
 	}
 
-	logger.GetRunnerLogger().Printf("[Approval] actual risk_level: %s, checking threshold...", actualRiskLevel)
+	logger.GetRunnerLogger().Infof("[Approval] actual risk_level: %s, checking threshold...", actualRiskLevel)
 
 	// 检查是否已被中断过（resume 的情况）
 	wasInterrupted, _, storedArguments := tool.GetInterruptState[string](ctx)

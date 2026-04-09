@@ -59,10 +59,10 @@ func (m *SubAgentManager) RegisterConfigs(configs []SubAgentConfig) {
 	for i := range configs {
 		cfg := &configs[i]
 		m.configs[cfg.ID] = cfg
-		logger.GetRunnerLogger().Printf("[SubAgentManager] Registered sub-agent: %s (%s)", cfg.ID, cfg.Name)
+		logger.GetRunnerLogger().Infof("[SubAgentManager] Registered sub-agent: %s (%s)", cfg.ID, cfg.Name)
 	}
 
-	logger.GetRunnerLogger().Printf("[SubAgentManager] Total registered: %d sub-agents", len(m.configs))
+	logger.GetRunnerLogger().Infof("[SubAgentManager] Total registered: %d sub-agents", len(m.configs))
 }
 
 // RegisterTool 注册工具到管理器
@@ -243,10 +243,10 @@ func (m *SubAgentManager) Spawn(ctx context.Context, agentID string, task string
 	// 后台执行
 	taskInfo.Status = "running"
 	go func() {
-		logger.GetRunnerLogger().Printf("[SubAgentManager] Task %s started for agent %s", taskID, agentID)
+		logger.GetRunnerLogger().Infof("[SubAgentManager] Task %s started for agent %s", taskID, agentID)
 		err := agent.Run(context.Background(), task)
 		if err != nil {
-			logger.GetRunnerLogger().Printf("[SubAgentManager] Task %s failed: %v", taskID, err)
+			logger.GetRunnerLogger().Infof("[SubAgentManager] Task %s failed: %v", taskID, err)
 			taskInfo.Status = "failed"
 		} else {
 			result := agent.GetResult()
@@ -256,7 +256,7 @@ func (m *SubAgentManager) Spawn(ctx context.Context, agentID string, task string
 				taskInfo.Status = "completed"
 			}
 			taskInfo.Result = result
-			logger.GetRunnerLogger().Printf("[SubAgentManager] Task %s completed, output length: %d", taskID, len(result.Output))
+			logger.GetRunnerLogger().Infof("[SubAgentManager] Task %s completed, output length: %d", taskID, len(result.Output))
 		}
 	}()
 
