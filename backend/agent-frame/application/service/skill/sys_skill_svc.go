@@ -16,6 +16,7 @@ import (
 	ass "github.com/jettjia/xiaoqinglong/agent-frame/application/assembler/skill"
 	dto "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/skill"
 	srv "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/skill"
+	"github.com/jettjia/xiaoqinglong/agent-frame/pkg/xqldir"
 	"github.com/jettjia/xiaoqinglong/agent-frame/types/apierror"
 )
 
@@ -29,7 +30,7 @@ func NewSysSkillService() *SysSkillService {
 	return &SysSkillService{
 		sysSkillDto: ass.NewSysSkillDto(),
 		sysSkillSrv: srv.NewSysSkillSvc(),
-		skillsRoot:  "skills", // 可配置
+		skillsRoot:  xqldir.GetSkillsDir(), // 使用统一目录
 	}
 }
 

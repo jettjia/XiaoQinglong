@@ -17,6 +17,7 @@ import (
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
+	"github.com/jettjia/XiaoQinglong/runner/pkg/xqldir"
 	"github.com/jettjia/XiaoQinglong/runner/types"
 )
 
@@ -149,14 +150,15 @@ func (r *SkillRunner) RunSkill(ctx context.Context, name string, input map[strin
 	// 调试：检查 hasScript 状态
 	logger.Infof("[Skill] hasScript=%v, sandboxCfg=%v, enabled=%v", hasScript, r.sandboxCfg != nil, r.sandboxCfg != nil && r.sandboxCfg.Enabled)
 
-	if hasScript && r.sandboxCfg != nil && r.sandboxCfg.Enabled {
+	// 如果沙箱启用且有配置，使用沙箱执行（即使没有脚本也可以使用沙箱中的工具）
+	if r.sandboxCfg != nil && r.sandboxCfg.Enabled {
 		// 使用沙箱执行 skill
 		logger.Infof("[Skill] Using sandbox execution")
 		return r.runSkillWithSandbox(ctx, skillForRun, inputStr, sessionID)
 	}
 
 	// 无沙箱时，使用简单的模型调用方式执行 skill
-	logger.Infof("[Skill] Falling back to simple execution (sandbox disabled or no script)")
+	logger.Infof("[Skill] Falling back to simple execution (sandbox disabled)")
 	return r.runSkillSimple(ctx, skill, inputStr)
 }
 
@@ -434,14 +436,17 @@ func (r *SkillRunner) runSkillSimple(ctx context.Context, skill types.Skill, inp
 
 // getSkillDir 获取 skill 目录
 func (r *SkillRunner) getSkillDir(skillID string) string {
-	if r.skillsDir == "" {
-		return ""
+	skillsDir := r.skillsDir
+	if skillsDir == "" {
+		// 尝试使用统一的 skills 目录
+		skillsDir = xqldir.GetSkillsDir()
 	}
-	// 尝试从 ./skills/{skillID} 目录加载
-	dir := filepath.Join(r.skillsDir, skillID)
+	// 尝试从 {skillsDir}/{skillID} 目录加载
+	dir := filepath.Join(skillsDir, skillID)
 	if info, err := os.Stat(dir); err == nil && info.IsDir() {
 		return dir
 	}
+	// 返回空，调用方会处理错误
 	return ""
 }
 

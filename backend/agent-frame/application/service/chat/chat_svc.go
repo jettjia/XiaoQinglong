@@ -12,6 +12,7 @@ import (
 	dto "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/chat"
 	srv "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/chat"
 	"github.com/jettjia/xiaoqinglong/agent-frame/pkg/logger"
+	"github.com/jettjia/xiaoqinglong/agent-frame/pkg/xqldir"
 	"github.com/jettjia/xiaoqinglong/agent-frame/types/apierror"
 )
 
@@ -49,11 +50,7 @@ func (s *ChatSessionService) DeleteChatSession(ctx context.Context, req *dto.Del
 
 	// 删除会话关联的上传文件
 	sessionID := en.Ulid
-	uploadsDir := os.Getenv("APP_DATA")
-	if uploadsDir == "" {
-		uploadsDir = "/tmp/xiaoqinglong/data"
-	}
-	sessionUploadsDir := filepath.Join(uploadsDir, "uploads", sessionID)
+	sessionUploadsDir := filepath.Join(xqldir.GetUploadsDir(), sessionID)
 	logger.GetRunnerLogger().Infof("[ChatSessionService] Delete session files: sessionID=%s, path=%s", sessionID, sessionUploadsDir)
 	os.RemoveAll(sessionUploadsDir)
 

@@ -35,6 +35,11 @@ func main() {
 		panic(err)
 	}
 
+	// init dirs
+	if err := boot.InitDirs(); err != nil {
+		panic(err)
+	}
+
 	// init data
 	if err := boot.InitData(); err != nil {
 		panic(err)

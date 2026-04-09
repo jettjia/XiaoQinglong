@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -20,6 +18,7 @@ import (
 	"github.com/jettjia/xiaoqinglong/agent-frame/config"
 	memorySvc "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/memory"
 	"github.com/jettjia/xiaoqinglong/agent-frame/pkg/logger"
+	"github.com/jettjia/xiaoqinglong/agent-frame/pkg/xqldir"
 )
 
 // ChatRunReq 前端聊天请求
@@ -164,11 +163,7 @@ func (h *Handler) Run(c *gin.Context) {
 	runnerReq["messages"] = messages
 
 	// 获取 uploads 目录的宿主机路径
-	uploadsDir := os.Getenv("APP_DATA")
-	if uploadsDir == "" {
-		uploadsDir = "/tmp/xiaoqinglong/data"
-	}
-	uploadsDir = filepath.Join(uploadsDir, "uploads")
+	uploadsDir := xqldir.GetUploadsDir()
 
 	runnerReq["context"] = map[string]any{
 		"session_id":               chatReq.SessionID,

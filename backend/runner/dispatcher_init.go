@@ -17,6 +17,7 @@ import (
 	"github.com/jettjia/XiaoQinglong/runner/cliext"
 	"github.com/jettjia/XiaoQinglong/runner/cron"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
+	"github.com/jettjia/XiaoQinglong/runner/pkg/xqldir"
 	"github.com/jettjia/XiaoQinglong/runner/plugins"
 	"github.com/jettjia/XiaoQinglong/runner/retriever"
 	"github.com/jettjia/XiaoQinglong/runner/subagent"
@@ -513,25 +514,21 @@ func (d *Dispatcher) initMCPs(ctx context.Context) error {
 // initSkills 初始化 skill runner
 func (d *Dispatcher) initSkills(ctx context.Context) error {
 	// 构建 skillsDir
-	// 优先级: Context.skills_dir > 环境变量 SKILLS_DIR > 默认 "skills"
-	skillsDir := "skills"
+	// 优先级: Context.skills_dir > 环境变量 SKILLS_DIR > xqldir.GetSkillsDir()
+	skillsDir := xqldir.GetSkillsDir()
 	if d.request.Context != nil {
 		if dir, ok := d.request.Context["skills_dir"].(string); ok && dir != "" {
 			skillsDir = dir
 		}
 	}
-	// 如果为空，尝试从环境变量获取
-	if skillsDir == "skills" {
-		if envDir := os.Getenv("SKILLS_DIR"); envDir != "" {
-			skillsDir = envDir
-		}
+	// 如果环境变量指定，覆盖默认
+	if envDir := os.Getenv("SKILLS_DIR"); envDir != "" {
+		skillsDir = envDir
 	}
 	// 如果是相对路径，转换为绝对路径
 	if !filepath.IsAbs(skillsDir) {
-		// 相对于当前工作目录解析
-		if absPath, err := filepath.Abs(skillsDir); err == nil {
-			skillsDir = absPath
-		}
+		// 相对于 base dir 解析
+		skillsDir = filepath.Join(xqldir.GetBaseDir(), skillsDir)
 	}
 	logger.Infof("[Dispatcher] initSkills: using skills_dir: %s", skillsDir)
 

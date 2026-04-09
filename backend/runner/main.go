@@ -15,6 +15,7 @@ import (
 
 	"github.com/jettjia/XiaoQinglong/runner/memory"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
+	"github.com/jettjia/XiaoQinglong/runner/pkg/xqldir"
 	"github.com/jettjia/XiaoQinglong/runner/types"
 )
 
@@ -23,6 +24,9 @@ var stopFuncs = make(map[string]context.CancelFunc)
 var stopMu sync.Mutex
 
 func main() {
+	// 初始化统一目录
+	xqldir.Init()
+
 	http.HandleFunc("/run", handleRun)
 	http.HandleFunc("/resume", handleResume)
 	http.HandleFunc("/stop", handleStop)

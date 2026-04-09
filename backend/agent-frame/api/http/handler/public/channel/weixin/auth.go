@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jettjia/xiaoqinglong/agent-frame/pkg/logger"
+	"github.com/jettjia/xiaoqinglong/agent-frame/pkg/xqldir"
 	"github.com/skip2/go-qrcode"
 )
 
@@ -23,12 +24,7 @@ type TokenStore struct {
 
 // NewTokenStore creates a new token store
 func NewTokenStore() (*TokenStore, error) {
-	// 使用 APP_DATA 环境变量或默认路径
-	baseDir := os.Getenv("APP_DATA")
-	if baseDir == "" {
-		baseDir = "/tmp/xiaoqinglong/data"
-	}
-	baseDir = filepath.Join(baseDir, "weixin", "accounts")
+	baseDir := filepath.Join(xqldir.GetBaseDir(), "weixin", "accounts")
 
 	if err := os.MkdirAll(baseDir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create token directory: %w", err)

@@ -2,6 +2,7 @@ package boot
 
 import (
 	"context"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -10,13 +11,13 @@ import (
 	"github.com/jettjia/igo-pkg/pkg/xsql/builder"
 	dtoSkill "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/skill"
 	"github.com/jettjia/xiaoqinglong/agent-frame/application/service/skill"
+	"github.com/jettjia/xiaoqinglong/agent-frame/pkg/xqldir"
 	srvSkill "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/skill"
 )
 
-// getSkillsPath 获取 skills 目录路径
-// 使用相对于工作目录的路径
-func getSkillsPath() string {
-	// 使用当前工作目录
+// getSourceSkillsPath 获取源码仓库中的 skills 目录路径
+// 这是初始skill包的来源
+func getSourceSkillsPath() string {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "../../skills"
@@ -25,22 +26,32 @@ func getSkillsPath() string {
 	return filepath.Join(cwd, "..", "..", "skills")
 }
 
-// syncSkillsFromDisk 扫描 skills 目录，同步到数据库
+// getTargetSkillsPath 获取统一目录下的 skills 路径
+// 这是运行时实际使用的 skills 目录
+func getTargetSkillsPath() string {
+	return xqldir.GetSkillsDir()
+}
+
+// syncSkillsFromDisk 扫描源码 skills 目录，同步到统一目录并入库
 func syncSkillsFromDisk() error {
-	// 从配置获取 skills 目录路径，默认为 ../../skills
+	sourceRoot := getSourceSkillsPath()
+	targetRoot := getTargetSkillsPath()
 
-	log.Println("[Init] Initializing system skills, scanning directory:", getSkillsPath())
+	log.Println("[Init] Initializing system skills")
+	log.Println("[Init] Source skills directory:", sourceRoot)
+	log.Println("[Init] Target skills directory:", targetRoot)
 
-	skillsRoot := getSkillsPath()
-	if skillsRoot == "" {
-		return nil
+	// 确保目标目录存在
+	if err := os.MkdirAll(targetRoot, 0755); err != nil {
+		return err
 	}
 
-	// 检查 skills 目录是否存在
-	info, err := os.Stat(skillsRoot)
+	// 检查源码 skills 目录是否存在
+	info, err := os.Stat(sourceRoot)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// skills 目录不存在，跳过
+			// 源码 skills 目录不存在，跳过（统一目录中可能已有）
+			log.Println("[Init] Source skills directory not found, skipping copy")
 			return nil
 		}
 		return err
@@ -49,8 +60,8 @@ func syncSkillsFromDisk() error {
 		return nil
 	}
 
-	// 读取 skills 目录下的所有子目录
-	entries, err := os.ReadDir(skillsRoot)
+	// 读取源码 skills 目录下的所有子目录
+	entries, err := os.ReadDir(sourceRoot)
 	if err != nil {
 		return err
 	}
@@ -65,13 +76,14 @@ func syncSkillsFromDisk() error {
 		}
 
 		skillName := entry.Name()
-		skillPath := filepath.Join(skillsRoot, skillName)
-		skillMdPath := filepath.Join(skillPath, "SKILL.md")
+		sourcePath := filepath.Join(sourceRoot, skillName)
+		targetPath := filepath.Join(targetRoot, skillName)
+		skillMdPath := filepath.Join(sourcePath, "SKILL.md")
 
 		// 解析 SKILL.md 获取元信息
 		skillType, description, version := parseSkillMd(skillMdPath)
 		if skillType == "" {
-			// 没有 SKILL.md 或解析失败，默认设为 tool 类型
+			// 没有 SKILL.md 或解析失败，默认设为 skill 类型
 			skillType = "skill"
 		}
 
@@ -87,18 +99,33 @@ func syncSkillsFromDisk() error {
 			return err
 		}
 
+		// 如果数据库已存在，跳过拷贝（但仍更新一下 Path 以防万一）
 		if len(existing) > 0 {
-			// 已存在，跳过
+			// 确保统一目录中有这个 skill
+			if _, err := os.Stat(targetPath); os.IsNotExist(err) {
+				log.Printf("[Init] Copying skill '%s' to unified directory", skillName)
+				if err := copyDir(sourcePath, targetPath); err != nil {
+					log.Printf("[Init] Failed to copy skill '%s': %v", skillName, err)
+					continue
+				}
+			}
 			continue
 		}
 
-		// 不存在，创建为系统内置 skill
+		// 拷贝到统一目录
+		log.Printf("[Init] Copying skill '%s' to unified directory", skillName)
+		if err := copyDir(sourcePath, targetPath); err != nil {
+			log.Printf("[Init] Failed to copy skill '%s': %v", skillName, err)
+			continue
+		}
+
+		// 创建为系统内置 skill，Path 指向统一目录
 		createReq := &dtoSkill.CreateSysSkillReq{
 			Name:        skillName,
 			Description: description,
 			SkillType:   skillType,
 			Version:     version,
-			Path:        skillPath,
+			Path:        targetPath, // 使用统一目录路径
 			Enabled:     true,
 			Config:      "{}",
 			IsSystem:    true, // 系统内置
@@ -107,11 +134,65 @@ func syncSkillsFromDisk() error {
 		_, err = skillSvc.CreateSysSkill(ctx, createReq)
 		if err != nil {
 			// 忽略创建错误，继续处理其他 skill
+			log.Printf("[Init] Failed to create skill '%s' in DB: %v", skillName, err)
 			continue
 		}
 	}
 
 	return nil
+}
+
+// copyDir 拷贝目录到目标位置
+func copyDir(src, dst string) error {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
+	// 创建目标目录
+	if err := os.MkdirAll(dst, srcInfo.Mode()); err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+
+		if entry.IsDir() {
+			if err := copyDir(srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			if err := copyFile(srcPath, dstPath); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// copyFile 拷贝单个文件
+func copyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	_, err = io.Copy(dstFile, srcFile)
+	return err
 }
 
 // parseSkillMd 解析 SKILL.md 提取元信息

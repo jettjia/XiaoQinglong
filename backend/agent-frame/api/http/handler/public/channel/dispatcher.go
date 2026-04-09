@@ -23,6 +23,35 @@ import (
 	"github.com/jettjia/xiaoqinglong/agent-frame/pkg/logger"
 )
 
+const (
+	// BaseDirEnv is the environment variable for the base directory
+	BaseDirEnv = "XQL_BASE_DIR"
+	// DefaultBaseDir is the default base directory name (in home directory)
+	DefaultBaseDir = ".xiaoqinglong"
+)
+
+// getUploadsDir 获取上传文件的基础目录（统一目录）
+func getUploadsDir() string {
+	// 兼容旧的 APP_DATA 环境变量
+	if baseDir := os.Getenv("APP_DATA"); baseDir != "" {
+		return filepath.Join(baseDir, "uploads")
+	}
+
+	// 优先使用 XQL_BASE_DIR 环境变量
+	if baseDir := os.Getenv(BaseDirEnv); baseDir != "" {
+		if filepath.IsAbs(baseDir) {
+			return filepath.Join(baseDir, "data", "uploads")
+		}
+		// 相对路径相对于 home 目录
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, baseDir, "data", "uploads")
+	}
+
+	// 默认使用 ~/.xiaoqinglong/data/uploads
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, DefaultBaseDir, "data", "uploads")
+}
+
 // FeishuWSSender 飞书 WS 发送器接口（避免循环依赖）
 type FeishuWSSender interface {
 	SendText(ctx context.Context, receiveID, msgType, content string) error
@@ -350,11 +379,7 @@ func (d *ChannelDispatcher) buildRunnerRequest(c *gin.Context, agentRsp *agentDt
 	runnerReq["messages"] = messages
 
 	// 7. 获取 uploads 目录
-	uploadsDir := os.Getenv("APP_DATA")
-	if uploadsDir == "" {
-		uploadsDir = "/tmp/xiaoqinglong/data"
-	}
-	uploadsDir = filepath.Join(uploadsDir, "uploads")
+	uploadsDir := getUploadsDir()
 
 	// 8. 构建 context
 	runnerReq["context"] = map[string]any{
@@ -790,11 +815,7 @@ func (d *ChannelDispatcher) buildRunnerRequestWS(agentRsp *agentDto.FindSysAgent
 	runnerReq["messages"] = messages
 
 	// 7. 获取 uploads 目录
-	uploadsDir := os.Getenv("APP_DATA")
-	if uploadsDir == "" {
-		uploadsDir = "/tmp/xiaoqinglong/data"
-	}
-	uploadsDir = filepath.Join(uploadsDir, "uploads")
+	uploadsDir := getUploadsDir()
 
 	// 8. 构建 context
 	runnerReq["context"] = map[string]any{
@@ -1137,11 +1158,7 @@ func (d *ChannelDispatcher) buildRunnerRequestDingTalkWS(agentRsp *agentDto.Find
 	runnerReq["messages"] = messages
 
 	// 7. 获取 uploads 目录
-	uploadsDir := os.Getenv("APP_DATA")
-	if uploadsDir == "" {
-		uploadsDir = "/tmp/xiaoqinglong/data"
-	}
-	uploadsDir = filepath.Join(uploadsDir, "uploads")
+	uploadsDir := getUploadsDir()
 
 	// 8. 构建 context
 	runnerReq["context"] = map[string]any{
@@ -1427,11 +1444,7 @@ func (d *ChannelDispatcher) buildRunnerRequestWeWorkWS(agentRsp *agentDto.FindSy
 	runnerReq["messages"] = messages
 
 	// 7. 获取 uploads 目录
-	uploadsDir := os.Getenv("APP_DATA")
-	if uploadsDir == "" {
-		uploadsDir = "/tmp/xiaoqinglong/data"
-	}
-	uploadsDir = filepath.Join(uploadsDir, "uploads")
+	uploadsDir := getUploadsDir()
 
 	// 8. 构建 context
 	runnerReq["context"] = map[string]any{
@@ -1717,11 +1730,7 @@ func (d *ChannelDispatcher) buildRunnerRequestWeixinWS(agentRsp *agentDto.FindSy
 	runnerReq["messages"] = messages
 
 	// 7. 获取 uploads 目录
-	uploadsDir := os.Getenv("APP_DATA")
-	if uploadsDir == "" {
-		uploadsDir = "/tmp/xiaoqinglong/data"
-	}
-	uploadsDir = filepath.Join(uploadsDir, "uploads")
+	uploadsDir := getUploadsDir()
 
 	// 8. 构建 context
 	runnerReq["context"] = map[string]any{

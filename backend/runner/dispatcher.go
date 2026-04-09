@@ -22,6 +22,7 @@ import (
 	"github.com/jettjia/XiaoQinglong/runner/contextcompressor"
 	"github.com/jettjia/XiaoQinglong/runner/contextcompressor/compactors"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
+	"github.com/jettjia/XiaoQinglong/runner/pkg/xqldir"
 	"github.com/jettjia/XiaoQinglong/runner/plugins"
 	"github.com/jettjia/XiaoQinglong/runner/prompt"
 	"github.com/jettjia/XiaoQinglong/runner/retriever"
@@ -417,8 +418,8 @@ func (d *Dispatcher) setUploadsBaseDir() {
 		}
 	}
 
-	// 默认路径
-	d.uploadsBaseDir = "./data/uploads"
+	// 使用统一的 uploads 目录
+	d.uploadsBaseDir = xqldir.GetUploadsDir()
 }
 
 // initCompactService 初始化上下文压缩服务

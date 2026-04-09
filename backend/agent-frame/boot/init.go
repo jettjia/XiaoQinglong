@@ -1,5 +1,13 @@
 package boot
 
+import (
+	"github.com/jettjia/xiaoqinglong/agent-frame/pkg/xqldir"
+)
+
+func InitDirs() error {
+	return xqldir.EnsureBaseDir()
+}
+
 func InitData() (err error) {
 	// 初始化扫描 skills 目录并同步到数据库
 	if err = syncSkillsFromDisk(); err != nil {

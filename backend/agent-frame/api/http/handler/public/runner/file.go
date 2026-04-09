@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/jettjia/xiaoqinglong/agent-frame/pkg/xqldir"
 )
 
 // FileInfo 文件信息
@@ -15,15 +17,6 @@ type FileInfo struct {
 	VirtualPath string `json:"virtual_path"`
 	Size        int64  `json:"size"`
 	Type        string `json:"type"`
-}
-
-// getUploadsDir 获取上传文件的基础目录
-func getUploadsDir() string {
-	uploadDir := os.Getenv("APP_DATA")
-	if uploadDir == "" {
-		uploadDir = "/tmp/xiaoqinglong/data"
-	}
-	return filepath.Join(uploadDir, "uploads")
 }
 
 // Upload 文件上传
@@ -36,7 +29,7 @@ func (h *Handler) Upload(c *gin.Context) {
 	}
 
 	// 2. 获取上传目录
-	uploadDir := getUploadsDir()
+	uploadDir := xqldir.GetUploadsDir()
 	uploadDir = filepath.Join(uploadDir, sessionID)
 
 	// 3. 创建上传目录
@@ -114,7 +107,7 @@ func (h *Handler) ServeReports(c *gin.Context) {
 	}
 
 	// 构建报告文件路径: {uploadsDir}/{sessionID}/reports/{filename}
-	reportsDir := filepath.Join(getUploadsDir(), sessionID, "reports")
+	reportsDir := filepath.Join(xqldir.GetUploadsDir(), sessionID, "reports")
 	filePath := filepath.Join(reportsDir, filename)
 
 	// 检查文件是否存在
