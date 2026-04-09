@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
+	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 )
 
 // DelegateInput 委托工具输入
@@ -78,7 +78,7 @@ func (t *DelegateTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 		return "", fmt.Errorf("parse delegate input failed: %w", err)
 	}
 
-	log.Printf("[DelegateTool] Delegating task to agent: %s", input.AgentID)
+	logger.GetRunnerLogger().Printf("[DelegateTool] Delegating task to agent: %s", input.AgentID)
 
 	// 构建任务描述，添加额外上下文
 	task := input.Task
@@ -98,7 +98,7 @@ func (t *DelegateTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 		return "", fmt.Errorf("marshal result failed: %w", err)
 	}
 
-	log.Printf("[DelegateTool] Agent %s completed, output length: %d", input.AgentID, len(result.Output))
+	logger.GetRunnerLogger().Printf("[DelegateTool] Agent %s completed, output length: %d", input.AgentID, len(result.Output))
 
 	return string(resultJSON), nil
 }

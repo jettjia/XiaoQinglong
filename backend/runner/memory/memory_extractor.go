@@ -6,10 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 
+	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 	"github.com/jettjia/XiaoQinglong/runner/types"
 )
 
@@ -156,7 +156,7 @@ func (e *MemoryExtractor) callLLM(ctx context.Context, prompt string) (string, e
 		return "", fmt.Errorf("failed to parse LLM response: %w", err)
 	}
 
-	log.Printf("[Memory LLM] raw response: %s", string(body))
+	logger.GetRunnerLogger().Printf("[Memory LLM] raw response: %s", string(body))
 
 	if len(openAIResp.Choices) == 0 {
 		return "", fmt.Errorf("LLM returned no choices")
@@ -175,7 +175,7 @@ func (e *MemoryExtractor) callLLM(ctx context.Context, prompt string) (string, e
 	content = strings.TrimSuffix(content, "```")
 	content = strings.TrimSpace(content)
 
-	log.Printf("[Memory LLM] cleaned response: %s", content)
+	logger.GetRunnerLogger().Printf("[Memory LLM] cleaned response: %s", content)
 
 	return content, nil
 }

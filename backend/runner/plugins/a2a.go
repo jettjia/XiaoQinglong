@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
+	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 	"github.com/jettjia/XiaoQinglong/runner/types"
 )
 
@@ -56,7 +56,7 @@ func NewA2AClient(ctx context.Context, config types.A2AAgentConfig) (*A2AClient,
 		}
 	}
 
-	log.Printf("[A2A] Created client for agent: %s, endpoint: %s", config.Name, endpoint)
+	logger.GetRunnerLogger().Printf("[A2A] Created client for agent: %s, endpoint: %s", config.Name, endpoint)
 
 	return &A2AClient{
 		name:       config.Name,
@@ -68,7 +68,7 @@ func NewA2AClient(ctx context.Context, config types.A2AAgentConfig) (*A2AClient,
 
 // Run executes the A2A agent with a query using JSON-RPC over HTTP
 func (a *A2AClient) Run(ctx context.Context, query string, traceCtx map[string]string) (string, error) {
-	log.Printf("[A2A] Calling agent %s with query: %s", a.name, query)
+	logger.GetRunnerLogger().Printf("[A2A] Calling agent %s with query: %s", a.name, query)
 
 	// 构建 JSON-RPC 请求
 	reqBody := map[string]any{
@@ -156,7 +156,7 @@ func (a *A2AClient) Run(ctx context.Context, query string, traceCtx map[string]s
 
 // CreateA2ARunner creates an ADK runner for the A2A agent
 func (a *A2AClient) CreateA2ARunner(ctx context.Context, model model.ToolCallingChatModel) (*adk.Runner, error) {
-	log.Printf("[A2A] Creating runner for agent: %s", a.name)
+	logger.GetRunnerLogger().Printf("[A2A] Creating runner for agent: %s", a.name)
 
 	if model == nil {
 		return nil, fmt.Errorf("model is required for A2A agent")

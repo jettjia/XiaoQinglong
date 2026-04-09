@@ -88,7 +88,7 @@ func EnsureBaseDir() error {
 // Should be called at runner startup
 func Init() {
 	if err := EnsureBaseDir(); err != nil {
-		log.Printf("[xqldir] Warning: failed to create base directories: %v", err)
+		log.Fatalf("[xqldir] Warning: failed to create base directories: %v", err)
 	} else {
 		log.Printf("[xqldir] Base directory initialized: %s", GetBaseDir())
 	}

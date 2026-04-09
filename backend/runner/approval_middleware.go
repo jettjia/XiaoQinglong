@@ -3,10 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
+	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 )
 
 // ========== Approval Middleware for Tool Calls ==========
@@ -18,9 +18,9 @@ type approvalToolMiddleware struct {
 
 // newApprovalToolMiddleware 创建审批中间件
 func newApprovalToolMiddleware(toolRiskLevels map[string]string) *approvalToolMiddleware {
-	log.Printf("[ApprovalMiddleware] Created with %d tools", len(toolRiskLevels))
+	logger.GetRunnerLogger().Printf("[ApprovalMiddleware] Created with %d tools", len(toolRiskLevels))
 	for k, v := range toolRiskLevels {
-		log.Printf("[ApprovalMiddleware]   - %s: %s", k, v)
+		logger.GetRunnerLogger().Printf("[ApprovalMiddleware]   - %s: %s", k, v)
 	}
 	return &approvalToolMiddleware{
 		toolRiskLevels: toolRiskLevels,
@@ -29,7 +29,7 @@ func newApprovalToolMiddleware(toolRiskLevels map[string]string) *approvalToolMi
 
 // Wrap 包装工具调用，添加审批拦截
 func (m *approvalToolMiddleware) Wrap(endpoint compose.InvokableToolEndpoint) compose.InvokableToolEndpoint {
-	log.Printf("[ApprovalMiddleware] Wrap called!")
+	logger.GetRunnerLogger().Printf("[ApprovalMiddleware] Wrap called!")
 	return func(ctx context.Context, input *compose.ToolInput) (*compose.ToolOutput, error) {
 		toolName := input.Name
 
@@ -39,26 +39,26 @@ func (m *approvalToolMiddleware) Wrap(endpoint compose.InvokableToolEndpoint) co
 			riskLevel = m.toolRiskLevels[toolName]
 		}
 
-		log.Printf("[ApprovalMiddleware] tool=%s, risk_level=%s", toolName, riskLevel)
+		logger.GetRunnerLogger().Printf("[ApprovalMiddleware] tool=%s, risk_level=%s", toolName, riskLevel)
 
 		// 如果没有风险级别或风险级别不需要审批，直接执行
 		if riskLevel == "" || !shouldApproveByRiskLevel(riskLevel) {
-			log.Printf("[ApprovalMiddleware] tool=%s skipped (no approval needed)", toolName)
+			logger.GetRunnerLogger().Printf("[ApprovalMiddleware] tool=%s skipped (no approval needed)", toolName)
 			return endpoint(ctx, input)
 		}
 
-		log.Printf("[ApprovalMiddleware] tool=%s requires approval (risk=%s)", toolName, riskLevel)
+		logger.GetRunnerLogger().Printf("[ApprovalMiddleware] tool=%s requires approval (risk=%s)", toolName, riskLevel)
 
 		// 检查是否已被中断过（resume 的情况）
 		wasInterrupted, _, storedArgs := tool.GetInterruptState[string](ctx)
 		if !wasInterrupted {
 			// 第一次执行，触发中断等待审批
-			log.Printf("[ApprovalMiddleware] tool=%s triggering interrupt", toolName)
+			logger.GetRunnerLogger().Printf("[ApprovalMiddleware] tool=%s triggering interrupt", toolName)
 			approvalInfo := &ApprovalInfo{
 				ToolName:        toolName,
-				ToolType:       "http",
+				ToolType:        "http",
 				ArgumentsInJSON: input.Arguments,
-				RiskLevel:      riskLevel,
+				RiskLevel:       riskLevel,
 			}
 			tool.StatefulInterrupt(ctx, approvalInfo, input.Arguments)
 			// 返回特殊错误，通知框架发生了中断
@@ -73,7 +73,7 @@ func (m *approvalToolMiddleware) Wrap(endpoint compose.InvokableToolEndpoint) co
 		isTarget, hasData, data := tool.GetResumeContext[*ApprovalResult](ctx)
 		if isTarget && hasData {
 			if data.Approved {
-				log.Printf("[ApprovalMiddleware] tool=%s approved, executing", toolName)
+				logger.GetRunnerLogger().Printf("[ApprovalMiddleware] tool=%s approved, executing", toolName)
 				// 使用存储的参数执行
 				input.Arguments = storedArgs
 				return endpoint(ctx, input)
@@ -89,12 +89,12 @@ func (m *approvalToolMiddleware) Wrap(endpoint compose.InvokableToolEndpoint) co
 		}
 
 		// 继续等待审批
-		log.Printf("[ApprovalMiddleware] tool=%s continuing to wait for approval", toolName)
+		logger.GetRunnerLogger().Printf("[ApprovalMiddleware] tool=%s continuing to wait for approval", toolName)
 		approvalInfo := &ApprovalInfo{
 			ToolName:        toolName,
-			ToolType:       "http",
+			ToolType:        "http",
 			ArgumentsInJSON: storedArgs,
-			RiskLevel:      riskLevel,
+			RiskLevel:       riskLevel,
 		}
 		tool.StatefulInterrupt(ctx, approvalInfo, storedArgs)
 

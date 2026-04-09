@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"strings"
 	"sync"
@@ -336,7 +335,7 @@ type Dispatcher struct {
 	skillPlanner     *plugins.SkillPlanner     // LLM 驱动的技能规划器
 	subAgentManager  *subagent.SubAgentManager // Sub-Agent 管理器
 	a2aCallCount     int
-	cliExt           interface{}               // CLI 扩展（cliext.CLIExtension）
+	cliExt           interface{} // CLI 扩展（cliext.CLIExtension）
 
 	// 文件上传相关
 	uploadsBaseDir string // uploads 目录的宿主机路径
@@ -370,9 +369,9 @@ func NewDispatcher(req *types.RunRequest) *Dispatcher {
 
 func (d *Dispatcher) Run(ctx context.Context) (*DispatchResult, error) {
 	// 调试
-	fmt.Println(">>>>>> [Dispatcher] Run: STARTING NOW fmt.Println")
-	log.Println(">>>>>> [Dispatcher] Run: STARTING NOW log.Println")
-	logger.Infof(">>>>>> [Dispatcher] Run: STARTING NOW logger.Infof")
+	logger.GetRunnerLogger().Println(">>>>>> [Dispatcher] Run: STARTING NOW logger.GetRunnerLogger().Println")
+	logger.GetRunnerLogger().Println(">>>>>> [Dispatcher] Run: STARTING NOW logger.GetRunnerLogger().Println")
+	logger.GetRunnerLogger().Infof(">>>>>> [Dispatcher] Run: STARTING NOW logger.GetRunnerLogger().Infof")
 	// 0. 设置 uploadsBaseDir
 	d.setUploadsBaseDir()
 

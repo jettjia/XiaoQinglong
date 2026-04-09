@@ -31,7 +31,7 @@ func main() {
 	http.HandleFunc("/agent", handleAgent)
 	http.HandleFunc("/resume", handleResume)
 	http.HandleFunc("/stop", handleStop)
-	log.Println("Runner server starting on :18080")
+	logger.GetRunnerLogger().Println("Runner server starting on :18080")
 	log.Fatal(http.ListenAndServe(":18080", nil))
 }
 
@@ -66,10 +66,10 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 	// 同步提取记忆（等待结果，确保在响应中返回）
 	if len(req.Messages) >= 2 {
 		modelConfig := memory.GetModelConfigForMemory(req.Models)
-		log.Printf("[Memory Debug] modelConfig: %+v", modelConfig)
+		logger.GetRunnerLogger().Printf("[Memory Debug] modelConfig: %+v", modelConfig)
 		extractor := memory.NewMemoryExtractor(modelConfig)
 		if extractor != nil {
-			log.Printf("[Memory Debug] extractor created successfully")
+			logger.GetRunnerLogger().Printf("[Memory Debug] extractor created successfully")
 			// 获取最后一条 user 和 assistant 的内容
 			var userInput, assistantOutput string
 			for i := len(req.Messages) - 1; i >= 0; i-- {
@@ -142,8 +142,8 @@ func handleAgent(w http.ResponseWriter, r *http.Request) {
 	models := make(map[string]types.ModelConfig)
 	if defaultModel != "" {
 		models["default"] = types.ModelConfig{
-			Name:   defaultModel,
-			APIKey: defaultAPIKey,
+			Name:    defaultModel,
+			APIKey:  defaultAPIKey,
 			APIBase: defaultAPIBase,
 		}
 	} else {
@@ -373,7 +373,7 @@ func handleRunStream(w http.ResponseWriter, r *http.Request, req *types.RunReque
 				_ = write("meta", map[string]any{"heartbeat_at": time.Now().Format(time.RFC3339Nano)})
 			case <-idleTimeout.C:
 				// 静默断连 - 90秒无活动
-				log.Printf("[SSE] idle timeout, closing connection")
+				logger.GetRunnerLogger().Printf("[SSE] idle timeout, closing connection")
 				return
 			}
 		}
@@ -480,20 +480,20 @@ func extractAndSaveMemoriesCallback(ctx map[string]any, callbackURL string, mode
 	memories, err := extractor.ExtractMemories(context.Background(), userInput, assistantOutput)
 	if err != nil || len(memories) == 0 {
 		if err != nil {
-			log.Printf("[Memory] Failed to extract memories: %v", err)
+			logger.GetRunnerLogger().Printf("[Memory] Failed to extract memories: %v", err)
 		} else {
-			log.Printf("[Memory] No memories extracted, userInput=%s", userInput[:min(50, len(userInput))])
+			logger.GetRunnerLogger().Printf("[Memory] No memories extracted, userInput=%s", userInput[:min(50, len(userInput))])
 		}
 		return
 	}
 
-	log.Printf("[Memory] Extracted %d memories", len(memories))
+	logger.GetRunnerLogger().Printf("[Memory] Extracted %d memories", len(memories))
 	for i, m := range memories {
 		contentPreview := m.Content
 		if len(contentPreview) > 50 {
 			contentPreview = contentPreview[:50] + "..."
 		}
-		log.Printf("[Memory]   [%d] name=%s, type=%s, description=%s, content=%s",
+		logger.GetRunnerLogger().Printf("[Memory]   [%d] name=%s, type=%s, description=%s, content=%s",
 			i, m.Name, m.Type, m.Description, contentPreview)
 	}
 
@@ -509,21 +509,21 @@ func extractAndSaveMemoriesCallback(ctx map[string]any, callbackURL string, mode
 	go func() {
 		req, err := http.NewRequestWithContext(context.Background(), "POST", callbackURL, bytes.NewReader(reqBytes))
 		if err != nil {
-			log.Printf("[Memory] Failed to create callback request: %v", err)
+			logger.GetRunnerLogger().Printf("[Memory] Failed to create callback request: %v", err)
 			return
 		}
 		req.Header.Set("Content-Type", "application/json")
 		client := &http.Client{}
 		resp, err := client.Do(req)
 		if err != nil {
-			log.Printf("[Memory] Failed to send memories callback: %v", err)
+			logger.GetRunnerLogger().Printf("[Memory] Failed to send memories callback: %v", err)
 			return
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
-			log.Printf("[Memory] Callback returned status %d", resp.StatusCode)
+			logger.GetRunnerLogger().Printf("[Memory] Callback returned status %d", resp.StatusCode)
 		} else {
-			log.Printf("[Memory] Saved %d memories via callback", len(memories))
+			logger.GetRunnerLogger().Printf("[Memory] Saved %d memories via callback", len(memories))
 		}
 	}()
 }
@@ -588,7 +588,7 @@ func handleResume(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleStop(w http.ResponseWriter, r *http.Request) {
-	log.Printf("[handleStop] Received stop request")
+	logger.GetRunnerLogger().Printf("[handleStop] Received stop request")
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -599,12 +599,12 @@ func handleStop(w http.ResponseWriter, r *http.Request) {
 		SessionID    string `json:"session_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Printf("[handleStop] Failed to decode request: %v", err)
+		logger.GetRunnerLogger().Printf("[handleStop] Failed to decode request: %v", err)
 		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("[handleStop] checkpoint_id: %s, session_id: %s", req.CheckpointID, req.SessionID)
+	logger.GetRunnerLogger().Printf("[handleStop] checkpoint_id: %s, session_id: %s", req.CheckpointID, req.SessionID)
 
 	// 优先用 checkpoint_id 查找，其次用 session_id
 	targetID := req.CheckpointID
@@ -612,15 +612,15 @@ func handleStop(w http.ResponseWriter, r *http.Request) {
 		targetID = req.SessionID
 	}
 
-	log.Printf("[handleStop] Looking for cancel func with key: %s", targetID)
+	logger.GetRunnerLogger().Printf("[handleStop] Looking for cancel func with key: %s", targetID)
 	stopMu.Lock()
 	cancel, ok := stopFuncs[targetID]
 	if ok {
-		log.Printf("[handleStop] Found cancel func for %s, calling it", targetID)
+		logger.GetRunnerLogger().Printf("[handleStop] Found cancel func for %s, calling it", targetID)
 		cancel()
 		delete(stopFuncs, targetID)
 	} else {
-		log.Printf("[handleStop] No cancel func found for %s", targetID)
+		logger.GetRunnerLogger().Printf("[handleStop] No cancel func found for %s", targetID)
 	}
 	stopMu.Unlock()
 

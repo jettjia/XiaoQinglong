@@ -3,19 +3,19 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
+	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 )
 
 // ApprovalInfo 审批信息，传递给前端
 type ApprovalInfo struct {
 	ToolName        string `json:"tool_name"`
-	ToolType       string `json:"tool_type"` // http, mcp, skill, a2a
+	ToolType        string `json:"tool_type"` // http, mcp, skill, a2a
 	ArgumentsInJSON string `json:"arguments_in_json"`
-	RiskLevel      string `json:"risk_level"`
-	Description    string `json:"description"`
+	RiskLevel       string `json:"risk_level"`
+	Description     string `json:"description"`
 }
 
 // ApprovalResult 审批结果
@@ -39,10 +39,10 @@ type RiskLevelGetter func(argumentsInJSON string) string
 // InvokableApprovableTool 包装工具，添加审批流程
 type InvokableApprovableTool struct {
 	tool.InvokableTool
-	toolName         string
-	toolType         string
-	riskLevel        string
-	riskLevelGetter  RiskLevelGetter // 可选的动态风险级别获取器
+	toolName        string
+	toolType        string
+	riskLevel       string
+	riskLevelGetter RiskLevelGetter // 可选的动态风险级别获取器
 }
 
 func NewInvokableApprovableTool(baseTool tool.InvokableTool, toolName, toolType, riskLevel string) *InvokableApprovableTool {
@@ -70,7 +70,7 @@ func (t *InvokableApprovableTool) Info(ctx context.Context) (*schema.ToolInfo, e
 }
 
 func (t *InvokableApprovableTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
-	log.Printf("[Approval] InvokableRun called for tool: %s, risk_level: %s", t.toolName, t.riskLevel)
+	logger.GetRunnerLogger().Printf("[Approval] InvokableRun called for tool: %s, risk_level: %s", t.toolName, t.riskLevel)
 
 	// 获取实际的风险级别（如果是动态的）
 	actualRiskLevel := t.riskLevel
@@ -78,7 +78,7 @@ func (t *InvokableApprovableTool) InvokableRun(ctx context.Context, argumentsInJ
 		actualRiskLevel = t.riskLevelGetter(argumentsInJSON)
 	}
 
-	log.Printf("[Approval] actual risk_level: %s, checking threshold...", actualRiskLevel)
+	logger.GetRunnerLogger().Printf("[Approval] actual risk_level: %s, checking threshold...", actualRiskLevel)
 
 	// 检查是否已被中断过（resume 的情况）
 	wasInterrupted, _, storedArguments := tool.GetInterruptState[string](ctx)
@@ -86,9 +86,9 @@ func (t *InvokableApprovableTool) InvokableRun(ctx context.Context, argumentsInJ
 		// 第一次执行，触发中断等待审批
 		return "", tool.StatefulInterrupt(ctx, &ApprovalInfo{
 			ToolName:        t.toolName,
-			ToolType:       t.toolType,
+			ToolType:        t.toolType,
 			ArgumentsInJSON: argumentsInJSON,
-			RiskLevel:      actualRiskLevel,
+			RiskLevel:       actualRiskLevel,
 		}, argumentsInJSON)
 	}
 
@@ -107,9 +107,9 @@ func (t *InvokableApprovableTool) InvokableRun(ctx context.Context, argumentsInJ
 	// 继续等待审批
 	return "", tool.StatefulInterrupt(ctx, &ApprovalInfo{
 		ToolName:        t.toolName,
-		ToolType:       t.toolType,
+		ToolType:        t.toolType,
 		ArgumentsInJSON: storedArguments,
-		RiskLevel:      actualRiskLevel,
+		RiskLevel:       actualRiskLevel,
 	}, storedArguments)
 }
 

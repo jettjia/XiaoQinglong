@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
+	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 )
 
 // SpawnInput spawn 工具输入
@@ -85,7 +85,7 @@ func (t *SpawnTool) InvokableRun(ctx context.Context, argumentsInJSON string, op
 		return "", fmt.Errorf("parse spawn input failed: %w", err)
 	}
 
-	log.Printf("[SpawnTool] Spawning task for agent: %s", input.AgentID)
+	logger.GetRunnerLogger().Printf("[SpawnTool] Spawning task for agent: %s", input.AgentID)
 
 	// 启动异步任务
 	taskInfo, err := t.manager.Spawn(ctx, input.AgentID, input.Task)
@@ -106,7 +106,7 @@ func (t *SpawnTool) InvokableRun(ctx context.Context, argumentsInJSON string, op
 		return "", fmt.Errorf("marshal response failed: %w", err)
 	}
 
-	log.Printf("[SpawnTool] Task %s spawned successfully", taskInfo.TaskID)
+	logger.GetRunnerLogger().Printf("[SpawnTool] Task %s spawned successfully", taskInfo.TaskID)
 
 	return string(resultJSON), nil
 }
@@ -158,7 +158,7 @@ func (t *CollectTaskTool) InvokableRun(ctx context.Context, argumentsInJSON stri
 		return "", fmt.Errorf("parse collect_task input failed: %w", err)
 	}
 
-	log.Printf("[CollectTaskTool] Collecting task: %s", input.TaskID)
+	logger.GetRunnerLogger().Printf("[CollectTaskTool] Collecting task: %s", input.TaskID)
 
 	// 如果没有指定 timeout，使用默认值
 	timeout := 30
@@ -209,7 +209,7 @@ func (t *CollectTaskTool) InvokableRun(ctx context.Context, argumentsInJSON stri
 		return "", fmt.Errorf("marshal response failed: %w", err)
 	}
 
-	log.Printf("[CollectTaskTool] Task %s collected, status: %s", input.TaskID, taskInfo.Status)
+	logger.GetRunnerLogger().Printf("[CollectTaskTool] Task %s collected, status: %s", input.TaskID, taskInfo.Status)
 
 	return string(resultJSON), nil
 }
@@ -326,7 +326,7 @@ func (t *CancelTaskTool) InvokableRun(ctx context.Context, argumentsInJSON strin
 		return "", fmt.Errorf("parse cancel_task input failed: %w", err)
 	}
 
-	log.Printf("[CancelTaskTool] Cancelling task: %s", input.TaskID)
+	logger.GetRunnerLogger().Printf("[CancelTaskTool] Cancelling task: %s", input.TaskID)
 
 	if err := t.manager.CancelTask(input.TaskID); err != nil {
 		return "", fmt.Errorf("cancel task failed: %w", err)

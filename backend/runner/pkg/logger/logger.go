@@ -6,9 +6,8 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/sirupsen/logrus"
-
 	"github.com/jettjia/XiaoQinglong/runner/pkg/xqldir"
+	"github.com/sirupsen/logrus"
 )
 
 var (

@@ -3,31 +3,31 @@ package subagent
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
+	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 )
 
 // TaskInfo 任务信息
 type TaskInfo struct {
-	TaskID   string
-	AgentID  string
-	Status   string // "pending", "running", "completed", "failed", "cancelled"
-	Result   *SubAgentResult
+	TaskID    string
+	AgentID   string
+	Status    string // "pending", "running", "completed", "failed", "cancelled"
+	Result    *SubAgentResult
 	StartedAt time.Time
 }
 
 // SubAgentManager Sub-Agent 管理器
 type SubAgentManager struct {
-	configs    map[string]*SubAgentConfig // id -> config
-	agents     map[string]*SubAgent      // id -> running agent
+	configs      map[string]*SubAgentConfig // id -> config
+	agents       map[string]*SubAgent       // id -> running agent
 	defaultModel model.ToolCallingChatModel
-	tools      map[string]interface{}     // name -> tool
-	mu         sync.RWMutex
+	tools        map[string]interface{} // name -> tool
+	mu           sync.RWMutex
 	// 异步任务追踪
-	tasks      map[string]*TaskInfo  // taskID -> task info
+	tasks       map[string]*TaskInfo // taskID -> task info
 	taskCounter int64
 	taskMu      sync.RWMutex
 }
@@ -59,10 +59,10 @@ func (m *SubAgentManager) RegisterConfigs(configs []SubAgentConfig) {
 	for i := range configs {
 		cfg := &configs[i]
 		m.configs[cfg.ID] = cfg
-		log.Printf("[SubAgentManager] Registered sub-agent: %s (%s)", cfg.ID, cfg.Name)
+		logger.GetRunnerLogger().Printf("[SubAgentManager] Registered sub-agent: %s (%s)", cfg.ID, cfg.Name)
 	}
 
-	log.Printf("[SubAgentManager] Total registered: %d sub-agents", len(m.configs))
+	logger.GetRunnerLogger().Printf("[SubAgentManager] Total registered: %d sub-agents", len(m.configs))
 }
 
 // RegisterTool 注册工具到管理器
@@ -243,10 +243,10 @@ func (m *SubAgentManager) Spawn(ctx context.Context, agentID string, task string
 	// 后台执行
 	taskInfo.Status = "running"
 	go func() {
-		log.Printf("[SubAgentManager] Task %s started for agent %s", taskID, agentID)
+		logger.GetRunnerLogger().Printf("[SubAgentManager] Task %s started for agent %s", taskID, agentID)
 		err := agent.Run(context.Background(), task)
 		if err != nil {
-			log.Printf("[SubAgentManager] Task %s failed: %v", taskID, err)
+			logger.GetRunnerLogger().Printf("[SubAgentManager] Task %s failed: %v", taskID, err)
 			taskInfo.Status = "failed"
 		} else {
 			result := agent.GetResult()
@@ -256,7 +256,7 @@ func (m *SubAgentManager) Spawn(ctx context.Context, agentID string, task string
 				taskInfo.Status = "completed"
 			}
 			taskInfo.Result = result
-			log.Printf("[SubAgentManager] Task %s completed, output length: %d", taskID, len(result.Output))
+			logger.GetRunnerLogger().Printf("[SubAgentManager] Task %s completed, output length: %d", taskID, len(result.Output))
 		}
 	}()
 

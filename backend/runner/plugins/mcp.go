@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
+	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 )
 
 // ========== MCP Tool Loader ==========
@@ -35,7 +35,7 @@ func NewMCPToolLoader(sseURL string, headers map[string]string) *MCPToolLoader {
 
 // LoadTools loads MCP tools from the configured SSE endpoint
 func (l *MCPToolLoader) LoadTools(ctx context.Context) ([]tool.BaseTool, error) {
-	log.Printf("[MCP] Loading tools from SSE: %s", l.sseURL)
+	logger.GetRunnerLogger().Printf("[MCP] Loading tools from SSE: %s", l.sseURL)
 
 	if l.sseURL == "" {
 		return nil, nil
@@ -44,7 +44,7 @@ func (l *MCPToolLoader) LoadTools(ctx context.Context) ([]tool.BaseTool, error) 
 	// Try to get tools via SSE connection
 	tools, err := l.loadToolsFromSSE(ctx)
 	if err != nil {
-		log.Printf("[MCP] SSE tool loading failed: %v, trying HTTP...", err)
+		logger.GetRunnerLogger().Printf("[MCP] SSE tool loading failed: %v, trying HTTP...", err)
 		// Fallback to HTTP if SSE fails
 		tools, err = l.loadToolsFromHTTP(ctx)
 		if err != nil {
@@ -52,7 +52,7 @@ func (l *MCPToolLoader) LoadTools(ctx context.Context) ([]tool.BaseTool, error) 
 		}
 	}
 
-	log.Printf("[MCP] Loaded %d tools", len(tools))
+	logger.GetRunnerLogger().Printf("[MCP] Loaded %d tools", len(tools))
 	return tools, nil
 }
 
@@ -270,7 +270,7 @@ func (t *mcpTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 }
 
 func (t *mcpTool) InvokableRun(ctx context.Context, argumentsInJSON string, opt ...tool.Option) (string, error) {
-	log.Printf("[MCP] Calling tool: %s, args: %s", t.name, argumentsInJSON)
+	logger.GetRunnerLogger().Printf("[MCP] Calling tool: %s, args: %s", t.name, argumentsInJSON)
 
 	// Build request to MCP server
 	reqBody := map[string]any{

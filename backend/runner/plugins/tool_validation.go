@@ -4,19 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
+	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 )
 
 // ========== Validation Types ==========
 
 // ToolValidationResult 验证结果
 type ToolValidationResult struct {
-	Valid   bool
-	Message string // 验证失败时的错误信息
-	ErrorCode int   // 错误码，0 表示无错误
+	Valid     bool
+	Message   string // 验证失败时的错误信息
+	ErrorCode int    // 错误码，0 表示无错误
 }
 
 // NewSuccessValidation 创建一个成功的验证结果
@@ -33,8 +33,8 @@ func NewFailedValidation(message string, errorCode int) *ToolValidationResult {
 
 // PermissionDecision 权限决定
 type PermissionDecision struct {
-	Allowed  bool
-	Message  string // 拒绝原因
+	Allowed     bool
+	Message     string                 // 拒绝原因
 	Suggestions []PermissionSuggestion // 建议
 }
 
@@ -48,8 +48,8 @@ type PermissionSuggestion struct {
 
 // PermissionRule 权限规则
 type PermissionRule struct {
-	ToolName     string
-	RuleContent  string
+	ToolName    string
+	RuleContent string
 }
 
 // ========== Tool Context Modifier ==========
@@ -60,10 +60,10 @@ type ToolContextModifier func(ctx *ToolExecutionContext) *ToolExecutionContext
 
 // ToolExecutionContext 工具执行上下文
 type ToolExecutionContext struct {
-	AllowedTools  []string            // 临时添加的允许工具列表
-	ModelOverride string             // 模型覆盖
-	EffortLevel   string             // effort 级别
-	Variables     map[string]string   // 额外变量
+	AllowedTools  []string          // 临时添加的允许工具列表
+	ModelOverride string            // 模型覆盖
+	EffortLevel   string            // effort 级别
+	Variables     map[string]string // 额外变量
 }
 
 // NewToolExecutionContext 创建一个新的工具执行上下文
@@ -80,10 +80,10 @@ func (c *ToolExecutionContext) Merge(other *ToolExecutionContext) *ToolExecution
 		return c
 	}
 	result := &ToolExecutionContext{
-		AllowedTools: make([]string, len(c.AllowedTools)+len(other.AllowedTools)),
+		AllowedTools:  make([]string, len(c.AllowedTools)+len(other.AllowedTools)),
 		ModelOverride: other.ModelOverride,
-		EffortLevel: other.EffortLevel,
-		Variables: make(map[string]string),
+		EffortLevel:   other.EffortLevel,
+		Variables:     make(map[string]string),
 	}
 	// 合并 AllowedTools
 	copy(result.AllowedTools, c.AllowedTools)
@@ -189,26 +189,26 @@ func (t *ValidatableTool) CheckPermissions(ctx context.Context, argumentsInJSON 
 
 // InvokableRun 执行验证和权限检查，然后执行工具
 func (t *ValidatableTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts ...tool.Option) (string, error) {
-	log.Printf("[ValidatableTool] Validating input for tool invocation")
+	logger.GetRunnerLogger().Printf("[ValidatableTool] Validating input for tool invocation")
 
 	// 1. 验证输入
 	result := t.validator.ValidateInput(ctx, argumentsInJSON)
 	if !result.Valid {
-		log.Printf("[ValidatableTool] >>> VALIDATION FAILED: %s (code: %d)", result.Message, result.ErrorCode)
+		logger.GetRunnerLogger().Printf("[ValidatableTool] >>> VALIDATION FAILED: %s (code: %d)", result.Message, result.ErrorCode)
 		return "", fmt.Errorf("input validation failed: %s (code: %d)", result.Message, result.ErrorCode)
 	}
-	log.Printf("[ValidatableTool] >>> Input validated successfully")
+	logger.GetRunnerLogger().Printf("[ValidatableTool] >>> Input validated successfully")
 
 	// 2. 检查权限
 	decision := t.permissions.CheckPermissions(ctx, argumentsInJSON)
 	if !decision.Allowed {
-		log.Printf("[ValidatableTool] >>> PERMISSION DENIED: %s", decision.Message)
+		logger.GetRunnerLogger().Printf("[ValidatableTool] >>> PERMISSION DENIED: %s", decision.Message)
 		return "", fmt.Errorf("permission denied: %s", decision.Message)
 	}
-	log.Printf("[ValidatableTool] >>> Permission granted")
+	logger.GetRunnerLogger().Printf("[ValidatableTool] >>> Permission granted")
 
 	// 3. 执行工具
-	log.Printf("[ValidatableTool] Executing tool...")
+	logger.GetRunnerLogger().Printf("[ValidatableTool] Executing tool...")
 	return t.InvokableTool.InvokableRun(ctx, argumentsInJSON, opts...)
 }
 
@@ -246,13 +246,13 @@ func (t *DeferredTool) Load() (tool.BaseTool, error) {
 	if t.loadedTool != nil {
 		return t.loadedTool, nil
 	}
-	log.Printf("[DeferredTool] >>> LAZY LOADING tool: %s (first time use)", t.name)
+	logger.GetRunnerLogger().Printf("[DeferredTool] >>> LAZY LOADING tool: %s (first time use)", t.name)
 	loaded, err := t.loader()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load tool %s: %w", t.name, err)
 	}
 	t.loadedTool = loaded
-	log.Printf("[DeferredTool] >>> Tool %s loaded successfully", t.name)
+	logger.GetRunnerLogger().Infof("[DeferredTool] >>> Tool %s loaded successfully", t.name)
 	return t.loadedTool, nil
 }
 
