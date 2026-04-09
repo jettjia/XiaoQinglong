@@ -3,40 +3,99 @@
 小青龙 Agent OS 是一款企业级智能体运行框架，支持多渠道接入（Web/飞书/钉钉/微信）、多模型智能路由（default/rewrite/skill/summarize）、可视化编排（Reasoning → Tools → Approval → 响应生成）、多协议（HTTP/gRPC/MCP）、技能中心（MCP/TOOL/SKILL/A2A）、外接知识库、Docker 沙箱安全执行，以及多格式响应（text/markdown/json/a2ui/多媒体）、sub-agent等特性。理论上可以完成任意场景的需求。
 
 ## Overall Architecture
-```
-flowchart TD
-    User["用户层<br/>Web / 客户端 / 飞书 / 钉钉 / 微信 / API"]
 
-    subgraph AgentFrame["Agent Framework"]
-        API["API 接入层<br/>HTTP / gRPC / MCP / WebSocket"]
-        Gateway["Gateway 层<br/>鉴权 • 限流 • 路由 • 标准化"]
-        Core["核心服务层<br/>会话 / 技能 / 插件 / 编排 / Agent / 工具 / 知识库 / A2A"]
-        Infra["基础设施层<br/>数据库 • 缓存 • 日志 • 配置"]
+```mermaid
+flowchart TB
+    subgraph user["用户层"]
+        U[Web / 客户端 / 飞书 / 钉钉 / 微信 / API]
     end
 
-    subgraph Runner["runner（eino）"]
-        Route["多模型路由"]
-        LLM["LLM 调用"]
-        Ext["能力扩展<br/>Skills / MCP / Tools / A2A"]
-        Sandbox["沙箱执行"]
-        Output["响应输出"]
+    subgraph frame["agent-frame"]
+        subgraph api["API 接入层"]
+            HTTP[HTTP Handler]
+            gRPC[gRPC Handler]
+            MCP_H[MCP Handler]
+            WS[WebSocket]
+        end
+
+        subgraph gateway["Gateway 层"]
+            AUTH[验签/鉴权]
+            RATELIMIT[限流控制]
+            MSG[消息标准化]
+            ROUTE[Agent 路由]
+        end
+
+        subgraph core["核心服务层"]
+            SESSION[会话中心<br/>Session Mgr]
+            SKILL_C[技能中心<br/>Skill Mgr]
+            PLUGIN[插件中心<br/>Plugin Eng]
+            ORCH[编排中心<br/>Orchestrator]
+            AGENT[Agent 服务]
+            TOOL[工具服务]
+            KB[知识库服务]
+            A2A_S[A2A 服务]
+        end
+
+        subgraph infra["基础设施层"]
+            DB[数据库]
+            CACHE[缓存]
+            LOG[日志]
+            CONF[配置]
+        end
     end
 
-    Resp["响应返回 → 渠道发送器 → 用户"]
+    subgraph runner["runner（eino）"]
+        subgraph exec["执行层"]
+            subgraph router["多模型路由"]
+                DEF[Default]
+                REW[Rewrite]
+                SK[Skill]
+                SUM[Summarize]
+            end
 
-    %% 流程链路
-    User --> API
-    API --> Gateway
-    Gateway --> Core
-    Core --> Infra
-    Infra --> Runner
-    Runner --> Resp
+            subgraph llm["LLM 调用"]
+                OPENAI[OpenAI]
+                ANTHROPIC[Anthropic]
+                AZURE[Azure]
+                GOOGLE[Google]
+            end
 
-    %% Runner 内部
-    Route --> LLM
-    LLM --> Ext
-    Ext --> Sandbox
-    Sandbox --> Output
+            subgraph ext["能力扩展"]
+                SKILLS[Skills]
+                MCP[MCPS]
+                TOOLS[Tools]
+                A2A_EXT[A2A]
+            end
+
+            subgraph sandbox["沙箱执行"]
+                DOCKER[Docker / WebAssembly / HTTP]
+            end
+
+            subgraph output["响应输出"]
+                A2UI[A2UI]
+                MD[Markdown]
+                JSON[JSON]
+                MEDIA[Media]
+            end
+        end
+    end
+
+    subgraph response["响应返回"]
+        SENDER[渠道发送器 → 用户]
+    end
+
+    user --> frame
+    api --> gateway
+    gateway --> core
+    core --> infra
+    frame --> runner
+
+    router --> llm
+    llm --> ext
+    ext --> sandbox
+    sandbox --> output
+
+    runner --> response
 ```
 
 ## Runner 特性

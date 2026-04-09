@@ -169,3 +169,35 @@ func BuildSimplePrompt(customPrompt string) string {
 
 	return builder.BuildWithCustomPrompt(customPrompt)
 }
+
+// BuildStaticPrompt builds only the static sections (Intro, System, DoingTasks, Actions, UsingYourTools, OutputEfficiency, ToneAndStyle)
+// These can be cached per agent + tools combination
+func BuildStaticPrompt(enabledTools []string) string {
+	builder := NewPromptBuilder()
+
+	builder.AddStaticSection(IntroSection, GetIntroSection())
+	builder.AddStaticSection(SystemSection, GetSystemSection())
+	builder.AddStaticSection(DoingTasksSection, GetDoingTasksSection())
+	builder.AddStaticSection(ActionsSection, GetActionsSection())
+	builder.AddStaticSection(UsingYourToolsSection, GetUsingYourToolsSection(enabledTools))
+	builder.AddStaticSection(OutputEfficiencySection, GetOutputEfficiencySection())
+	builder.AddStaticSection(ToneAndStyleSection, GetToneAndStyleSection())
+
+	return builder.Build()
+}
+
+// BuildDynamicPrompt builds only the dynamic sections (Skills, MCPs, Context, Files, A2A, InternalAgents, ResponseSchema)
+// These are always recalculated per request
+func BuildDynamicPrompt(req *types.RunRequest) string {
+	builder := NewPromptBuilder()
+
+	builder.AddDynamicSection(SkillsSection, GetSkillsSection(req.Skills))
+	builder.AddDynamicSection(McpSection, GetMcpSection(req.MCPs))
+	builder.AddDynamicSection(ContextSection, GetContextSection(req.Context))
+	builder.AddDynamicSection(FilesSection, GetFilesSection(req.Files))
+	builder.AddDynamicSection(A2AAgentsSection, GetA2AAgentsSection(req.A2A))
+	builder.AddDynamicSection(InternalAgentsSection, GetInternalAgentsSection(req.InternalAgents))
+	builder.AddDynamicSection(ResponseSchemaSection, GetResponseSchemaSection(req.Options.ResponseSchema))
+
+	return builder.Build()
+}

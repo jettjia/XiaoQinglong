@@ -53,6 +53,8 @@ var (
 	checkpointMu     sync.RWMutex
 	runners          = make(map[string]*adkRunner)
 	runnersMu        sync.RWMutex
+	// Prompt cache for static sections
+	promptCache = prompt.NewPromptCache()
 )
 
 type adkRunner struct {
@@ -349,12 +351,16 @@ type Dispatcher struct {
 
 	// Deep Agent（当配置了 sub_agents 时使用）
 	deepAgent adk.ResumableAgent
+
+	// Prompt cache
+	promptCache *prompt.PromptCache
 }
 
 func NewDispatcher(req *types.RunRequest) *Dispatcher {
 	d := &Dispatcher{
 		request:     req,
 		toolConfigs: make(map[string]types.ToolConfig),
+		promptCache: promptCache,
 	}
 	// 初始化压缩通道
 	d.compactChan = make(chan CompactionRequest, 1)
@@ -641,16 +647,60 @@ func (d *Dispatcher) buildSystemPrompt() string {
 		}
 	}
 
-	// 使用结构化 Prompt 构建器
-	basePrompt := prompt.BuildDefaultPrompt(d.request, enabledTools)
+	// 计算工具列表的 hash
+	toolsHash := d.computeToolsHash(enabledTools)
 
-	// 尝试加载记忆 section（从 Context 中获取 memory service）
+	// 获取 agent_id 作为缓存 key
+	agentID := ""
+	if v, ok := d.request.Context["agent_id"].(string); ok {
+		agentID = v
+	}
+
+	// 尝试使用缓存的静态 sections
+	var staticSections string
+	if agentID != "" {
+		if cached, _, ok := d.promptCache.Get(agentID); ok && !d.promptCache.ShouldRefresh(agentID, toolsHash) {
+			logger.Infof("[PromptCache] Cache hit for agent: %s", agentID)
+			staticSections = cached
+		} else {
+			logger.Infof("[PromptCache] Cache miss for agent: %s", agentID)
+			staticSections = prompt.BuildStaticPrompt(enabledTools)
+			d.promptCache.Set(agentID, staticSections, toolsHash)
+		}
+	} else {
+		// 没有 agent_id，无法缓存
+		staticSections = prompt.BuildStaticPrompt(enabledTools)
+	}
+
+	// 构建动态 sections（每次请求都要重新计算）
+	dynamicSections := prompt.BuildDynamicPrompt(d.request)
+
+	// 拼接: customPrompt + static + dynamic
+	var parts []string
+	if d.request.Prompt != "" {
+		parts = append(parts, d.request.Prompt)
+	}
+	parts = append(parts, staticSections)
+	parts = append(parts, dynamicSections)
+
+	basePrompt := strings.Join(parts, "\n\n")
+
+	// 尝试加载记忆 section
 	memorySection := d.loadMemorySection()
 	if memorySection != "" {
 		return basePrompt + "\n\n" + memorySection
 	}
 
 	return basePrompt
+}
+
+// computeToolsHash computes a hash of the enabled tools list
+func (d *Dispatcher) computeToolsHash(enabledTools []string) string {
+	if len(enabledTools) == 0 {
+		return ""
+	}
+	// Simple hash using strings.Join - for cache invalidation purposes only
+	return strings.Join(enabledTools, ",")
 }
 
 // loadMemorySection 从 Context 中获取 memory service 并加载记忆 section
