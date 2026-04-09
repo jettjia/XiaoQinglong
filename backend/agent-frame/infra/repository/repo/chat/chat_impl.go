@@ -37,7 +37,7 @@ func (r *ChatSession) Create(ctx context.Context, session *entity.ChatSession) (
 }
 
 func (r *ChatSession) Delete(ctx context.Context, ulid string) error {
-	return r.data.DB(ctx).Model(&po.ChatSession{}).Unscoped().Where("ulid = ?", ulid).Updates(map[string]interface{}{
+	return r.data.DB(ctx).Unscoped().Model(&po.ChatSession{}).Where("ulid = ?", ulid).Updates(map[string]interface{}{
 		"deleted_at": time.Now().UnixMilli(),
 	}).Error
 }
@@ -252,7 +252,7 @@ func (r *ChatMessage) FindBySessionId(ctx context.Context, sessionId string) ([]
 
 // DeleteBySessionId 删除会话的所有消息（软删除）
 func (r *ChatMessage) DeleteBySessionId(ctx context.Context, sessionId string) error {
-	return r.data.DB(ctx).Model(&po.ChatMessage{}).Unscoped().Where("session_id = ?", sessionId).Updates(map[string]interface{}{
+	return r.data.DB(ctx).Unscoped().Unscoped().Model(&po.ChatMessage{}).Where("session_id = ?", sessionId).Updates(map[string]interface{}{
 		"deleted_at": time.Now().UnixMilli(),
 	}).Error
 }
