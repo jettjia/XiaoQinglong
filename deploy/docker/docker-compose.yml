@@ -29,6 +29,7 @@ services:
       - "9292:9292"
     environment:
       env: docker
+      RUNNER_ENDPOINT: http://runner:18080/run
     volumes:
       - ../../backend/agent-frame/manifest:/app/manifest
     depends_on:

@@ -3,6 +3,7 @@ package boot
 import (
 	"context"
 	"log"
+	"os"
 
 	dtoAgent "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/agent"
 	dtoModel "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/model"
@@ -16,6 +17,14 @@ type defaultModelConfig struct {
 	name     string
 	apiKey   string
 	baseURL  string
+}
+
+// getRunnerEndpoint 获取 runner endpoint，支持环境变量配置
+func getRunnerEndpoint() string {
+	if endpoint := os.Getenv("RUNNER_ENDPOINT"); endpoint != "" {
+		return endpoint
+	}
+	return "http://localhost:18080/run"
 }
 
 // getDefaultModelConfig 从 sys_model 表获取默认模型配置
@@ -87,7 +96,7 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 			icon:        "Languages",
 			model:       "default",
 			configJson: `{
-				"endpoint": "http://localhost:18080/run",
+				"endpoint": "` + getRunnerEndpoint() + `",
 				"models": ` + modelJSON + `,
 				"system_prompt": "你是一个专业的翻译助手。用户输入一段文字，你将其翻译成目标语言。请保持原文风格和语气。如果用户没有指定目标语言，如果是输入的是中文，就翻译成英文。如果输入的是英文，就翻译成中文。其他语言请翻译成英文。",
 				"options": {
@@ -117,7 +126,7 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 			icon:        "FileSearch",
 			model:       "default",
 			configJson: `{
-				"endpoint": "http://localhost:18080/run",
+				"endpoint": "` + getRunnerEndpoint() + `",
 				"models": ` + modelJSON + `,
 				"system_prompt": "你是一个专业的文档问答助手。根据用户提供的文档内容，准确回答用户的问题。如果文档中没有相关信息，请明确告知。",
 				"options": {
@@ -152,7 +161,7 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 			icon:        "ChartBar",
 			model:       "default",
 			configJson: `{
-				"endpoint": "http://localhost:18080/run",
+				"endpoint": "` + getRunnerEndpoint() + `",
 				"models": ` + modelJSON + `,
 				"system_prompt": "你是一个数据分析专家。当用户上传 CSV/Excel 文件并要求分析时，请按以下步骤执行：\n\nStep 0: 首先使用 parse_file 工具读取上传的 CSV/Excel 文件，获取文件内容\nStep 1: 使用 csv-data-analysis skill 分析数据文件，执行 csv_analyzer.py 获取统计摘要和图表数据\nStep 2: 根据分析结果生成业务洞察，并返回完整的 HTML 报告\n\n报告应包含：数据概览、分布分析、相关性分析、异常检测、结论与建议。",
 				"skills": [
@@ -206,7 +215,7 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 			icon:        "Presentation",
 			model:       "default",
 			configJson: `{
-				"endpoint": "http://localhost:18080/run",
+				"endpoint": "` + getRunnerEndpoint() + `",
 				"models": ` + modelJSON + `,
 				"system_prompt": "你是一个专业的 PPT 制作专家。当用户要求生成 PPT 时，请按以下步骤执行：\n\nStep 0: 首先使用 parse_file 工具读取上传的文件内容（如果有）\nStep 1: 理解用户需求，规划 PPT 结构（封面页、内容页、总结页等）\nStep 2: 使用 pptx skill 生成 PPT，按照 SKILL.md 中的指引调用工具执行脚本\nStep 3: 生成的 PPT 文件会自动保存到报告目录，返回文件路径给用户\n\nPPT 要求：\n- 封面页：标题、副标题\n- 内容页：根据主题设计 3-10 页内容\n- 总结页：核心要点回顾\n- 每页需要有视觉元素（图表、图标等），不要纯文字堆砌\n- 使用专业的配色方案",
 				"skills": [
