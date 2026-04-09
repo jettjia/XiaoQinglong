@@ -32,7 +32,7 @@ services:
     volumes:
       - ../../backend/agent-frame/manifest:/app/manifest
     depends_on:
-      postgres
+      - postgres
 
   # Runner Service
   runner:
@@ -46,10 +46,8 @@ services:
     volumes:
       - ../../backend/runner/dev-skills-config.yaml:/app/skills-config.yaml:ro
     depends_on:
-      postgres:
-        condition: service_healthy
-      agent-frame:
-        condition: service_healthy
+      - postgres
+      - agent-frame
 
   # Agent UI Frontend
   agent-ui:
