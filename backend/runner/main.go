@@ -28,6 +28,7 @@ func main() {
 	xqldir.Init()
 
 	http.HandleFunc("/run", handleRun)
+	http.HandleFunc("/agent", handleAgent)
 	http.HandleFunc("/resume", handleResume)
 	http.HandleFunc("/stop", handleStop)
 	log.Println("Runner server starting on :18080")
@@ -110,6 +111,160 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// handleAgent 处理 Agent 自主执行请求（LLM 自动规划使用哪些 tools/skills）
+func handleAgent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req types.AgentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if req.Task == "" {
+		http.Error(w, "task is required", http.StatusBadRequest)
+		return
+	}
+
+	logger.Infof("[Agent] Received task: %s", req.Task)
+
+	// 构建 RunRequest（使用内置的默认配置）
+	// 从环境变量或使用默认值
+	defaultModel := os.Getenv("DEFAULT_MODEL")
+	defaultAPIKey := os.Getenv("DEFAULT_API_KEY")
+	defaultAPIBase := os.Getenv("DEFAULT_API_BASE")
+
+	models := make(map[string]types.ModelConfig)
+	if defaultModel != "" {
+		models["default"] = types.ModelConfig{
+			Name:   defaultModel,
+			APIKey: defaultAPIKey,
+			APIBase: defaultAPIBase,
+		}
+	} else {
+		// 如果没有配置默认模型，返回错误
+		http.Error(w, "no model configured: set DEFAULT_MODEL env or provide models in request", http.StatusBadRequest)
+		return
+	}
+
+	// 构建 RunRequest
+	runReq := &types.RunRequest{
+		Prompt:   req.Task,
+		Models:   models,
+		Messages: []types.Message{},
+		Context:  req.Context,
+		Options:  &types.RunOptions{},
+	}
+
+	// 展开环境变量
+	expandEnvInRequest(runReq)
+
+	// 检查是否流式输出
+	if req.Stream {
+		handleAgentStream(w, r, runReq)
+		return
+	}
+
+	// 执行
+	runner := NewRunner(runReq)
+	resp, err := runner.Run(r.Context())
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Agent run failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// 返回 AgentResponse
+	agentResp := types.AgentResponse{
+		Content:      resp.Content,
+		ToolCalls:    resp.ToolCalls,
+		TokensUsed:   resp.TokensUsed,
+		FinishReason: resp.FinishReason,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(agentResp)
+}
+
+// handleAgentStream 处理 Agent 流式输出
+func handleAgentStream(w http.ResponseWriter, r *http.Request, req *types.RunRequest) {
+	sw := newSSEWriter(w)
+	write := sw.Write
+
+	// 设置 SSE 头
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	sw.flusher.Flush()
+
+	// 设置 checkpoint_id
+	if req.Options == nil {
+		req.Options = &types.RunOptions{}
+	}
+	if req.Options.CheckPointID == "" {
+		req.Options.CheckPointID = fmt.Sprintf("agent-%d", time.Now().UnixNano())
+	}
+	checkpointID := req.Options.CheckPointID
+
+	startedAt := time.Now()
+	_ = write("meta", map[string]any{
+		"started_at":      startedAt.Format(time.RFC3339Nano),
+		"stream_protocol": "sse",
+		"checkpoint_id":   checkpointID,
+	})
+
+	// 创建可取消的上下文
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+
+	runner := NewRunner(req)
+	eventsChan, err := runner.RunStream(ctx)
+	if err != nil {
+		_ = write("error", map[string]any{"error": fmt.Sprintf("run stream failed: %v", err)})
+		return
+	}
+
+	var out strings.Builder
+
+	for event := range eventsChan {
+		switch event.Type {
+		case "delta":
+			if text, ok := event.Data["text"].(string); ok {
+				out.WriteString(text)
+			}
+			_ = write("delta", event.Data)
+		case "tool_call":
+			_ = write("tool_call", event.Data)
+		case "tool":
+			_ = write("tool", event.Data)
+		case "interrupted":
+			_ = write("interrupted", event.Data)
+		case "error":
+			_ = write("error", event.Data)
+		case "done":
+			data := map[string]any{
+				"content":     out.String(),
+				"finished_at": time.Now().Format(time.RFC3339Nano),
+			}
+			if v, ok := event.Data["prompt_tokens"].(int); ok {
+				data["prompt_tokens"] = v
+			}
+			if v, ok := event.Data["completion_tokens"].(int); ok {
+				data["completion_tokens"] = v
+			}
+			if v, ok := event.Data["total_tokens"].(int); ok {
+				data["total_tokens"] = v
+			}
+			_ = write("done", data)
+		}
+	}
 }
 
 // sseWriter SSE写入器

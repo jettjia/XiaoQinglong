@@ -340,3 +340,21 @@ type RunResponse struct {
 	CheckPointID     string            `json:"checkpoint_id,omitempty"`
 	Memories         []MemoryEntry     `json:"memories,omitempty"` // 提取的记忆，供 agent-frame 保存
 }
+
+// AgentRequest Agent 自主执行请求（用于 runner 直接接收自然语言任务）
+type AgentRequest struct {
+	Task     string            `json:"task"`               // 自然语言任务描述
+	Context  map[string]any    `json:"context,omitempty"`   // 上下文信息（user_id, session_id 等）
+	Models   map[string]ModelConfig `json:"models,omitempty"` // 模型配置（可选，使用内置默认配置）
+	Stream   bool              `json:"stream,omitempty"`    // 是否流式输出
+}
+
+// AgentResponse Agent 自主执行响应
+type AgentResponse struct {
+	Content      string            `json:"content,omitempty"`
+	ToolCalls    []ToolCall       `json:"tool_calls,omitempty"`
+	TokensUsed   int              `json:"tokens_used,omitempty"`
+	FinishReason string           `json:"finish_reason"`
+	Metadata     ResponseMetadata `json:"metadata"`
+	Error        string           `json:"error,omitempty"`
+}

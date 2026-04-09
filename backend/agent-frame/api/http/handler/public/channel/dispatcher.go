@@ -17,6 +17,7 @@ import (
 	chatDto "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/chat"
 	agentSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/agent"
 	chatSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/chat"
+	modelSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/model"
 	channelDto "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/channel"
 	channelSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/channel"
 	memorySvc "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/memory"
@@ -81,6 +82,7 @@ type ChannelDispatcher struct {
 	chatSvc          *chatSvc.ChatMessageService
 	channelSvc       *channelSvc.SysChannelService
 	memorySvc        *memorySvc.AgentMemorySvc
+	modelSvc         *modelSvc.SysModelService
 }
 
 // 全局调度器实例（供 boot 包使用）
@@ -133,6 +135,7 @@ func NewChannelDispatcher() *ChannelDispatcher {
 		chatSvc:          chatSvc.NewChatMessageService(),
 		channelSvc:       channelSvc.NewSysChannelService(),
 		memorySvc:        memorySvc.NewAgentMemorySvc(),
+		modelSvc:         modelSvc.NewSysModelService(),
 	}
 	globalDispatcher = dispatcher
 	return dispatcher
@@ -560,10 +563,9 @@ func (d *ChannelDispatcher) HandleFeishuWSMessage(ctx *MessageContext) error {
 		// 2. LLM 路由选择 Agent
 		agent, err := d.routeAgentForChannel(ctx.Content, "feishu")
 		if err != nil {
-			log.Warnf("[Dispatcher] Failed to route agent: %v", err)
-			// 发送错误消息
-			d.sendFeishuWSText(ctx, "抱歉，暂时没有可用的 Agent 处理您的请求。")
-			return err
+			log.Warnf("[Dispatcher] Failed to route agent: %v, falling back to /agent endpoint", err)
+			// Fallback: 使用 /agent 端点，让 LLM 自主规划
+			return d.runAndRespondAgentEndpoint(ctx, "feishu", session.Ulid)
 		}
 		agentId = agent.Ulid
 
@@ -636,15 +638,9 @@ func (d *ChannelDispatcher) routeAgentForChannel(content, channel string) (*agen
 		agentMap[agent.Name] = agent.Ulid
 	}
 
-	// 简单的 LLM 调用（这里使用第一个，实际应该调用 LLM）
 	// TODO: 实现真正的 LLM 路由
-	selectedName := agentNames[0]
-	log.Warnf("[Dispatcher] LLM routing not implemented, defaulting to first agent: %s", selectedName)
-
-	return &agentDto.FindSysAgentRsp{
-		Ulid: agentMap[selectedName],
-		Name: selectedName,
-	}, nil
+	// 目前 LLM routing 未实现，返回错误让调用方 fallback 到 /agent 端点
+	return nil, errors.New("LLM routing not implemented, use /agent endpoint for autonomous planning")
 }
 
 // runAndRespondWS 非 HTTP context 下调用 runner 并发送响应
@@ -965,10 +961,9 @@ func (d *ChannelDispatcher) HandleDingTalkWSMessage(ctx *MessageContext) error {
 		// 2. LLM 路由选择 Agent
 		agent, err := d.routeAgentForChannel(ctx.Content, "dingtalk")
 		if err != nil {
-			log.Warnf("[Dispatcher] Failed to route agent: %v", err)
-			// 发送错误消息
-			d.sendDingTalkWSText(ctx, "抱歉，暂时没有可用的 Agent 处理您的请求。")
-			return err
+			log.Warnf("[Dispatcher] Failed to route agent: %v, falling back to /agent endpoint", err)
+			// Fallback: 使用 /agent 端点，让 LLM 自主规划
+			return d.runAndRespondAgentEndpoint(ctx, "dingtalk", session.Ulid)
 		}
 		agentId = agent.Ulid
 
@@ -1251,10 +1246,9 @@ func (d *ChannelDispatcher) HandleWeWorkWSMessage(ctx *MessageContext) error {
 		// 2. LLM 路由选择 Agent
 		agent, err := d.routeAgentForChannel(ctx.Content, "wework")
 		if err != nil {
-			log.Warnf("[Dispatcher] Failed to route agent: %v", err)
-			// 发送错误消息
-			d.sendWeWorkWSText(ctx, "抱歉，暂时没有可用的 Agent 处理您的请求。")
-			return err
+			log.Warnf("[Dispatcher] Failed to route agent: %v, falling back to /agent endpoint", err)
+			// Fallback: 使用 /agent 端点，让 LLM 自主规划
+			return d.runAndRespondAgentEndpoint(ctx, "wework", session.Ulid)
 		}
 		agentId = agent.Ulid
 
@@ -1537,10 +1531,9 @@ func (d *ChannelDispatcher) HandleWeixinWSMessage(ctx *MessageContext) error {
 		// 2. LLM 路由选择 Agent
 		agent, err := d.routeAgentForChannel(ctx.Content, "weixin")
 		if err != nil {
-			log.Warnf("[Dispatcher] Failed to route agent: %v", err)
-			// 发送错误消息
-			d.sendWeixinWSText(ctx, "抱歉，暂时没有可用的 Agent 处理您的请求。")
-			return err
+			log.Warnf("[Dispatcher] Failed to route agent: %v, falling back to /agent endpoint", err)
+			// Fallback: 使用 /agent 端点，让 LLM 自主规划
+			return d.runAndRespondAgentEndpoint(ctx, "weixin", session.Ulid)
 		}
 		agentId = agent.Ulid
 
@@ -1820,6 +1813,137 @@ func (d *ChannelDispatcher) sendFeishuWSText(ctx *MessageContext, text string) e
 
 	log.Infof("[Dispatcher] Sent Feishu WS text to sessionID=%s, length=%d", ctx.SessionID, len(text))
 	return nil
+}
+
+// runAndRespondAgentEndpoint 调用 runner /agent 端点（LLM 自主规划）
+func (d *ChannelDispatcher) runAndRespondAgentEndpoint(ctx *MessageContext, channel string, sessionId string) error {
+	log := logger.GetRunnerLogger()
+	log.Infof("[Dispatcher] Using /agent endpoint for autonomous planning, channel=%s", channel)
+
+	// 获取默认模型配置
+	var models map[string]any
+	defaultModel, err := d.modelSvc.FindDefaultModel(context.Background())
+	if err != nil || defaultModel == nil {
+		log.Warnf("[Dispatcher] No default model found in database, trying environment variables")
+		// Fallback: 使用环境变量
+		if defaultModelName := os.Getenv("DEFAULT_MODEL"); defaultModelName != "" {
+			models = map[string]any{
+				"default": map[string]any{
+					"name":   defaultModelName,
+					"api_key": os.Getenv("DEFAULT_API_KEY"),
+					"api_base": os.Getenv("DEFAULT_API_BASE"),
+				},
+			}
+		} else {
+			log.Warnf("[Dispatcher] No default model configured")
+			return errors.New("no default model configured")
+		}
+	} else {
+		// 使用数据库中的默认模型配置
+		models = map[string]any{
+			"default": map[string]any{
+				"name":   defaultModel.Name,
+				"api_key": defaultModel.ApiKey,
+				"api_base": defaultModel.BaseUrl,
+			},
+		}
+	}
+
+	// 构建 Agent 请求
+	agentReq := map[string]any{
+		"task":   ctx.Content,
+		"models": models,
+		"context": map[string]any{
+			"session_id": sessionId,
+			"user_id":    ctx.UserID,
+			"channel_id": channel,
+		},
+	}
+
+	// 序列化请求
+	runnerBody, err := json.Marshal(agentReq)
+	if err != nil {
+		log.Warnf("[Dispatcher] Failed to marshal agent request: %v", err)
+		return err
+	}
+
+	// 发送请求到 runner /agent 端点
+	agentURL := d.runnerURL + "/agent"
+	req, err := http.NewRequest("POST", agentURL, bytes.NewReader(runnerBody))
+	if err != nil {
+		log.Warnf("[Dispatcher] Failed to create /agent request: %v", err)
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.WithError(err).Error("[Dispatcher] Failed to call runner /agent")
+		return err
+	}
+	defer resp.Body.Close()
+
+	// 读取响应
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Warnf("[Dispatcher] Failed to read /agent response: %v", err)
+		return err
+	}
+
+	// 解析响应，发送文本
+	var respData map[string]any
+	if err := json.Unmarshal(respBody, &respData); err != nil {
+		log.Warnf("[Dispatcher] Failed to parse /agent response: %v", err)
+		return err
+	}
+
+	content := ""
+	if respData["content"] != nil {
+		if c, ok := respData["content"].(string); ok {
+			content = c
+		}
+	}
+
+	if content != "" {
+		// 根据渠道发送响应
+		switch channel {
+		case "feishu":
+			d.sendFeishuWSText(ctx, content)
+		case "dingtalk":
+			d.sendDingTalkWSText(ctx, content)
+		case "wework":
+			d.sendWeWorkWSText(ctx, content)
+		case "weixin":
+			d.sendWeixinWSText(ctx, content)
+		}
+	}
+
+	// 保存消息到历史记录（异步）
+	go d.saveAgentMessageToHistory(sessionId, ctx.Content, content)
+
+	return nil
+}
+
+// saveAgentMessageToHistory 保存 Agent 消息到历史记录
+func (d *ChannelDispatcher) saveAgentMessageToHistory(sessionId, userInput, assistantOutput string) {
+	ctx := context.Background()
+
+	// 保存用户消息
+	d.chatSvc.CreateChatMessage(ctx, &chatDto.CreateChatMessageReq{
+		SessionId: sessionId,
+		Role:      "user",
+		Content:   userInput,
+	})
+
+	// 保存助手消息
+	if assistantOutput != "" {
+		d.chatSvc.CreateChatMessage(ctx, &chatDto.CreateChatMessageReq{
+			SessionId: sessionId,
+			Role:      "assistant",
+			Content:   assistantOutput,
+		})
+	}
 }
 
 // FindSysChannelByCode 根据 code 查询渠道

@@ -205,3 +205,22 @@ func (s *SysModelService) FindSysModelPage(ctx context.Context, req *dtoModel.Fi
 
 	return &rsp, nil
 }
+
+// FindDefaultModel 获取默认模型配置
+func (s *SysModelService) FindDefaultModel(ctx context.Context) (*dtoModel.FindSysModelRsp, error) {
+	queries := []*builder.Query{
+		{Key: "deleted_at", Operator: builder.Operator_opEq, Value: 0},
+		{Key: "category", Operator: builder.Operator_opEq, Value: "default"},
+	}
+
+	models, err := s.sysModelSrv.FindSysModelAll(ctx, queries)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(models) == 0 {
+		return nil, nil
+	}
+
+	return s.sysModelDto.E2DFindSysModelRsp(models[0]), nil
+}
