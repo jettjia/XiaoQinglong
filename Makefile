@@ -51,15 +51,35 @@ docker-build: docker-build-frame docker-build-runner docker-build-ui
 
 docker-build-frame:
 	@echo "Building agent-frame docker image..."
-	@docker build -t $(AGENT_FRAME_IMAGE) -f $(AGENT_FRAME)/deploy/Dockerfile-ez $(AGENT_FRAME)
+	@if [ -f "$(AGENT_FRAME)/deploy/bin/go-main" ]; then \
+		echo "Using local binary (skipping go build)..."; \
+		docker build -t $(AGENT_FRAME_IMAGE) -f $(AGENT_FRAME)/deploy/Dockerfile-ez.local $(AGENT_FRAME); \
+	else \
+		docker build -t $(AGENT_FRAME_IMAGE) -f $(AGENT_FRAME)/deploy/Dockerfile-ez $(AGENT_FRAME); \
+	fi
 
 docker-build-runner:
 	@echo "Building runner docker image..."
-	@docker build -t $(RUNNER_IMAGE) -f $(RUNNER)/Dockerfile $(RUNNER)
+	@if [ -f "$(RUNNER)/bin/runner" ]; then \
+		echo "Using local binary (skipping go build)..."; \
+		mkdir -p $(RUNNER)/docker-context; \
+		cp $(RUNNER)/bin/runner $(RUNNER)/docker-context/; \
+		docker build -t $(RUNNER_IMAGE) -f $(RUNNER)/Dockerfile.local $(RUNNER)/docker-context; \
+	else \
+		docker build -t $(RUNNER_IMAGE) -f $(RUNNER)/Dockerfile $(RUNNER); \
+	fi
 
 docker-build-ui:
 	@echo "Building agent-ui docker image..."
-	@docker build -t $(AGENT_UI_IMAGE) $(AGENT_UI)
+	@if [ -d "$(AGENT_UI)/dist" ]; then \
+		echo "Using local dist (skipping npm build)..."; \
+		mkdir -p $(AGENT_UI)/docker-context; \
+		cp -r $(AGENT_UI)/dist $(AGENT_UI)/docker-context/; \
+		cp $(AGENT_UI)/nginx.conf $(AGENT_UI)/docker-context/; \
+		docker build -t $(AGENT_UI_IMAGE) -f $(AGENT_UI)/Dockerfile.local $(AGENT_UI)/docker-context; \
+	else \
+		docker build -t $(AGENT_UI_IMAGE) $(AGENT_UI); \
+	fi
 
 docker-build-all: docker-build-frame docker-build-runner docker-build-ui
 	@echo "All docker images built!"

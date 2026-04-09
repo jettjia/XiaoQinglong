@@ -1,0 +1,12 @@
+# Lightweight Dockerfile using pre-built local binary
+FROM alpine:latest
+
+WORKDIR /app
+
+RUN apk --no-cache add ca-certificates
+
+COPY runner /app/runner
+
+EXPOSE 18080
+
+ENTRYPOINT ["/app/runner"]
