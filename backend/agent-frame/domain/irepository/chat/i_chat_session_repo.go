@@ -30,6 +30,7 @@ type IChatMessageRepo interface {
 	UpdateStatus(ctx context.Context, ulid string, status string) error
 	FindById(ctx context.Context, ulid string) (*entity.ChatMessage, error)
 	FindBySessionId(ctx context.Context, sessionId string) ([]*entity.ChatMessage, error)
+	DeleteBySessionId(ctx context.Context, sessionId string) error
 }
 
 // IChatApprovalRepo 聊天审批仓库接口

@@ -37,7 +37,7 @@ func (r *ChatSession) Create(ctx context.Context, session *entity.ChatSession) (
 }
 
 func (r *ChatSession) Delete(ctx context.Context, ulid string) error {
-	return r.data.DB(ctx).Model(&po.ChatSession{}).Where("ulid = ?", ulid).Updates(map[string]interface{}{
+	return r.data.DB(ctx).Model(&po.ChatSession{}).Unscoped().Where("ulid = ?", ulid).Updates(map[string]interface{}{
 		"deleted_at": time.Now().UnixMilli(),
 	}).Error
 }
@@ -156,7 +156,7 @@ func (r *ChatSession) FindRecent(ctx context.Context, limit int) ([]*entity.Chat
 
 func (r *ChatSession) CountByChannel(ctx context.Context) (map[string]int, error) {
 	var results []struct {
-		Channel     string
+		Channel      string
 		MessageCount int
 	}
 	if err := r.data.DB(ctx).Model(&po.ChatSession{}).
@@ -248,6 +248,13 @@ func (r *ChatMessage) FindBySessionId(ctx context.Context, sessionId string) ([]
 		return nil, err
 	}
 	return converter.P2EChatMessages(msgPos), nil
+}
+
+// DeleteBySessionId 删除会话的所有消息（软删除）
+func (r *ChatMessage) DeleteBySessionId(ctx context.Context, sessionId string) error {
+	return r.data.DB(ctx).Model(&po.ChatMessage{}).Unscoped().Where("session_id = ?", sessionId).Updates(map[string]interface{}{
+		"deleted_at": time.Now().UnixMilli(),
+	}).Error
 }
 
 // ====== ChatApproval ======

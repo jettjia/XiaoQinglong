@@ -57,6 +57,11 @@ func (s *ChatSessionService) DeleteChatSession(ctx context.Context, req *dto.Del
 	logger.GetRunnerLogger().Infof("[ChatSessionService] Delete session files: sessionID=%s, path=%s", sessionID, sessionUploadsDir)
 	os.RemoveAll(sessionUploadsDir)
 
+	// 删除会话关联的消息
+	if err := s.sessionSrv.DeleteMessagesBySessionId(ctx, sessionID); err != nil {
+		logger.GetRunnerLogger().Errorf("[ChatSessionService] Delete messages failed: sessionID=%s, err=%v", sessionID, err)
+	}
+
 	return s.sessionSrv.DeleteSession(ctx, en.Ulid)
 }
 

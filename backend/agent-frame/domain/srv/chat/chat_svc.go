@@ -130,6 +130,11 @@ func (s *ChatSessionSvc) FindMessagesBySessionId(ctx context.Context, sessionId 
 	return s.messageRepo.FindBySessionId(ctx, sessionId)
 }
 
+// DeleteMessagesBySessionId 删除会话的所有消息
+func (s *ChatSessionSvc) DeleteMessagesBySessionId(ctx context.Context, sessionId string) error {
+	return s.messageRepo.DeleteBySessionId(ctx, sessionId)
+}
+
 // ====== ChatApproval ======
 
 // ChatApprovalSvc chat approval service
