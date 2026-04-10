@@ -1,0 +1,178 @@
+{
+    "endpoint": "http://localhost:18080/run",
+    "models": {
+        "default": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "rewrite": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "skill": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "summarize": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        }
+    },
+    "system_prompt": "你是助手。当用户请求同时查询多个不相关的信息时，使用 spawn_parallel 工具并行执行多个子代理任务。",
+    "user_message": "帮我同时查询：1）今天北京的天气怎么样？2）最近有什么科技新闻？3）比特币现在价格多少？",
+    "tools": [
+        {
+            "name": "spawn_parallel",
+            "description": "并行启动多个子代理执行任务，同时运行并返回聚合结果",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "tasks": {
+                        "type": "object",
+                        "description": "代理ID到任务的映射，如 {\"agent1\": \"任务1\", \"agent2\": \"任务2\"}"
+                    },
+                    "max_concurrent": {
+                        "type": "integer",
+                        "description": "最大并发数（默认3）"
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "单任务超时秒数（默认60）"
+                    },
+                    "pool_timeout": {
+                        "type": "integer",
+                        "description": "总超时秒数（默认300）"
+                    }
+                },
+                "required": ["tasks"]
+            }
+        }
+    ],
+    "a2a": [],
+    "mcps": [],
+    "sandbox": {
+        "enabled": false,
+        "mode": "docker",
+        "image": "sandbox-code-interpreter:v1.0.3",
+        "workdir": "/workspace",
+        "timeout_ms": 120000,
+        "network": "bridge",
+        "env": {
+            "PATH": "/usr/local/bin:/usr/bin:/bin"
+        },
+        "limits": {
+            "cpu": "0.5",
+            "memory": "512m"
+        }
+    },
+    "options": {
+        "temperature": 0.7,
+        "max_tokens": 4000,
+        "max_iterations": 10,
+        "max_tool_calls": 30,
+        "max_a2a_calls": 5,
+        "max_total_tokens": 100000,
+        "stream": true,
+        "retry": {
+            "max_attempts": 3,
+            "initial_delay_ms": 1000,
+            "max_delay_ms": 10000,
+            "backoff_multiplier": 2.0,
+            "retryable_errors": [
+                "timeout",
+                "rate_limit",
+                "server_error"
+            ]
+        },
+        "routing": {
+            "default_model": "default",
+            "rewrite_prompt": "请优化以下用户Query，使其更加清晰、准确，便于理解和执行。只返回优化后的Query，不要其他内容。",
+            "summarize_prompt": "请总结以下内容，提取关键信息，保持简洁。只返回总结内容，不要其他内容。"
+        },
+        "approval_policy": {
+            "enabled": false,
+            "risk_threshold": "medium",
+            "auto_approve": [
+                "get_product_info"
+            ]
+        },
+        "checkpoint_id": "test-parallel-001",
+        "response_schema": {
+            "type": "text",
+            "version": "1.0",
+            "strict": true
+        }
+    },
+    "skills": [],
+    "sub_agents": [
+        {
+            "id": "weather_assistant",
+            "name": "天气助手",
+            "description": "专门查询各地天气信息",
+            "prompt": "你是一个专业的天气查询助手。请根据用户询问的城市，使用工具查询天气并返回结果。",
+            "model": {
+                "provider": "openai",
+                "name": "${OPENAI_MODEL}",
+                "api_key": "${OPENAI_API_KEY}",
+                "api_base": "${OPENAI_BASE_URL}"
+            },
+            "tools": ["weather_query"],
+            "skills": [],
+            "max_iterations": 5,
+            "timeout_ms": 30000
+        },
+        {
+            "id": "news_assistant",
+            "name": "科技新闻助手",
+            "description": "专门查询最新科技新闻",
+            "prompt": "你是一个专业的科技新闻助手。请根据用户要求查询最新科技新闻并返回摘要。",
+            "model": {
+                "provider": "openai",
+                "name": "${OPENAI_MODEL}",
+                "api_key": "${OPENAI_API_KEY}",
+                "api_base": "${OPENAI_BASE_URL}"
+            },
+            "tools": ["news_query"],
+            "skills": [],
+            "max_iterations": 5,
+            "timeout_ms": 30000
+        },
+        {
+            "id": "crypto_assistant",
+            "name": "加密货币助手",
+            "description": "专门查询加密货币价格",
+            "prompt": "你是一个专业的加密货币查询助手。请根据用户询问的币种查询价格并返回结果。",
+            "model": {
+                "provider": "openai",
+                "name": "${OPENAI_MODEL}",
+                "api_key": "${OPENAI_API_KEY}",
+                "api_base": "${OPENAI_BASE_URL}"
+            },
+            "tools": ["crypto_price_query"],
+            "skills": [],
+            "max_iterations": 5,
+            "timeout_ms": 30000
+        }
+    ],
+    "context": {
+        "session_id": "sess_parallel_001",
+        "user_id": "user_001",
+        "channel_id": "feishu",
+        "skills_dir": "skills",
+        "variables": {
+            "user_location": "北京",
+            "preferred_news_category": "tech"
+        },
+        "trace_id": "trace-parallel-001"
+    },
+    "knowledge_bases": [],
+    "files": []
+}
