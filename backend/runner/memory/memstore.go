@@ -13,7 +13,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/xqldir"
+	"github.com/jettjia/XiaoQinglong/runner/types"
 )
 
 // EntryType 记忆条目类型
@@ -631,4 +633,49 @@ func FormatMemoryBlock(snapshot string, entryType EntryType) string {
 %s
 ══════════════════════════════════════════════
 %s`, header, snapshot)
+}
+
+// SaveMemoriesFromTypes 保存记忆（兼容 types.MemoryEntry）
+// sessionID: 会话ID
+// memories: 记忆条目列表（来自 types.MemoryEntry）
+func (s *MemStore) SaveMemoriesFromTypes(sessionID string, memories []types.MemoryEntry) error {
+	if len(memories) == 0 {
+		return nil
+	}
+
+	// 根据记忆类型分别存储
+	for _, m := range memories {
+		entry := MemoryEntry{
+			Key:       m.Name, // 使用 name 作为 key
+			Content:   m.Content,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+
+		// 根据类型确定存储层级
+		switch m.Type {
+		case "user":
+			entry.Type = EntryTypeUser
+			entry.ID = sessionID // 复用 sessionID 作为 user 标识
+		case "feedback":
+			entry.Type = EntryTypeSession
+			entry.ID = sessionID
+		case "project":
+			entry.Type = EntryTypeSession
+			entry.ID = sessionID
+		case "reference":
+			entry.Type = EntryTypeSession
+			entry.ID = sessionID
+		default:
+			entry.Type = EntryTypeSession
+			entry.ID = sessionID
+		}
+
+		if err := s.Add(context.Background(), entry); err != nil {
+			logger.GetRunnerLogger().Infof("[MemStore] Save memory failed: %v (key=%s)", err, entry.Key)
+			// 继续保存其他记忆，不中断
+		}
+	}
+
+	return nil
 }
