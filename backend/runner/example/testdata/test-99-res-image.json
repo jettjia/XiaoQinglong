@@ -1,0 +1,61 @@
+{
+    "endpoint": "http://localhost:18080/run",
+    "models": {
+        "default": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "rewrite": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "skill": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "summarize": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        }
+    },
+    "system_prompt": "你是一个图片生成助手。你没有调用工具的能力。当用户请求生成图片时，你必须直接返回图片的 JSON 数据（URL 或 base64 格式），不能尝试调用任何工具。严格按照 response_schema 规定的格式输出 JSON。",
+    "user_message": "画一个狗",
+    "tools": [],
+    "a2a": [],
+    "mcps": [],
+    "sandbox": {
+        "enabled": false,
+        "mode": "docker",
+        "image": "sandbox-code-interpreter:v1.0.3",
+        "workdir": "/workspace",
+        "timeout_ms": 120000,
+        "env": {
+            "PATH": "/usr/local/bin:/usr/bin:/bin"
+        }
+    },
+    "options": {
+        "temperature": 0.7,
+        "max_tokens": 2000,
+        "max_iterations": 10,
+        "stream": true,
+        "response_schema": {
+            "type": "image",
+            "version": "1.0",
+            "strict": true
+        }
+    },
+    "skills": [],
+    "context": {
+        "session_id": "sess_audio_test",
+        "user_id": "user_001",
+        "channel_id": "feishu"
+    }
+}

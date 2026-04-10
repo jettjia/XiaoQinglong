@@ -1,0 +1,11 @@
+# Lightweight Dockerfile using pre-built local binary
+FROM busybox:latest
+
+WORKDIR /app
+
+COPY manifest /app/manifest
+COPY deploy/bin/go-main /app/go-main
+
+EXPOSE 9292
+
+ENTRYPOINT ["/app/go-main", "-env", "docker"]

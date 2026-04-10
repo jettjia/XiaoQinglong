@@ -1,0 +1,45 @@
+{
+    "endpoint": "http://localhost:18080/run",
+    "model": {
+        "provider": "openai",
+        "name": "${OPENAI_MODEL}",
+        "api_key": "${OPENAI_API_KEY}",
+        "api_base": "${OPENAI_BASE_URL}"
+    },
+    "system_prompt": "你是一个智能助手，用纯文本回答用户问题。",
+    "user_message": "查询订单详情，订单号是ORD-20240315-001。",
+    "tools": [
+        {
+            "type": "http",
+            "name": "get_order_detail",
+            "description": "根据订单号获取订单详情",
+            "endpoint": "http://localhost:28081/v1/orders/{order_no}",
+            "method": "GET",
+            "headers": {
+                "Content-Type": "application/json"
+            },
+            "risk_level": "medium"
+        }
+    ],
+    "a2a": [],
+    "mcps": [],
+    "sandbox": {
+        "enabled": false
+    },
+    "options": {
+        "temperature": 0.7,
+        "max_tokens": 2000,
+        "max_iterations": 10,
+        "stream": false,
+        "response_schema": {
+            "type": "text"
+        },
+        "routing": {
+            "default_model": "default",
+            "rewrite_prompt": "优化以下用户Query，使其更加清晰准确。只返回优化后的Query，不要其他内容。",
+            "summarize_prompt": "请总结以下内容，提取关键信息，保持简洁。只返回总结内容。"
+        }
+    },
+    "skills": [],
+    "context": {}
+}

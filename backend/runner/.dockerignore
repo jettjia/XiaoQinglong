@@ -1,0 +1,4 @@
+example
+*.log
+dev-skills-config.yaml
+bin/

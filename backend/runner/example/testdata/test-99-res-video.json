@@ -1,0 +1,28 @@
+{
+    "endpoint": "http://localhost:18080/run",
+    "model": {
+        "provider": "openai",
+        "name": "${OPENAI_MODEL}",
+        "api_key": "${OPENAI_API_KEY}",
+        "api_base": "${OPENAI_BASE_URL}"
+    },
+    "system_prompt": "你是一个视频生成助手，根据描述生成短视频。返回视频URL或base64。",
+    "user_message": "生成一个订单发货通知视频，展示订单号ORD-20240315-001的发货信息",
+    "tools": [],
+    "a2a": [],
+    "mcps": [],
+    "sandbox": {
+        "enabled": false
+    },
+    "options": {
+        "temperature": 0.7,
+        "max_tokens": 2000,
+        "max_iterations": 10,
+        "stream": false,
+        "response_schema": {
+            "type": "video"
+        }
+    },
+    "skills": [],
+    "context": {}
+}

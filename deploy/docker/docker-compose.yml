@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: xiaoqinglong-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-root}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin123}
+      POSTGRES_DB: ${POSTGRES_DB:-xiaoqinglong}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-root}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Agent Frame Backend
+  agent-frame:
+    image: xiaoqinglong/agent-frame:latest
+    container_name: xiaoqinglong-agent-frame
+    restart: unless-stopped
+    ports:
+      - "9292:9292"
+    environment:
+      env: docker
+      RUNNER_ENDPOINT: http://runner:18080/run
+    volumes:
+      - ../../backend/agent-frame/manifest:/app/manifest
+    depends_on:
+      - postgres
+
+  # Runner Service
+  runner:
+    image: xiaoqinglong/runner:latest
+    container_name: xiaoqinglong-runner
+    restart: unless-stopped
+    ports:
+      - "18080:18080"
+    environment:
+      - AGENT_FRAME_URL=http://agent-frame:9292
+    volumes:
+      - ../../backend/runner/dev-skills-config.yaml:/app/skills-config.yaml:ro
+    depends_on:
+      - postgres
+      - agent-frame
+
+  # Agent UI Frontend
+  agent-ui:
+    image: xiaoqinglong/agent-ui:latest
+    container_name: xiaoqinglong-agent-ui
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - AGENT_FRAME_API_URL=http://agent-frame:9292
+    depends_on:
+      - agent-frame
+
+volumes:
+  postgres_data:
