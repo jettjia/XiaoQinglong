@@ -99,6 +99,22 @@ flowchart TB
 ```
 
 ## Runner 特性
+* 多模型路由
+* Skills生态，支持 agent-skills等
+* MCP:支持 SSE/stdio/HTTP 三种传输模式
+* Tools
+* A2A
+* 上下文压缩 - Token 超限自动压缩
+* 知识检索 - 多知识库配置
+* deep-agents
+* Sub-Agent - 并行任务
+* 定时任务 - Cron 表达式
+* 沙箱执行 - Docker/Local 双模式
+* 审批策略 - 风险分级 + 白名单自动批准
+* 重试熔断 - 指数退避
+* Checkpoint - 中断恢复
+* 记忆系统 - user/feedback/project/reference
+* Prompt 缓存 - 静态 section 缓存
 
 ### 多模型路由
 支持按角色选择不同模型，优化成本和性能:
