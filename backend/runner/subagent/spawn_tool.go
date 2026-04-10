@@ -341,3 +341,139 @@ func (t *CancelTaskTool) InvokableRun(ctx context.Context, argumentsInJSON strin
 	resultJSON, _ := json.Marshal(response)
 	return string(resultJSON), nil
 }
+
+// ============ 并行批量执行工具 ============
+
+// ParallelSpawnInput 并行 spawn 输入
+type ParallelSpawnInput struct {
+	Tasks      map[string]string `json:"tasks"`                // agentID -> task
+	MaxConcurrent int            `json:"max_concurrent,omitempty"` // 最大并发数
+	Timeout     int            `json:"timeout,omitempty"`     // 单任务超时秒数
+	PoolTimeout int            `json:"pool_timeout,omitempty"` // 池超时秒数
+}
+
+// ParallelSpawnTool 并行 spawn 工具 - 同时启动多个 agent 并等待结果
+type ParallelSpawnTool struct {
+	manager *SubAgentManager
+}
+
+// NewParallelSpawnTool 创建并行 spawn 工具
+func NewParallelSpawnTool(manager *SubAgentManager) *ParallelSpawnTool {
+	return &ParallelSpawnTool{
+		manager: manager,
+	}
+}
+
+// Info 返回工具信息
+func (t *ParallelSpawnTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
+	subAgents := t.manager.ListSubAgents()
+	var agentList []string
+	for _, cfg := range subAgents {
+		agentList = append(agentList, cfg.ID)
+	}
+
+	agentDesc := ""
+	if len(agentList) > 0 {
+		agentDesc = fmt.Sprintf("Available agents: %v", agentList)
+	}
+
+	params := schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+		"tasks": {
+			Type:     schema.Object,
+			Desc:     "Map of agent_id to task description. Example: {\"agent1\": \"task1\", \"agent2\": \"task2\"}. " + agentDesc,
+			Required: true,
+		},
+		"max_concurrent": {
+			Type:     schema.Integer,
+			Desc:     "Maximum number of concurrent agents (default: 3, 0 = unlimited)",
+			Required: false,
+		},
+		"timeout": {
+			Type:     schema.Integer,
+			Desc:     "Timeout per task in seconds (default: 60)",
+			Required: false,
+		},
+		"pool_timeout": {
+			Type:     schema.Integer,
+			Desc:     "Total timeout for all tasks in seconds (default: 300)",
+			Required: false,
+		},
+	})
+
+	return &schema.ToolInfo{
+		Name:        "spawn_parallel",
+		Desc:        fmt.Sprintf("Spawn multiple sub-agents in parallel to execute tasks simultaneously. Waits for ALL tasks to complete and returns aggregated results. Use this when you have multiple independent tasks that can run concurrently. %s", agentDesc),
+		ParamsOneOf: params,
+	}, nil
+}
+
+// InvokableRun 执行并行 spawn
+func (t *ParallelSpawnTool) InvokableRun(ctx context.Context, argumentsInJSON string, opt ...tool.Option) (string, error) {
+	var input ParallelSpawnInput
+	if err := json.Unmarshal([]byte(argumentsInJSON), &input); err != nil {
+		return "", fmt.Errorf("parse spawn_parallel input failed: %w", err)
+	}
+
+	if len(input.Tasks) == 0 {
+		return "", fmt.Errorf("tasks cannot be empty")
+	}
+
+	logger.GetRunnerLogger().Infof("[ParallelSpawnTool] Starting parallel spawn for %d tasks", len(input.Tasks))
+
+	// 配置池
+	maxConcurrent := input.MaxConcurrent
+	if maxConcurrent == 0 {
+		maxConcurrent = 3
+	}
+	timeout := time.Duration(input.Timeout) * time.Second
+	if timeout == 0 {
+		timeout = 60 * time.Second
+	}
+	poolTimeout := time.Duration(input.PoolTimeout) * time.Second
+	if poolTimeout == 0 {
+		poolTimeout = 300 * time.Second
+	}
+
+	pool := NewAgentPool(t.manager, PoolConfig{
+		MaxConcurrent: maxConcurrent,
+		Timeout:      timeout,
+		PoolTimeout:  poolTimeout,
+	})
+
+	// 并行执行
+	results := pool.Spawn(input.Tasks)
+
+	// 构建响应
+	response := map[string]any{
+		"total_tasks":   len(input.Tasks),
+		"completed":     0,
+		"failed":        0,
+		"results":       make([]map[string]any, 0, len(results)),
+	}
+
+	for _, r := range results {
+		resultMap := map[string]any{
+			"task_id":  r.TaskID,
+			"agent_id": r.AgentID,
+			"duration_ms": r.Duration.Milliseconds(),
+		}
+		if r.Error != "" {
+			resultMap["error"] = r.Error
+			response["failed"] = response["failed"].(int) + 1
+		} else {
+			resultMap["output"] = r.Output
+			response["completed"] = response["completed"].(int) + 1
+		}
+		response["results"] = append(response["results"].([]map[string]any), resultMap)
+	}
+
+	resultJSON, err := json.Marshal(response)
+	if err != nil {
+		return "", fmt.Errorf("marshal response failed: %w", err)
+	}
+
+	logger.GetRunnerLogger().Infof("[ParallelSpawnTool] Parallel spawn completed: %d/%d succeeded",
+		response["completed"].(int), response["total_tasks"].(int))
+
+	return string(resultJSON), nil
+}

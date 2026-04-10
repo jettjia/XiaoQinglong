@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jettjia/XiaoQinglong/runner/contextcompressor"
 	"github.com/jettjia/XiaoQinglong/runner/contextcompressor/compactors"
+	"github.com/jettjia/XiaoQinglong/runner/memory"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/xqldir"
 	"github.com/jettjia/XiaoQinglong/runner/plugins"
@@ -348,6 +349,9 @@ type Dispatcher struct {
 	// 知识检索器
 	knowledgeRetriever *retriever.KnowledgeRetriever
 
+	// 记忆存储
+	memStore *memory.MemStore
+
 	// Deep Agent（当配置了 sub_agents 时使用）
 	deepAgent adk.ResumableAgent
 
@@ -364,6 +368,8 @@ func NewDispatcher(req *types.RunRequest) *Dispatcher {
 	// 初始化压缩通道
 	d.compactChan = make(chan CompactionRequest, 1)
 	d.compactDoneChan = make(chan CompactionResponse, 1)
+	// 初始化记忆存储
+	d.memStore = memory.NewMemStore()
 	return d
 }
 
@@ -374,6 +380,9 @@ func (d *Dispatcher) Run(ctx context.Context) (*DispatchResult, error) {
 	logger.GetRunnerLogger().Infof(">>>>>> [Dispatcher] Run: STARTING NOW logger.GetRunnerLogger().Infof")
 	// 0. 设置 uploadsBaseDir
 	d.setUploadsBaseDir()
+
+	// 0.5 初始化记忆存储（加载冻结快照）
+	d.initMemStore(ctx)
 
 	// 1. 初始化模型（必须串行，模型是其他组件的依赖）
 	logger.Infof("[Dispatcher] Run: calling initModels")
@@ -702,61 +711,32 @@ func (d *Dispatcher) computeToolsHash(enabledTools []string) string {
 	return strings.Join(enabledTools, ",")
 }
 
-// loadMemorySection 从 Context 中获取 memory service 并加载记忆 section
+// loadMemorySection 加载记忆 section（使用本地文件存储）
 func (d *Dispatcher) loadMemorySection() string {
-	// 从 context 中获取 memory service
-	// Context 中存储的是 agent-frame 的 memory service
-	memorySvcInterface := d.request.Context["memory_svc"]
-	if memorySvcInterface == nil {
+	if d.memStore == nil {
 		return ""
 	}
 
-	// 获取 agent_id 和 user_id（这些也应该在 context 中）
-	agentId := ""
-	userId := ""
-	if v, ok := d.request.Context["agent_id"].(string); ok {
-		agentId = v
+	// 从 context 中获取 session_id、user_id、agent_id
+	sessionID := ""
+	userID := ""
+	agentID := ""
+
+	if v, ok := d.request.Context["session_id"].(string); ok {
+		sessionID = v
 	}
 	if v, ok := d.request.Context["user_id"].(string); ok {
-		userId = v
+		userID = v
 	}
-	if agentId == "" || userId == "" {
-		return ""
-	}
-
-	// 动态调用 memory service（避免直接依赖 agent-frame）
-	// 这里使用反射来避免循环依赖
-	return d.extractMemorySectionFromService(memorySvcInterface, agentId, userId)
-}
-
-// extractMemorySectionFromService 从 memory service 提取记忆 section
-func (d *Dispatcher) extractMemorySectionFromService(svc interface{}, agentId, userId string) string {
-	// 使用 type assertion 来调用 memory service 的方法
-	// 这避免了 runner 对 agent-frame 的直接 import
-
-	// 获取 GetMemoryIndex 方法
-	type memoryIndexGetter interface {
-		GetMemoryIndex(ctx context.Context, agentId, userId string) (interface{}, error)
+	if v, ok := d.request.Context["agent_id"].(string); ok {
+		agentID = v
 	}
 
-	// 获取 FindByAgentAndUser 方法
-	type memoryFinder interface {
-		FindByAgentAndUser(ctx context.Context, agentId, userId string) (interface{}, error)
-	}
+	// 构建记忆上下文
+	memCtx := memory.NewMemoryContext(sessionID, userID, agentID, d.memStore)
 
-	// 尝试获取 memory index
-	if getter, ok := svc.(memoryIndexGetter); ok {
-		indices, err := getter.GetMemoryIndex(context.Background(), agentId, userId)
-		if err != nil || indices == nil {
-			return ""
-		}
-
-		// 将 indices 转换为 []string（hook lines）
-		indexLines := d.convertMemoryIndexToLines(indices)
-		return prompt.GetMemorySection(indexLines)
-	}
-
-	return ""
+	// 返回格式化的记忆块
+	return memCtx.ToPromptBlock()
 }
 
 // convertMemoryIndexToLines 将 memory index 转换为 hook line 列表

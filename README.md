@@ -115,6 +115,7 @@ flowchart TB
 * Checkpoint - 中断恢复
 * 记忆系统 - user/feedback/project/reference
 * Prompt 缓存 - 静态 section 缓存
+* 自我创建skill
 
 ### 多模型路由
 支持按角色选择不同模型，优化成本和性能:
@@ -203,3 +204,6 @@ flowchart TB
 | `skill_calls_count` | Skill 调用次数                             |
 | `iterations`        | 迭代次数                                   |
 | `tool_calls_detail` | 工具调用详情(名称/输入/输出/延迟/成功状态) |
+
+## 如何运行
+阅读：README-RUN.md

@@ -64,6 +64,26 @@ func GetConfigDir() string {
 	return filepath.Join(GetBaseDir(), "config")
 }
 
+// GetMemoryDir returns the memory directory path
+func GetMemoryDir() string {
+	return filepath.Join(GetBaseDir(), "memory")
+}
+
+// GetSessionMemoryDir returns the session memory directory path
+func GetSessionMemoryDir(sessionID string) string {
+	return filepath.Join(GetMemoryDir(), "sessions", sessionID)
+}
+
+// GetUserMemoryDir returns the user memory directory path
+func GetUserMemoryDir(userID string) string {
+	return filepath.Join(GetMemoryDir(), "users", userID)
+}
+
+// GetAgentMemoryDir returns the agent memory directory path
+func GetAgentMemoryDir(agentID string) string {
+	return filepath.Join(GetMemoryDir(), "agents", agentID)
+}
+
 // EnsureBaseDir ensures the base directory and all subdirectories exist
 func EnsureBaseDir() error {
 	dirs := []string{
@@ -74,6 +94,7 @@ func EnsureBaseDir() error {
 		GetLogsDir(),
 		GetCheckpointsDir(),
 		GetConfigDir(),
+		GetMemoryDir(),
 	}
 
 	for _, dir := range dirs {

@@ -16,6 +16,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/jettjia/XiaoQinglong/runner/cliext"
 	"github.com/jettjia/XiaoQinglong/runner/cron"
+	"github.com/jettjia/XiaoQinglong/runner/memory"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/xqldir"
 	"github.com/jettjia/XiaoQinglong/runner/plugins"
@@ -98,6 +99,33 @@ func (d *Dispatcher) initModels(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// initMemStore 初始化记忆存储（加载冻结快照）
+func (d *Dispatcher) initMemStore(ctx context.Context) {
+	if d.memStore == nil {
+		d.memStore = memory.NewMemStore()
+	}
+
+	// 从 context 中获取 session_id、user_id、agent_id
+	sessionID := ""
+	userID := ""
+	agentID := ""
+
+	if v, ok := d.request.Context["session_id"].(string); ok {
+		sessionID = v
+	}
+	if v, ok := d.request.Context["user_id"].(string); ok {
+		userID = v
+	}
+	if v, ok := d.request.Context["agent_id"].(string); ok {
+		agentID = v
+	}
+
+	// 初始化各层级记忆
+	if err := d.memStore.InitializeAll(ctx, sessionID, userID, agentID); err != nil {
+		logger.Warnf("[Dispatcher] initMemStore failed: %v", err)
+	}
 }
 
 func (d *Dispatcher) initTools(ctx context.Context) error {
