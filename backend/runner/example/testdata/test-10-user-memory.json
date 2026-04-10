@@ -1,0 +1,67 @@
+{
+    "endpoint": "http://localhost:18080/run",
+    "models": {
+        "default": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "rewrite": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "skill": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "summarize": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        }
+    },
+    "system_prompt": "你是一个有用的助手。当你听到用户分享关于他们自己的信息（偏好、习惯、背景等）时，你会记住这些内容用于个性化服务。",
+    "messages": [
+        {
+            "role": "user",
+            "content": "我是李明，是一名产品经理，在上海工作。我对人工智能和新技术很感兴趣，平时喜欢阅读科技类书籍。"
+        },
+        {
+            "role": "assistant",
+            "content": "好的李明，我记住你了。你是上海的产品经理，对AI和技术感兴趣，喜欢阅读科技书籍。很高兴认识你！"
+        }
+    ],
+    "tools": [],
+    "a2a": [],
+    "mcps": [],
+    "sandbox": {
+        "enabled": false
+    },
+    "options": {
+        "temperature": 0.7,
+        "max_tokens": 2000,
+        "max_iterations": 5,
+        "max_tool_calls": 10,
+        "stream": false,
+        "routing": {
+            "default_model": "default"
+        },
+        "checkpoint_id": "test-user-memory-001"
+    },
+    "skills": [],
+    "sub_agents": [],
+    "context": {
+        "session_id": "sess_user_mem_001",
+        "user_id": "user_liming_001",
+        "channel_id": "feishu",
+        "skills_dir": "skills"
+    },
+    "knowledge_bases": [],
+    "files": []
+}
