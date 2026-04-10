@@ -24,6 +24,9 @@ RUN apk --no-cache add ca-certificates
 # Copy binary
 COPY --from=builder /workspace/runner /app/runner
 
+# Copy skills templates (will be used if XQL_SOURCE_SKILLS_DIR=/app/skills)
+COPY --from=builder /workspace/skills /app/skills
+
 EXPOSE 18080
 
 ENTRYPOINT ["/app/runner"]

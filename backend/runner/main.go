@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -26,6 +27,19 @@ var stopMu sync.Mutex
 var globalMemStore = memory.NewMemStore()
 
 func main() {
+	// 设置源码 skills 目录（用于首次初始化时复制）
+	// 优先级：环境变量 XQL_SOURCE_SKILLS_DIR > 自动检测
+	if envDir := os.Getenv("XQL_SOURCE_SKILLS_DIR"); envDir != "" {
+		xqldir.SourceSkillsDir = envDir
+	} else {
+		// Dev 环境：二进制在 runner/bin/runner，skills 在项目根目录的 skills/
+		execPath, _ := os.Executable()
+		if execPath != "" {
+			// runner/bin/runner -> 项目根目录
+			xqldir.SourceSkillsDir = filepath.Join(execPath, "..", "..", "..", "skills")
+		}
+	}
+
 	// 初始化统一目录
 	xqldir.Init()
 
