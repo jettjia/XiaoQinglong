@@ -108,7 +108,7 @@ func (r *SkillRunner) RunSkill(ctx context.Context, name string, input map[strin
 		return "", fmt.Errorf("skill not found: %s", name)
 	}
 
-	logger.Infof((fmt.Sprintf("[Skill] Running skill: %s, input: %v, sessionID: %s", name, input, sessionID)))
+	logger.Infof("[Skill] Running skill: %s, input: %v, sessionID: %s", name, input, sessionID)
 
 	// 调试：检查 sandbox 配置
 	if r.sandboxCfg != nil {

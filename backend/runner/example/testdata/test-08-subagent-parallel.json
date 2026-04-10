@@ -1,0 +1,132 @@
+{
+    "endpoint": "http://localhost:18080/run",
+    "models": {
+        "default": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "rewrite": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "skill": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "summarize": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        }
+    },
+    "system_prompt": "你是助手。当用户请求同时完成多个独立任务时，使用 spawn_parallel 工具并行执行。spawn_parallel 会同时启动多个子代理，等待所有任务完成后返回聚合结果。",
+    "user_message": "请同时帮我完成三个独立任务：1）写一个求和函数 2）写一个阶乘函数 3）写一个斐波那契函数。要求每个函数都用 Python 实现。",
+    "tools": [
+        {
+            "name": "spawn_parallel",
+            "description": "并行启动多个子代理执行任务，同时运行并返回聚合结果。输入是 {tasks: {agent_id: task_description}}",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "tasks": {
+                        "type": "object",
+                        "description": "代理ID到任务的映射"
+                    },
+                    "max_concurrent": {
+                        "type": "integer",
+                        "description": "最大并发数（默认3）"
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "单任务超时秒数（默认60）"
+                    },
+                    "pool_timeout": {
+                        "type": "integer",
+                        "description": "总超时秒数（默认300）"
+                    }
+                },
+                "required": ["tasks"]
+            }
+        }
+    ],
+    "a2a": [],
+    "mcps": [],
+    "sandbox": {
+        "enabled": false
+    },
+    "options": {
+        "temperature": 0.7,
+        "max_tokens": 4000,
+        "max_iterations": 15,
+        "max_tool_calls": 20,
+        "stream": true,
+        "routing": {
+            "default_model": "default"
+        },
+        "checkpoint_id": "test-parallel-001"
+    },
+    "skills": [],
+    "sub_agents": [
+        {
+            "id": "code_writer_1",
+            "name": "代码编写助手1",
+            "description": "负责编写求和函数",
+            "prompt": "你是一个Python编程助手。请用Python实现一个求和函数，计算1到n的累加和。直接返回代码，不需要解释。格式：\n```python\n# 代码\n```",
+            "model": {
+                "provider": "openai",
+                "name": "${OPENAI_MODEL}",
+                "api_key": "${OPENAI_API_KEY}",
+                "api_base": "${OPENAI_BASE_URL}"
+            },
+            "tools": [],
+            "skills": [],
+            "max_iterations": 3,
+            "timeout_ms": 30000
+        },
+        {
+            "id": "code_writer_2",
+            "name": "代码编写助手2",
+            "description": "负责编写阶乘函数",
+            "prompt": "你是一个Python编程助手。请用Python实现一个阶乘函数，计算n的阶乘。直接返回代码，不需要解释。格式：\n```python\n# 代码\n```",
+            "model": {
+                "provider": "openai",
+                "name": "${OPENAI_MODEL}",
+                "api_key": "${OPENAI_API_KEY}",
+                "api_base": "${OPENAI_BASE_URL}"
+            },
+            "tools": [],
+            "skills": [],
+            "max_iterations": 3,
+            "timeout_ms": 30000
+        },
+        {
+            "id": "code_writer_3",
+            "name": "代码编写助手3",
+            "description": "负责编写斐波那契函数",
+            "prompt": "你是一个Python编程助手。请用Python实现一个斐波那契函数，返回斐波那契数列的前n项。直接返回代码，不需要解释。格式：\n```python\n# 代码\n```",
+            "model": {
+                "provider": "openai",
+                "name": "${OPENAI_MODEL}",
+                "api_key": "${OPENAI_API_KEY}",
+                "api_base": "${OPENAI_BASE_URL}"
+            },
+            "tools": [],
+            "skills": [],
+            "max_iterations": 3,
+            "timeout_ms": 30000
+        }
+    ],
+    "context": {
+        "session_id": "sess_parallel_001",
+        "user_id": "user_001"
+    },
+    "knowledge_bases": [],
+    "files": []
+}

@@ -1,0 +1,85 @@
+{
+    "endpoint": "http://localhost:18080/run",
+    "models": {
+        "default": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "rewrite": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "skill": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "summarize": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        }
+    },
+    "system_prompt": "你是一个助手。当用户请求你完成一个有价值的工作流程时，你应该调用 create_skill 工具将这个工作流程保存为可复用的技能。",
+    "user_message": "我需要分析 /tmp/data.csv 文件，提取关键信息，然后生成一个 HTML 报告。",
+    "tools": [
+        {
+            "name": "create_skill",
+            "description": "当完成有价值的工作流程时，创建可复用的技能",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "技能名称，如 csv-analysis-report"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "完整的 SKILL.md 内容"
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": "技能分类，如 data-processing"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "简短描述"
+                    }
+                },
+                "required": ["name", "content"]
+            }
+        }
+    ],
+    "a2a": [],
+    "mcps": [],
+    "sandbox": {
+        "enabled": false
+    },
+    "options": {
+        "temperature": 0.7,
+        "max_tokens": 4000,
+        "max_iterations": 10,
+        "max_tool_calls": 20,
+        "stream": true,
+        "routing": {
+            "default_model": "default"
+        },
+        "checkpoint_id": "test-create-skill-001"
+    },
+    "skills": [],
+    "sub_agents": [],
+    "context": {
+        "session_id": "sess_create_skill_001",
+        "user_id": "user_create_skill_001",
+        "channel_id": "feishu",
+        "skills_dir": "skills"
+    },
+    "knowledge_bases": [],
+    "files": []
+}

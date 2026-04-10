@@ -1,0 +1,83 @@
+{
+    "endpoint": "http://localhost:18080/run",
+    "models": {
+        "default": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "rewrite": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "skill": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "summarize": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        }
+    },
+    "system_prompt": "你是一个有用的助手。当用户分享个人信息或偏好时，你会记住这些信息。",
+    "messages": [
+        {
+            "role": "user",
+            "content": "我叫张三，在北京工作，是一名后端开发工程师。我平时喜欢喝美式咖啡，周末喜欢打篮球。"
+        },
+        {
+            "role": "assistant",
+            "content": "好的张三，我记住你了。你是在北京工作的后端工程师，喜欢喝美式咖啡，周末打篮球。有什么我可以帮你的吗？"
+        },
+        {
+            "role": "user",
+            "content": "我最近在学习 Go 语言，想找一些相关的学习资源。"
+        },
+        {
+            "role": "assistant",
+            "content": "学习 Go 语言的好资源包括：1）官方文档 https://go.dev 2）《Go 语言实战》书籍 3）B 站上的 Go 语言教程 4）GitHub 上的 awesome-go 项目。祝学习顺利！"
+        },
+        {
+            "role": "user",
+            "content": "谢谢！那我以后有问题再来问你。"
+        },
+        {
+            "role": "assistant",
+            "content": "不客气！随时欢迎提问。记住我叫张三，有任何问题随时找我。"
+        }
+    ],
+    "tools": [],
+    "a2a": [],
+    "mcps": [],
+    "sandbox": {
+        "enabled": false
+    },
+    "options": {
+        "temperature": 0.7,
+        "max_tokens": 2000,
+        "max_iterations": 5,
+        "max_tool_calls": 10,
+        "stream": false,
+        "routing": {
+            "default_model": "default"
+        },
+        "checkpoint_id": "test-memory-001"
+    },
+    "skills": [],
+    "sub_agents": [],
+    "context": {
+        "session_id": "sess_memory_001",
+        "user_id": "user_memory_001",
+        "channel_id": "feishu",
+        "skills_dir": "skills"
+    },
+    "knowledge_bases": [],
+    "files": []
+}
