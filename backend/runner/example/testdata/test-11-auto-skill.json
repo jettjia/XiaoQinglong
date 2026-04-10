@@ -1,0 +1,83 @@
+{
+    "endpoint": "http://localhost:18080/run",
+    "models": {
+        "default": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "rewrite": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "skill": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "summarize": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        }
+    },
+    "system_prompt": "你是一个助手。当用户需要处理数据时，你应该：1）首先读取文件了解数据结构，2）进行分析处理，3）生成报告。不要跳过任何步骤。",
+    "user_message": "帮我分析一下 /tmp/data.csv 文件，然后生成一个总结报告。",
+    "tools": [
+        {
+            "name": "file_reader",
+            "description": "读取文件内容"
+        },
+        {
+            "name": "data_analyzer",
+            "description": "分析数据"
+        },
+        {
+            "name": "report_generator",
+            "description": "生成报告"
+        }
+    ],
+    "a2a": [],
+    "mcps": [],
+    "sandbox": {
+        "enabled": true,
+        "mode": "docker",
+        "image": "sandbox-code-interpreter:v1.0.3",
+        "workdir": "/workspace",
+        "timeout_ms": 120000,
+        "network": "bridge",
+        "env": {
+            "PATH": "/usr/local/bin:/usr/bin:/bin"
+        },
+        "limits": {
+            "cpu": "0.5",
+            "memory": "512m"
+        }
+    },
+    "options": {
+        "temperature": 0.7,
+        "max_tokens": 4000,
+        "max_iterations": 10,
+        "max_tool_calls": 20,
+        "stream": true,
+        "routing": {
+            "default_model": "default"
+        },
+        "checkpoint_id": "test-auto-skill-001"
+    },
+    "skills": [],
+    "sub_agents": [],
+    "context": {
+        "session_id": "sess_auto_skill_001",
+        "user_id": "user_auto_skill_001",
+        "channel_id": "feishu",
+        "skills_dir": "skills"
+    },
+    "knowledge_bases": [],
+    "files": []
+}

@@ -745,6 +745,11 @@ func (d *Dispatcher) initSkills(ctx context.Context) error {
 		}
 	}
 
+	// 创建主动技能创建工具（允许 Agent 主动创建可复用技能）
+	createSkillTool := plugins.NewCreateSkillTool()
+	d.tools = append(d.tools, createSkillTool)
+	logger.Infof("[Dispatcher] initSkills: create_skill tool registered")
+
 	return nil
 }
 

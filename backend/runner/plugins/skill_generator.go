@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudwego/eino/components/tool"
+	"github.com/cloudwego/eino/schema"
+	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/xqldir"
 )
 
@@ -411,4 +415,141 @@ func scanSkillContent(content string) bool {
 		}
 	}
 	return false
+}
+
+// ============ CreateSkill Tool（让 LLM 主动创建技能）============
+
+// CreateSkillInput create_skill 工具输入
+type CreateSkillInput struct {
+	Name        string `json:"name"`        // 技能名称（必须，文件系统安全）
+	Content     string `json:"content"`     // 完整的 SKILL.md 内容（必须，包含 frontmatter + 正文）
+	Category    string `json:"category"`    // 分类（可选）
+	Description string `json:"description"` // 简短描述（可选）
+}
+
+// CreateSkillTool 主动创建技能工具
+// 允许 Agent 在完成任务后主动创建可复用的技能
+type CreateSkillTool struct {
+	generator *SkillGenerator
+}
+
+// NewCreateSkillTool 创建 create_skill 工具
+func NewCreateSkillTool() *CreateSkillTool {
+	return &CreateSkillTool{
+		generator: NewSkillGenerator(),
+	}
+}
+
+// Info 返回工具信息
+func (t *CreateSkillTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
+	params := schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+		"name": {
+			Type:     schema.String,
+			Desc:     "技能名称，只能包含小写字母、数字、点、下划线和连字符。如：data-analysis, my-skill",
+			Required: true,
+		},
+		"content": {
+			Type:     schema.String,
+			Desc:     "完整的 SKILL.md 内容，包括 frontmatter (name, description, trigger, version) 和正文",
+			Required: true,
+		},
+		"category": {
+			Type:     schema.String,
+			Desc:     "技能分类目录，可选。如：data-processing, web-automation",
+			Required: false,
+		},
+		"description": {
+			Type:     schema.String,
+			Desc:     "简短描述，说明这个技能的用途",
+			Required: false,
+		},
+	})
+
+	return &schema.ToolInfo{
+		Name:        "create_skill",
+		Desc:        "当 Agent 成功完成一个值得复用的工作流程时，调用此工具将其保存为可复用的技能。保存后，下次遇到类似任务可以自动或手动触发使用。",
+		ParamsOneOf: params,
+	}, nil
+}
+
+// InvokableRun 执行创建技能
+func (t *CreateSkillTool) InvokableRun(ctx context.Context, argumentsInJSON string, opt ...tool.Option) (string, error) {
+	var input CreateSkillInput
+	if err := json.Unmarshal([]byte(argumentsInJSON), &input); err != nil {
+		return "", fmt.Errorf("parse create_skill input failed: %w", err)
+	}
+
+	// 验证必填参数
+	if input.Name == "" {
+		return "", fmt.Errorf("name is required")
+	}
+	if input.Content == "" {
+		return "", fmt.Errorf("content is required")
+	}
+
+	// 验证名称格式（文件系统安全）
+	if err := validateSkillName(input.Name); err != nil {
+		return "", fmt.Errorf("invalid name: %w", err)
+	}
+
+	// 安全扫描内容
+	if scanSkillContent(input.Content) {
+		logger.GetRunnerLogger().Infof("[CreateSkillTool] content failed security scan, blocking creation")
+		return "", fmt.Errorf("skill content failed security scan")
+	}
+
+	// 确定存储路径
+	skillsDir := xqldir.GetSkillsDir()
+	if input.Category != "" {
+		skillsDir = filepath.Join(skillsDir, input.Category)
+	}
+
+	// 创建技能目录
+	skillDir := filepath.Join(skillsDir, input.Name)
+	if err := os.MkdirAll(skillDir, 0755); err != nil {
+		return "", fmt.Errorf("create skill dir failed: %w", err)
+	}
+
+	// 写入 SKILL.md
+	skillMDPath := filepath.Join(skillDir, "SKILL.md")
+	if err := os.WriteFile(skillMDPath, []byte(input.Content), 0644); err != nil {
+		return "", fmt.Errorf("write SKILL.md failed: %w", err)
+	}
+
+	logger.GetRunnerLogger().Infof("[CreateSkillTool] created skill at: %s", skillDir)
+
+	// 返回成功信息
+	result := map[string]any{
+		"success":   true,
+		"name":      input.Name,
+		"path":      skillDir,
+		"message":   fmt.Sprintf("Skill '%s' created successfully at %s", input.Name, skillDir),
+		"next_step": "下次遇到类似任务时，可使用 load_skill 工具加载此技能",
+	}
+
+	resultJSON, _ := json.Marshal(result)
+	return string(resultJSON), nil
+}
+
+// validateSkillName 验证技能名称
+func validateSkillName(name string) error {
+	if len(name) > 64 {
+		return fmt.Errorf("name too long (max 64 chars)")
+	}
+
+	// 只能包含小写字母、数字、点、下划线和连字符
+	validName := regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
+	if !validName.MatchString(name) {
+		return fmt.Errorf("name can only contain lowercase letters, numbers, dots, underscores and hyphens, and must start with a letter or number")
+	}
+
+	// 保留名称检查
+	reservedNames := []string{"skills", "auto", "template"}
+	for _, reserved := range reservedNames {
+		if name == reserved || strings.HasPrefix(name, reserved+"-") {
+			return fmt.Errorf("name '%s' is reserved", reserved)
+		}
+	}
+
+	return nil
 }
