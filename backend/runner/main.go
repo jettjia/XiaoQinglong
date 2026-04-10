@@ -33,7 +33,7 @@ func main() {
 	http.HandleFunc("/agent", handleAgent)
 	http.HandleFunc("/resume", handleResume)
 	http.HandleFunc("/stop", handleStop)
-	logger.GetRunnerLogger().Println("Runner server starting on :18080")
+	logger.GetRunnerLogger().Infof("Runner server starting on :18080")
 	log.Fatal(http.ListenAndServe(":18080", nil))
 }
 
@@ -93,9 +93,10 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 
 					// 直接保存到文件，不再回调 agent-frame
 					sessionID := getContextStr(req.Context, "session_id")
+					userID := getContextStr(req.Context, "user_id")
 					if sessionID != "" {
 						go func() {
-							if err := globalMemStore.SaveMemoriesFromTypes(sessionID, memories); err != nil {
+							if err := globalMemStore.SaveMemoriesFromTypes(sessionID, userID, memories); err != nil {
 								logger.Errorf("[Memory] Failed to save memories: %v", err)
 							} else {
 								logger.Infof("[Memory] Saved %d memories to file for session %s", len(memories), sessionID)
@@ -455,8 +456,9 @@ func handleRunStream(w http.ResponseWriter, r *http.Request, req *types.RunReque
 				return
 			}
 			sessionID := getContextStr(req.Context, "session_id")
+			userID := getContextStr(req.Context, "user_id")
 			if sessionID != "" {
-				if err := globalMemStore.SaveMemoriesFromTypes(sessionID, memories); err != nil {
+				if err := globalMemStore.SaveMemoriesFromTypes(sessionID, userID, memories); err != nil {
 					logger.Errorf("[Memory] Failed to save memories: %v", err)
 				} else {
 					logger.Infof("[Memory] Saved %d memories to file for session %s", len(memories), sessionID)

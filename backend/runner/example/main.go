@@ -252,6 +252,7 @@ type TestConfig struct {
 	Models         map[string]ModelConfig `json:"models"`
 	SystemPrompt   string                 `json:"system_prompt"`
 	UserMessage    string                 `json:"user_message"`
+	Messages       []Message              `json:"messages"`
 	Tools          []ToolConfig           `json:"tools"`
 	A2A            []A2AAgentConfig       `json:"a2a"`
 	MCPs           []MCPConfig            `json:"mcps"`
@@ -283,11 +284,21 @@ func main() {
 	// 展开环境变量
 	models := expandEnvModels(config.Models)
 
+	// 构建初始消息
+	var initialMessages []Message
+	if config.UserMessage != "" {
+		initialMessages = []Message{{Role: "user", Content: config.UserMessage}}
+	} else if len(config.Messages) > 0 {
+		initialMessages = config.Messages
+	} else {
+		initialMessages = []Message{{Role: "user", Content: ""}}
+	}
+
 	// 构建请求
 	req := RunRequest{
 		Prompt:         config.SystemPrompt,
 		Models:         models,
-		Messages:       []Message{{Role: "user", Content: config.UserMessage}},
+		Messages:       initialMessages,
 		Skills:         config.Skills,
 		Tools:          config.Tools,
 		A2A:            config.A2A,
@@ -302,6 +313,8 @@ func main() {
 
 	// 调试：在构建请求前打印 config.SubAgents
 	logger.GetRunnerLogger().Infof(">>> DEBUG: config.SubAgents count = %d", len(config.SubAgents))
+	logger.GetRunnerLogger().Infof(">>> DEBUG: initialMessages count = %d, config.UserMessage='%s', config.Messages count=%d",
+		len(initialMessages), config.UserMessage, len(config.Messages))
 
 	// 发送请求
 	reqBytes, _ := json.Marshal(req)
@@ -358,8 +371,8 @@ func main() {
 	// ========== 多轮对话循环 ==========
 	reader := bufio.NewReader(os.Stdin)
 
-	// 第一轮对话，使用初始 user_message
-	currentMessages := []Message{{Role: "user", Content: config.UserMessage}}
+	// 第一轮对话，使用初始消息（支持 user_message 或 messages 数组）
+	currentMessages := initialMessages
 
 	for {
 		fmt.Println()

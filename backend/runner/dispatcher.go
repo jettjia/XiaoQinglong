@@ -375,8 +375,8 @@ func NewDispatcher(req *types.RunRequest) *Dispatcher {
 
 func (d *Dispatcher) Run(ctx context.Context) (*DispatchResult, error) {
 	// 调试
-	logger.GetRunnerLogger().Println(">>>>>> [Dispatcher] Run: STARTING NOW logger.GetRunnerLogger().Println")
-	logger.GetRunnerLogger().Println(">>>>>> [Dispatcher] Run: STARTING NOW logger.GetRunnerLogger().Println")
+	logger.GetRunnerLogger().Infof(">>>>>> [Dispatcher] Run: STARTING NOW logger.GetRunnerLogger().Infof")
+	logger.GetRunnerLogger().Infof(">>>>>> [Dispatcher] Run: STARTING NOW logger.GetRunnerLogger().Infof")
 	logger.GetRunnerLogger().Infof(">>>>>> [Dispatcher] Run: STARTING NOW logger.GetRunnerLogger().Infof")
 	// 0. 设置 uploadsBaseDir
 	d.setUploadsBaseDir()

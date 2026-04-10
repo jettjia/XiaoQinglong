@@ -637,10 +637,17 @@ func FormatMemoryBlock(snapshot string, entryType EntryType) string {
 
 // SaveMemoriesFromTypes 保存记忆（兼容 types.MemoryEntry）
 // sessionID: 会话ID
+// userID: 用户ID（用于 user 类型记忆）
 // memories: 记忆条目列表（来自 types.MemoryEntry）
-func (s *MemStore) SaveMemoriesFromTypes(sessionID string, memories []types.MemoryEntry) error {
+func (s *MemStore) SaveMemoriesFromTypes(sessionID, userID string, memories []types.MemoryEntry) error {
 	if len(memories) == 0 {
 		return nil
+	}
+
+	// 确定 user ID（优先使用 userID，否则使用 sessionID）
+	actualUserID := userID
+	if actualUserID == "" {
+		actualUserID = sessionID
 	}
 
 	// 根据记忆类型分别存储
@@ -656,7 +663,7 @@ func (s *MemStore) SaveMemoriesFromTypes(sessionID string, memories []types.Memo
 		switch m.Type {
 		case "user":
 			entry.Type = EntryTypeUser
-			entry.ID = sessionID // 复用 sessionID 作为 user 标识
+			entry.ID = actualUserID // 使用 userID（跨会话持久化）
 		case "feedback":
 			entry.Type = EntryTypeSession
 			entry.ID = sessionID
