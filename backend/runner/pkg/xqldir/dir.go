@@ -1,10 +1,15 @@
 package xqldir
 
 import (
+	"io"
 	"log"
 	"os"
 	"path/filepath"
 )
+
+// SourceSkillsDir is the source skills directory (relative to runner binary)
+// This is used to copy default skills to the user's .xiaoqinglong/skills on first init
+var SourceSkillsDir = ""
 
 // BaseDirEnv is the environment variable for the base directory
 const BaseDirEnv = "XQL_BASE_DIR"
@@ -113,4 +118,101 @@ func Init() {
 	} else {
 		log.Printf("[xqldir] Base directory initialized: %s", GetBaseDir())
 	}
+
+	// 确保 skills 目录是正确的（不是 symlink），并复制默认 skills
+	ensureSkillsDir()
+}
+
+// ensureSkillsDir 确保 skills 目录存在且是真实目录（非 symlink），并复制默认 skills
+func ensureSkillsDir() {
+	skillsDir := GetSkillsDir()
+
+	// 检查是否是 symlink
+	if info, err := os.Lstat(skillsDir); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		log.Printf("[xqldir] Removing invalid symlink: %s -> %s", skillsDir, info.Name())
+		if err := os.Remove(skillsDir); err != nil {
+			log.Printf("[xqldir] Warning: failed to remove symlink: %v", err)
+			return
+		}
+	}
+
+	// 如果目录不存在，复制默认 skills
+	if _, err := os.Stat(skillsDir); os.IsNotExist(err) {
+		if SourceSkillsDir != "" {
+			// 检查源目录是否存在
+			if _, srcErr := os.Stat(SourceSkillsDir); srcErr == nil {
+				log.Printf("[xqldir] Copying default skills from %s to %s", SourceSkillsDir, skillsDir)
+				if err := copyDir(SourceSkillsDir, skillsDir); err != nil {
+					log.Printf("[xqldir] Warning: failed to copy default skills: %v, creating empty dir", err)
+					os.MkdirAll(skillsDir, 0755)
+				}
+			} else {
+				log.Printf("[xqldir] Source skills dir not found: %s, creating empty skills dir", SourceSkillsDir)
+				os.MkdirAll(skillsDir, 0755)
+			}
+		} else {
+			os.MkdirAll(skillsDir, 0755)
+		}
+	}
+}
+
+// copyDir 复制目录（递归）
+func copyDir(src, dst string) error {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(dst, srcInfo.Mode()); err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+
+		if entry.IsDir() {
+			if err := copyDir(srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			if err := copyFile(srcPath, dstPath); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// copyFile 复制文件
+func copyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	_, err = io.Copy(dstFile, srcFile)
+	if err != nil {
+		return err
+	}
+
+	// 复制权限
+	srcInfo, _ := os.Stat(src)
+	if srcInfo != nil {
+		os.Chmod(dst, srcInfo.Mode())
+	}
+
+	return nil
 }
