@@ -687,6 +687,29 @@ func (r *SkillRunner) buildSkillInstruction(skill types.Skill, input string) str
 - 生成后直接输出 URL 即可，不需要额外解释`
 	}
 
+	// 针对 agent-browser skill，提供具体的执行指引
+	if skill.ID == "agent-browser" {
+		baseInstruction += `
+
+【agent-browser 特殊执行指引】
+执行步骤：
+1. 使用 bash 工具调用 agent-browser open <url> 打开网页
+2. 使用 bash 工具调用 agent-browser snapshot -i --json 获取页面元素快照
+3. 根据页面元素，使用 bash 工具执行交互操作：
+   - agent-browser click @eN     # 点击元素
+   - agent-browser fill @eN "文本"  # 填写表单
+   - agent-browser press Enter    # 按键
+4. 页面变化后必须重新 snapshot 获取新元素
+5. 使用 agent-browser get text @eN --json 提取文本数据
+6. 使用 agent-browser get attr @eN "href" --json 提取链接
+
+关键：
+- 完成所有操作后，必须提取并返回用户需要的具体数据
+- 返回内容应是自然语言描述的结果（如"北京今天气温25℃，多云"）
+- 不要只返回工具调用的状态信息，要返回实际的查询结果
+- 如果是搜索类任务，先 scroll 滚动页面找到数据，再用 get text 提取`
+	}
+
 	return baseInstruction
 }
 
