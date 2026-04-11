@@ -116,6 +116,7 @@ flowchart TB
 * 记忆系统 - user/feedback/project/reference
 * Prompt 缓存 - 静态 section 缓存
 * 自我创建skill
+* web-fetch, agent-browser
 
 ### 多模型路由
 支持按角色选择不同模型，优化成本和性能:
