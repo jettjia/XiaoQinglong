@@ -18,6 +18,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/xqldir"
+	"github.com/jettjia/XiaoQinglong/runner/tools"
 	"github.com/jettjia/XiaoQinglong/runner/types"
 )
 
@@ -571,7 +572,18 @@ func (r *SkillRunner) buildSkillSandboxTools(workDir string, skill types.Skill, 
 		skillInput: skillInput,
 	}
 
-	tools := []tool.BaseTool{listTool, readTool, execTool, NewHtmlInterpreterTool(workDir, r.getReportsDir(), r.getReportsURL())}
+	// bash 工具：用于执行 CLI 命令（如 agent-browser）
+	bashTool := &skillBashTool{
+		workDir:    workDir,
+		baseDir:    baseDir,
+		sandboxCfg: r.sandboxCfg,
+		dockerBin:  "docker",
+		skillName:  skill.ID,
+		configMgr:  r.configMgr,
+		skillInput: skillInput,
+	}
+
+	tools := []tool.BaseTool{listTool, readTool, execTool, bashTool, NewHtmlInterpreterTool(workDir, r.getReportsDir(), r.getReportsURL())}
 
 	// 对于 pptx skill，添加 pptxInterpreterTool
 	if skill.ID == "pptx" {
@@ -592,6 +604,7 @@ func (r *SkillRunner) buildSkillInstruction(skill types.Skill, input string) str
 重要规则：
 - 必须先读取 SKILL.md，理解 skill 的执行流程
 - 使用 execute_skill_script_file 工具执行脚本，传入 skill_name、script_file_name 和 args 参数
+- 使用 bash 工具执行 CLI 命令（如 agent-browser 等）
 - 使用 html_interpreter 工具生成 HTML 报告（如果 SKILL.md 要求）
 - html_interpreter 工具返回的 HTML 内容必须原样输出，不要总结或解释
 - 最终输出只包含 HTML 内容，不要添加任何其他文字说明
@@ -944,6 +957,290 @@ func mapKeys(m map[string]string) []string {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+// ========== skillBashTool ==========
+// skillBashTool 用于在沙箱中执行任意 bash 命令，支持 skills.sh 的 allowed-tools: Bash(...) 格式
+
+type skillBashTool struct {
+	workDir    string
+	baseDir    string
+	sandboxCfg *types.SandboxConfig
+	dockerBin  string
+	skillName  string
+	configMgr  *SkillConfigManager
+	skillInput string
+}
+
+func (t *skillBashTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
+	return &schema.ToolInfo{
+		Name: "bash",
+		Desc: "在沙箱中执行 bash 命令。用于执行 agent-browser 等 CLI 工具。",
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"command": {
+				Type:        schema.String,
+				Desc:        "要执行的 bash 命令",
+				Required:    true,
+			},
+			"timeout": {
+				Type:        schema.Integer,
+				Desc:        "超时时间（秒），默认 30，最大 300",
+				Required:    false,
+			},
+		}),
+	}, nil
+}
+
+func (t *skillBashTool) ValidateInput(ctx context.Context, input string) *tools.ValidationResult {
+	var bashInput struct {
+		Command string `json:"command"`
+		Timeout int    `json:"timeout,omitempty"`
+	}
+	if err := json.Unmarshal([]byte(input), &bashInput); err != nil {
+		return &tools.ValidationResult{Valid: false, Message: fmt.Sprintf("invalid JSON: %v", err), ErrorCode: 1}
+	}
+	if bashInput.Command == "" {
+		return &tools.ValidationResult{Valid: false, Message: "command is required", ErrorCode: 2}
+	}
+	return &tools.ValidationResult{Valid: true}
+}
+
+func (t *skillBashTool) InvokableRun(ctx context.Context, input string, opt ...tool.Option) (string, error) {
+	var bashInput struct {
+		Command string `json:"command"`
+		Timeout int    `json:"timeout,omitempty"`
+	}
+	if err := json.Unmarshal([]byte(input), &bashInput); err != nil {
+		return "", fmt.Errorf("invalid input: %w", err)
+	}
+
+	logger.Infof("[bash] command: %s", bashInput.Command)
+
+	// 使用沙箱执行命令
+	if t.sandboxCfg != nil && t.sandboxCfg.Enabled {
+		return t.execInSandbox(ctx, bashInput.Command, bashInput.Timeout)
+	}
+
+	// 本地执行
+	return t.execLocally(ctx, bashInput.Command, bashInput.Timeout)
+}
+
+// execInSandbox 在沙箱中执行命令
+func (t *skillBashTool) execInSandbox(ctx context.Context, command string, timeoutSec int) (string, error) {
+	if t.sandboxCfg == nil || !t.sandboxCfg.Enabled {
+		return "", fmt.Errorf("sandbox is not enabled")
+	}
+
+	mode := t.sandboxCfg.Mode
+	if mode == "" {
+		mode = "docker"
+	}
+
+	if mode == "local" {
+		return t.execLocally(ctx, command, timeoutSec)
+	}
+
+	// Docker 模式
+	return t.execInDocker(ctx, command, timeoutSec)
+}
+
+// execLocally 本地执行命令
+func (t *skillBashTool) execLocally(ctx context.Context, command string, timeoutSec int) (string, error) {
+	workdir := t.sandboxCfg.Workdir
+	if workdir == "" {
+		workdir = t.workDir
+	}
+
+	baseDir := strings.TrimSpace(t.baseDir)
+	baseForCommand := workdir
+	if baseDir != "" {
+		baseForCommand = filepath.Join(workdir, baseDir)
+	}
+
+	timeoutMs := t.sandboxCfg.TimeoutMs
+	if timeoutMs <= 0 {
+		timeoutMs = 60000
+	}
+	if timeoutSec > 0 && timeoutSec*1000 < timeoutMs {
+		timeoutMs = timeoutSec * 1000
+	}
+
+	// 构建环境变量
+	env := os.Environ()
+	for k, v := range t.sandboxCfg.Env {
+		kk := strings.TrimSpace(k)
+		if kk == "" {
+			continue
+		}
+		env = append(env, kk+"="+strings.TrimSpace(v))
+	}
+
+	if t.configMgr != nil && t.skillName != "" {
+		skillEnvVars := t.configMgr.ToEnvVars(t.skillName)
+		for k, v := range skillEnvVars {
+			if k == "" {
+				continue
+			}
+			env = append(env, k+"="+v)
+		}
+	}
+
+	if t.skillInput != "" {
+		env = append(env, "SKILL_INPUT="+t.skillInput)
+	}
+
+	callCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMs)*time.Millisecond)
+	defer cancel()
+
+	cmd := exec.CommandContext(callCtx, "sh", "-c", command)
+	cmd.Dir = baseForCommand
+	cmd.Env = env
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	stdoutText := strings.TrimSpace(stdout.String())
+	stderrText := strings.TrimSpace(stderr.String())
+
+	result := map[string]interface{}{
+		"stdout":   stdoutText,
+		"stderr":   stderrText,
+		"exitCode": 0,
+	}
+
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			result["exitCode"] = exitErr.ExitCode()
+		} else {
+			result["exitCode"] = -1
+		}
+		if stderrText == "" {
+			result["stderr"] = err.Error()
+		}
+	}
+
+	output, _ := json.Marshal(result)
+	return string(output), nil
+}
+
+// execInDocker 在 Docker 容器中执行命令
+func (t *skillBashTool) execInDocker(ctx context.Context, command string, timeoutSec int) (string, error) {
+	dockerBin := t.dockerBin
+	if dockerBin == "" {
+		dockerBin = "docker"
+	}
+
+	if _, err := exec.LookPath(dockerBin); err != nil {
+		return "", fmt.Errorf("docker command not found: %w", err)
+	}
+
+	image := t.sandboxCfg.Image
+	if image == "" {
+		image = "alpine:latest"
+	}
+	workdir := t.sandboxCfg.Workdir
+	if workdir == "" {
+		workdir = "/workspace"
+	}
+	if !strings.HasPrefix(workdir, "/") {
+		workdir = "/" + workdir
+	}
+
+	timeoutMs := t.sandboxCfg.TimeoutMs
+	if timeoutMs <= 0 {
+		timeoutMs = 60000
+	}
+	if timeoutSec > 0 && timeoutSec*1000 < timeoutMs {
+		timeoutMs = timeoutSec * 1000
+	}
+	network := t.sandboxCfg.Network
+
+	baseDir := strings.TrimSpace(t.baseDir)
+	baseForCommand := workdir
+	if baseDir != "" {
+		baseForCommand = strings.TrimRight(workdir, "/") + "/" + strings.TrimLeft(baseDir, "/")
+	}
+
+	command = strings.ReplaceAll(command, "{{.BaseDirectory}}", baseForCommand)
+
+	// 构建 docker 命令
+	args := []string{"run", "--rm", "--network", network}
+
+	// 添加资源限制
+	if t.sandboxCfg.Limits != nil {
+		if t.sandboxCfg.Limits.CPU != "" {
+			args = append(args, "--cpu", t.sandboxCfg.Limits.CPU)
+		}
+		if t.sandboxCfg.Limits.Memory != "" {
+			args = append(args, "--memory", t.sandboxCfg.Limits.Memory)
+		}
+	}
+
+	// 添加环境变量
+	for k, v := range t.sandboxCfg.Env {
+		if k != "" {
+			args = append(args, "-e", k+"="+v)
+		}
+	}
+
+	// 添加 skill 配置的环境变量
+	if t.configMgr != nil && t.skillName != "" {
+		skillEnvVars := t.configMgr.ToEnvVars(t.skillName)
+		for k, v := range skillEnvVars {
+			if k != "" {
+				args = append(args, "-e", k+"="+v)
+			}
+		}
+	}
+
+	// 添加 SKILL_INPUT
+	if t.skillInput != "" {
+		args = append(args, "-e", "SKILL_INPUT="+t.skillInput)
+	}
+
+	// 设置工作目录
+	args = append(args, "-w", baseForCommand)
+
+	// 添加镜像和命令
+	args = append(args, image, "sh", "-c", command)
+
+	logger.Infof("[bash] docker command: docker %v", args)
+
+	callCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMs)*time.Millisecond)
+	defer cancel()
+
+	cmd := exec.CommandContext(callCtx, dockerBin, args...)
+	cmd.Env = os.Environ()
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	stdoutText := strings.TrimSpace(stdout.String())
+	stderrText := strings.TrimSpace(stderr.String())
+
+	result := map[string]interface{}{
+		"stdout":   stdoutText,
+		"stderr":   stderrText,
+		"exitCode": 0,
+	}
+
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			result["exitCode"] = exitErr.ExitCode()
+		} else {
+			result["exitCode"] = -1
+		}
+		if stderrText == "" {
+			result["stderr"] = err.Error()
+		}
+	}
+
+	output, _ := json.Marshal(result)
+	return string(output), nil
 }
 
 func (t *skillExecCommandTool) execInSandbox(ctx context.Context, command string) (string, error) {

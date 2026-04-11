@@ -32,11 +32,11 @@
     "a2a": [],
     "mcps": [],
     "sandbox": {
-        "enabled": false,
+        "enabled": true,
         "mode": "local",
         "image": "alpine:latest",
         "workdir": "/workspace",
-        "timeout_ms": 120000,
+        "timeout_ms": 900000,
         "network": "bridge",
         "env": {
             "PATH": "/root/bin:/usr/local/bin:/usr/bin:/bin:/root/.nvm/versions/node/v22.17.1/bin",
@@ -49,9 +49,9 @@
     },
     "options": {
         "temperature": 0.7,
-        "max_tokens": 4000,
-        "max_iterations": 20,
-        "max_tool_calls": 30,
+        "max_tokens": 8000,
+        "max_iterations": 60,
+        "max_tool_calls": 90,
         "max_a2a_calls": 5,
         "max_total_tokens": 80000,
         "stream": false,
