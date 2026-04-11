@@ -146,6 +146,8 @@ func BuildDefaultPrompt(req *types.RunRequest, enabledTools []string) string {
 
 	// Dynamic sections (these are recalculated per request)
 	builder.AddDynamicSection(SkillsSection, GetSkillsSection(req.Skills))
+	builder.AddDynamicSection(SkillsSystemSection, GetSkillsSystemSection())
+	builder.AddDynamicSection(SkillUsageSection, GetSkillUsageSection())
 	builder.AddDynamicSection(McpSection, GetMcpSection(req.MCPs))
 	builder.AddDynamicSection(ContextSection, GetContextSection(req.Context))
 	builder.AddDynamicSection(FilesSection, GetFilesSection(req.Files))
