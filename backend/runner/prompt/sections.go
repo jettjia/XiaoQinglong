@@ -14,23 +14,25 @@ import (
 type SectionType string
 
 const (
-	IntroSection           SectionType = "intro"
-	SystemSection         SectionType = "system"
-	DoingTasksSection     SectionType = "doing_tasks"
-	ActionsSection        SectionType = "actions"
-	UsingYourToolsSection SectionType = "using_your_tools"
+	IntroSection             SectionType = "intro"
+	SystemSection           SectionType = "system"
+	DoingTasksSection       SectionType = "doing_tasks"
+	ActionsSection          SectionType = "actions"
+	UsingYourToolsSection   SectionType = "using_your_tools"
 	OutputEfficiencySection SectionType = "output_efficiency"
-	ToneAndStyleSection   SectionType = "tone_and_style"
-	SkillsSection         SectionType = "skills"
-	McpSection            SectionType = "mcp"
-	EnvironmentSection    SectionType = "environment"
-	SessionSpecificSection SectionType = "session_specific"
-	ContextSection        SectionType = "context"
-	FilesSection          SectionType = "files"
-	A2AAgentsSection      SectionType = "a2a_agents"
-	InternalAgentsSection SectionType = "internal_agents"
-	MemorySection         SectionType = "memory"
-	ResponseSchemaSection SectionType = "response_schema"
+	ToneAndStyleSection     SectionType = "tone_and_style"
+	SkillsSection           SectionType = "skills"
+	SkillsSystemSection     SectionType = "skills_system"
+	SkillUsageSection       SectionType = "skill_usage"
+	McpSection              SectionType = "mcp"
+	EnvironmentSection      SectionType = "environment"
+	SessionSpecificSection   SectionType = "session_specific"
+	ContextSection          SectionType = "context"
+	FilesSection            SectionType = "files"
+	A2AAgentsSection        SectionType = "a2a_agents"
+	InternalAgentsSection   SectionType = "internal_agents"
+	MemorySection           SectionType = "memory"
+	ResponseSchemaSection   SectionType = "response_schema"
 )
 
 // PromptSection represents a single section in the prompt
@@ -115,7 +117,8 @@ func GetToneAndStyleSection() string {
 - Avoid using backticks or HTML tags for file references.`
 }
 
-// GetSkillsSection returns the available skills section (dynamic)
+// GetSkillsSection returns the available skills section with metadata (dynamic)
+// Reference: DB-GPT's progressive disclosure pattern
 func GetSkillsSection(skills []types.Skill) string {
 	if len(skills) == 0 {
 		return ""
@@ -123,7 +126,9 @@ func GetSkillsSection(skills []types.Skill) string {
 
 	var lines []string
 	lines = append(lines, "# Available Skills")
-	lines = append(lines, "Skills provide specialized capabilities. Use the load_skill tool to get full details.")
+	lines = append(lines, "")
+	lines = append(lines, "Skills provide specialized capabilities. Available skills are listed below with their triggers and I/O.")
+	lines = append(lines, "Use the `load_skill` tool to get full skill instructions when needed.")
 
 	for _, skill := range skills {
 		desc := skill.Description
@@ -135,11 +140,29 @@ func GetSkillsSection(skills []types.Skill) string {
 		if len(runes) > MaxSkillDescChars {
 			desc = string(runes[:MaxSkillDescChars-1]) + "…"
 		}
-		lines = append(lines, fmt.Sprintf("- %s: %s", skill.Name, desc))
+		lines = append(lines, fmt.Sprintf("- **%s**: %s", skill.Name, desc))
+
+		// Add trigger keywords if available
+		if skill.Trigger != "" {
+			lines = append(lines, fmt.Sprintf("  - triggers: %s", skill.Trigger))
+		}
+
+		// Add inputs if available
+		if len(skill.Inputs) > 0 {
+			lines = append(lines, fmt.Sprintf("  - inputs: %s", strings.Join(skill.Inputs, ", ")))
+		}
+
+		// Add outputs if available
+		if len(skill.Outputs) > 0 {
+			lines = append(lines, fmt.Sprintf("  - outputs: %s", strings.Join(skill.Outputs, ", ")))
+		}
+
+		lines = append(lines, "")
 	}
 
-	lines = append(lines, "")
-	lines = append(lines, "Use the load_skill tool to get full skill instructions.")
+	lines = append(lines, "Use the `load_skill` tool to get full skill instructions.")
+	lines = append(lines, "Use the `run_skill` tool to execute a skill directly.")
+	lines = append(lines, "Use the `orchestrate_skills` tool for complex multi-step tasks.")
 
 	// 检查是否有生成 HTML 的 skill（如 csv-data-analysis）
 	hasHtmlSkills := false
@@ -167,6 +190,74 @@ func GetSkillsSection(skills []types.Skill) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// GetSkillsSystemSection returns the skills system guidance (Reference: DB-GPT SKILLS_SYSTEM_PROMPT)
+// This instructs the LLM on how to use skills
+func GetSkillsSystemSection() string {
+	return `# Skills System
+
+You have access to a skills library that provides specialized capabilities and domain knowledge.
+
+## How to Use Skills (Progressive Disclosure)
+
+Skills follow a **progressive disclosure** pattern:
+
+1. **Recognize when a skill applies**: Check if the user's task matches a skill's description or triggers
+2. **Load skill details**: Use the 'load_skill' tool to get full instructions for the matched skill
+3. **Execute the skill**: Use the 'run_skill' tool to execute the skill, or follow the instructions in the skill
+4. **For complex tasks**: Use 'orchestrate_skills' to plan and execute multiple skills
+
+## When to Use Skills
+
+- User's request matches a skill's domain (e.g., "research X" -> web-research skill)
+- You need specialized knowledge or structured workflows
+- A skill provides proven patterns for complex tasks
+- The task requires specific tool sequences that the skill encapsulates
+
+## Skill Selection Guidance
+
+- **Match by name/keywords**: If user mentions skill name or description keywords, use that skill
+- **Match by trigger**: Skills have trigger phrases - use them when user input matches triggers
+- **Multiple skills**: For complex tasks requiring multiple capabilities, use 'orchestrate_skills'
+- **When unsure**: Use 'load_skill' to read full skill instructions and decide
+
+## Skill Execution Flow
+
+1. Identify potential skill(s) from Available Skills list
+2. Use 'load_skill' to get full instructions (optional but recommended)
+3. Use 'run_skill' with appropriate input, or follow the skill's instructions
+4. Interpret the result - if it contains a report link, treat it as final output`
+}
+
+// GetSkillUsageSection returns practical examples of skill usage
+func GetSkillUsageSection() string {
+	return `# Skill Usage Examples
+
+## Direct Skill Execution
+- User: "帮我分析这个CSV文件" -> Use 'run_skill' with csv-data-analysis
+- User: "帮我创建PPT" -> Use 'run_skill' with pptx
+- User: "上传文件到S3" -> Use 'run_skill' with s3-upload
+
+## Browser/Search Tasks
+- User: "帮我搜索北京的天气" -> Use agent-browser skill
+  1. 'load_skill' to get browser CLI instructions
+  2. 'run_skill' or follow instructions to open browser and search
+- User: "帮我抓取这个网页的数据" -> Use agent-browser skill to navigate and extract
+
+## Multi-Step Tasks
+- User: "分析销售数据并生成报告" -> Use 'orchestrate_skills'
+  - First skill: csv-data-analysis
+  - Second skill: pptx or report generation
+
+## When to Load vs Run
+- **Use 'load_skill' first** when: You need to understand the full workflow before executing
+- **Use 'run_skill' directly** when: Task clearly matches skill's description and you know the required input
+
+## Common Pitfalls to Avoid
+- Don't call multiple skills unnecessarily - one skill may be enough
+- Don't re-implement what a skill already does - use the skill instead
+- When a skill returns a report link, STOP - don't try to read/process the report file`
 }
 
 // GetMcpSection returns the MCP instructions section (dynamic)

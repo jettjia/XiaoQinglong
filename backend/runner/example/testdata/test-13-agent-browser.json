@@ -1,0 +1,101 @@
+{
+    "endpoint": "http://localhost:18080/run",
+    "models": {
+        "default": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "rewrite": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "skill": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "summarize": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        }
+    },
+    "system_prompt": "你是一个浏览器自动化助手。你必须且只能使用 agent-browser skill 来完成用户请求的任务。\n\n【强制规则】\n1. 禁止使用 WebFetch、WebSearch 等 HTTP 请求工具获取网页数据\n2. 禁止使用 Bash 工具执行 curl、wget 等命令\n3. 所有网页操作必须通过 agent-browser CLI 完成\n\n【agent-browser 标准工作流程 - 必须遵循】\n1. agent-browser open <url> - 打开网页\n2. agent-browser snapshot -i --json - 获取页面元素快照\n3. 根据 snapshot 结果，用 click/fill @eN 操作\n4. 页面变化后必须重新 snapshot\n5. 最后用 agent-browser get text @eN --json 提取数据\n\n【重要】如果 snapshot 没看到目标数据：\n- 先 scroll down 500 向下滚动\n- 重新 snapshot 获取新元素\n- 直到找到数据再用 get text 提取\n\n【禁止】\n- 不要在没提取到数据时就结束任务\n- 不要在多个网站之间跳来跳去\n- 不要打开网页后就立即结束",
+    "user_message": "帮我用浏览器搜索一下北京今天的天气情况，把温度告诉我",
+    "tools": [],
+    "a2a": [],
+    "mcps": [],
+    "sandbox": {
+        "enabled": true,
+        "mode": "local",
+        "image": "alpine:latest",
+        "workdir": "/workspace",
+        "timeout_ms": 900000,
+        "network": "bridge",
+        "env": {
+            "PATH": "/root/bin:/usr/local/bin:/usr/bin:/bin:/root/.nvm/versions/node/v22.17.1/bin",
+            "AGENT_BROWSER_CDP": "9225"
+        },
+        "limits": {
+            "cpu": "1.0",
+            "memory": "512m"
+        }
+    },
+    "options": {
+        "temperature": 0.7,
+        "max_tokens": 8000,
+        "max_iterations": 60,
+        "max_tool_calls": 90,
+        "max_a2a_calls": 5,
+        "max_total_tokens": 80000,
+        "stream": false,
+        "retry": {
+            "max_attempts": 2,
+            "initial_delay_ms": 1000,
+            "max_delay_ms": 10000,
+            "backoff_multiplier": 2.0,
+            "retryable_errors": [
+                "timeout",
+                "rate_limit",
+                "server_error"
+            ]
+        },
+        "routing": {
+            "default_model": "default",
+            "rewrite_prompt": "请优化以下用户Query，使其更加清晰、准确，便于理解和执行。只返回优化后的Query，不要其他内容。",
+            "summarize_prompt": "请总结以下内容，提取关键信息，保持简洁。只返回总结内容，不要其他内容。"
+        },
+        "approval_policy": {
+            "enabled": false,
+            "risk_threshold": "medium"
+        },
+        "checkpoint_id": "test-browser-001"
+    },
+    "skills": [
+        {
+            "id": "agent-browser",
+            "name": "浏览器自动化",
+            "description": "网页搜索、打开网站、浏览器操作、获取网页数据、点击网页元素、填表提交、抓取网页内容",
+            "instruction": "使用 agent-browser CLI 进行浏览器自动化操作。通过 bash 工具执行 agent-browser 命令。",
+            "scope": "both",
+            "trigger": "auto",
+            "risk_level": "medium"
+        }
+    ],
+    "sub_agents": [],
+    "context": {
+        "session_id": "sess_browser_001",
+        "user_id": "user_001",
+        "channel_id": "test",
+        "skills_dir": "/home/jett/self/XiaoQinglong/skills",
+        "variables": {}
+    },
+    "knowledge_bases": [],
+    "files": []
+}
