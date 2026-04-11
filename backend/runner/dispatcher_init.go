@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/adk"
@@ -596,6 +597,35 @@ func (d *Dispatcher) initSkills(ctx context.Context) error {
 		skills = append(skills, skill)
 	}
 
+	// 自动从 GLOBAL_SKILLS_DIR (默认 ~/.agents/skills) 加载额外的 skills
+	globalSkillsDir := os.Getenv("GLOBAL_SKILLS_DIR")
+	if globalSkillsDir == "" {
+		home := os.Getenv("HOME")
+		if home != "" {
+			globalSkillsDir = filepath.Join(home, ".agents", "skills")
+		}
+	}
+	if globalSkillsDir != "" {
+		if _, err := os.Stat(globalSkillsDir); err == nil {
+			logger.Infof("[Dispatcher] initSkills: scanning global skills dir: %s", globalSkillsDir)
+			globalSkills := discoverSkillsFromDir(globalSkillsDir, skillsDir)
+			for _, gs := range globalSkills {
+				// 检查是否已存在（request 中的 skill 优先）
+				exists := false
+				for _, s := range skills {
+					if s.ID == gs.ID {
+						exists = true
+						break
+					}
+				}
+				if !exists {
+					logger.Infof("[Dispatcher] initSkills: added global skill: %s", gs.ID)
+					skills = append(skills, gs)
+				}
+			}
+		}
+	}
+
 	var sandboxCfg *types.SandboxConfig
 	if d.request.Sandbox != nil {
 		var limits *types.SandboxLimits
@@ -938,4 +968,140 @@ func (h *cronTaskHandler) OnTaskFired(taskID string, prompt string) {
 // OnTaskError 当任务执行出错时记录日志
 func (h *cronTaskHandler) OnTaskError(taskID string, err error) {
 	logger.Errorf("[CronTaskHandler] Task %s error: %v", taskID, err)
+}
+
+// discoverSkillsFromDir 从目录中发现所有 skills
+// 扫描子目录，寻找包含 SKILL.md 的目录，每个目录视为一个 skill
+func discoverSkillsFromDir(globalDir string, fallbackSkillsDir string) []types.Skill {
+	var discovered []types.Skill
+
+	entries, err := os.ReadDir(globalDir)
+	if err != nil {
+		logger.Warnf("[discoverSkillsFromDir] failed to read global skills dir: %v", err)
+		return discovered
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		skillID := entry.Name()
+		skillDir := filepath.Join(globalDir, skillID)
+		skillMD := filepath.Join(skillDir, "SKILL.md")
+
+		// 检查 SKILL.md 是否存在
+		if _, err := os.Stat(skillMD); err != nil {
+			continue
+		}
+
+		// 读取 SKILL.md
+		data, err := os.ReadFile(skillMD)
+		if err != nil {
+			continue
+		}
+
+		skill := types.Skill{
+			ID:          skillID,
+			Name:        skillID,
+			Instruction: string(data),
+			Scope:       "both",
+		}
+
+		// 尝试从 frontmatter 解析 name 和 description
+		frontmatter := parseSkillFrontmatter(string(data))
+		if frontmatter != nil {
+			if name, ok := frontmatter["name"].(string); ok && name != "" {
+				skill.Name = name
+			}
+			if desc, ok := frontmatter["description"].(string); ok && desc != "" {
+				skill.Description = desc
+			}
+			if scope, ok := frontmatter["scope"].(string); ok && scope != "" {
+				skill.Scope = scope
+			}
+			if trigger, ok := frontmatter["trigger"].(string); ok && trigger != "" {
+				skill.Trigger = trigger
+			}
+		}
+
+		// 设置 FilePath 为 skill 目录
+		skill.FilePath = skillDir
+
+		// 检查 scripts 目录
+		scriptsDir := filepath.Join(skillDir, "scripts")
+		if info, err := os.Stat(scriptsDir); err == nil && info.IsDir() {
+			// 尝试找到入口脚本
+			// 按优先级查找: skillID.sh > main.sh > 第一个 .sh 文件
+			entryScript := ""
+			for _, name := range []string{skillID + ".sh", "main.sh"} {
+				scriptPath := filepath.Join(scriptsDir, name)
+				if _, err := os.Stat(scriptPath); err == nil {
+					entryScript = name
+					break
+				}
+			}
+			if entryScript == "" {
+				// 找第一个 .sh 文件
+				if entries, err := os.ReadDir(scriptsDir); err == nil {
+					for _, e := range entries {
+						if !e.IsDir() && strings.HasSuffix(e.Name(), ".sh") {
+							entryScript = e.Name()
+							break
+						}
+					}
+				}
+			}
+			if entryScript != "" {
+				skill.EntryScript = entryScript
+			}
+		}
+
+		discovered = append(discovered, skill)
+		logger.Infof("[discoverSkillsFromDir] discovered skill: %s (name=%s, entry=%s)", skill.ID, skill.Name, skill.EntryScript)
+	}
+
+	return discovered
+}
+
+// parseSkillFrontmatter 解析 SKILL.md 的 YAML frontmatter
+func parseSkillFrontmatter(content string) map[string]any {
+	// 简单解析 --- ... --- 格式的 frontmatter
+	if !strings.HasPrefix(content, "---") {
+		return nil
+	}
+
+	lines := strings.Split(content, "\n")
+	if len(lines) < 3 {
+		return nil
+	}
+
+	// 找到结束 ---
+	endIdx := -1
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			endIdx = i
+			break
+		}
+	}
+
+	if endIdx < 2 {
+		return nil
+	}
+
+	// 简单解析 key: value 格式
+	result := make(map[string]any)
+	for i := 1; i < endIdx; i++ {
+		line := strings.TrimSpace(lines[i])
+		if idx := strings.Index(line, ":"); idx > 0 {
+			key := strings.TrimSpace(line[:idx])
+			value := strings.TrimSpace(line[idx+1:])
+			// 去掉可能的引号
+			value = strings.Trim(value, "\"")
+			value = strings.Trim(value, "'")
+			result[key] = value
+		}
+	}
+
+	return result
 }
