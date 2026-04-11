@@ -1,0 +1,101 @@
+{
+    "endpoint": "http://localhost:18080/run",
+    "models": {
+        "default": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "rewrite": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "skill": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        },
+        "summarize": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL_MINI}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        }
+    },
+    "system_prompt": "你是一个浏览器自动化助手。必须使用 agent-browser skill 来完成以下任务：通过浏览器打开网页、截图、提取页面数据。不要使用 WebSearch 工具，必须用浏览器操作来获取信息。",
+    "user_message": "打开浏览器，访问百度，搜索'北京天气'，然后告诉我北京今天的温度是多少",
+    "tools": [],
+    "a2a": [],
+    "mcps": [],
+    "sandbox": {
+        "enabled": false,
+        "mode": "local",
+        "image": "alpine:latest",
+        "workdir": "/workspace",
+        "timeout_ms": 120000,
+        "network": "bridge",
+        "env": {
+            "PATH": "/root/bin:/usr/local/bin:/usr/bin:/bin:/root/.nvm/versions/node/v22.17.1/bin",
+            "AGENT_BROWSER_CDP": "9225"
+        },
+        "limits": {
+            "cpu": "1.0",
+            "memory": "512m"
+        }
+    },
+    "options": {
+        "temperature": 0.7,
+        "max_tokens": 4000,
+        "max_iterations": 20,
+        "max_tool_calls": 30,
+        "max_a2a_calls": 5,
+        "max_total_tokens": 80000,
+        "stream": false,
+        "retry": {
+            "max_attempts": 2,
+            "initial_delay_ms": 1000,
+            "max_delay_ms": 10000,
+            "backoff_multiplier": 2.0,
+            "retryable_errors": [
+                "timeout",
+                "rate_limit",
+                "server_error"
+            ]
+        },
+        "routing": {
+            "default_model": "default",
+            "rewrite_prompt": "请优化以下用户Query，使其更加清晰、准确，便于理解和执行。只返回优化后的Query，不要其他内容。",
+            "summarize_prompt": "请总结以下内容，提取关键信息，保持简洁。只返回总结内容，不要其他内容。"
+        },
+        "approval_policy": {
+            "enabled": false,
+            "risk_threshold": "medium"
+        },
+        "checkpoint_id": "test-browser-001"
+    },
+    "skills": [
+        {
+            "id": "agent-browser",
+            "name": "浏览器自动化",
+            "description": "网页搜索、打开网站、浏览器操作、获取网页数据、点击网页元素、填表提交、抓取网页内容",
+            "instruction": "使用 agent-browser CLI 进行浏览器自动化操作。通过 bash 工具执行 agent-browser 命令。",
+            "scope": "both",
+            "trigger": "auto",
+            "risk_level": "medium"
+        }
+    ],
+    "sub_agents": [],
+    "context": {
+        "session_id": "sess_browser_001",
+        "user_id": "user_001",
+        "channel_id": "test",
+        "skills_dir": "/home/jett/self/XiaoQinglong/skills",
+        "variables": {}
+    },
+    "knowledge_bases": [],
+    "files": []
+}
