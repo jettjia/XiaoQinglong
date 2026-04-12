@@ -10,7 +10,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.1
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
-	github.com/jettjia/igo-pkg v1.9.6
+	github.com/jettjia/igo-pkg v1.9.7
 	github.com/jinzhu/copier v0.4.0
 	github.com/larksuite/oapi-sdk-go/v3 v3.5.3
 	github.com/mark3labs/mcp-go v0.44.1
@@ -22,7 +22,7 @@ require (
 	go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin v0.51.0
 	google.golang.org/grpc v1.63.2
 	google.golang.org/protobuf v1.35.2
-	gorm.io/gorm v1.25.12
+	gorm.io/gorm v1.30.0
 )
 
 require (
@@ -75,6 +75,7 @@ require (
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.19 // indirect
+	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/oklog/ulid/v2 v2.1.0 // indirect
@@ -107,5 +108,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gorm.io/driver/mysql v1.5.7 // indirect
 	gorm.io/driver/postgres v1.5.11 // indirect
-	gorm.io/plugin/dbresolver v1.5.3 // indirect
+	gorm.io/driver/sqlite v1.6.0 // indirect
+	gorm.io/plugin/dbresolver v1.6.2 // indirect
 )
