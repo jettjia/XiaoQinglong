@@ -144,7 +144,7 @@ func (d *Dispatcher) initTools(ctx context.Context) error {
 				RiskLevel:   tc.RiskLevel,
 			})
 			// 根据 risk_level 判断是否需要包装审批
-			wrapped := d.wrapToolWithApproval(httpTool, tc.Name, "http", tc.RiskLevel)
+			wrapped := WrapToolWithApproval(httpTool, tc.Name, "http", tc.RiskLevel, d.request.Options.ApprovalPolicy)
 			d.tools = append(d.tools, wrapped)
 		}
 	}
@@ -273,7 +273,7 @@ func (d *Dispatcher) initA2A(ctx context.Context) error {
 			}
 
 			// 根据 risk_level 判断是否需要包装审批
-			wrappedA2ATool := d.wrapToolWithApproval(a2aTool, "a2a", "a2a", a2aRiskLevel)
+			wrappedA2ATool := WrapToolWithApproval(a2aTool, "a2a", "a2a", a2aRiskLevel, d.request.Options.ApprovalPolicy)
 			d.tools = append(d.tools, wrappedA2ATool)
 		}
 	}
@@ -493,7 +493,7 @@ func (d *Dispatcher) initMCPs(ctx context.Context) error {
 			for _, t := range tools {
 				// HTTP/SSE MCP tools 需要包装审批
 				if invokableTool, ok := t.(tool.InvokableTool); ok {
-					wrapped := d.wrapToolWithApproval(invokableTool, mcpCfg.Name, "mcp", mcpCfg.RiskLevel)
+					wrapped := WrapToolWithApproval(invokableTool, mcpCfg.Name, "mcp", mcpCfg.RiskLevel, d.request.Options.ApprovalPolicy)
 					d.tools = append(d.tools, wrapped)
 				} else {
 					d.tools = append(d.tools, t)
@@ -526,7 +526,7 @@ func (d *Dispatcher) initMCPs(ctx context.Context) error {
 					name:   t.Name,
 					client: client,
 				}
-				wrapped := d.wrapToolWithApproval(mcpTool, t.Name, "mcp", mcpCfg.RiskLevel)
+				wrapped := WrapToolWithApproval(mcpTool, t.Name, "mcp", mcpCfg.RiskLevel, d.request.Options.ApprovalPolicy)
 				d.tools = append(d.tools, wrapped)
 			}
 			logger.Infof("[Dispatcher] initMCP: %s (stdio) initialized with %d tools", mcpCfg.Name, len(tools))
@@ -709,7 +709,7 @@ func (d *Dispatcher) initSkills(ctx context.Context) error {
 			// 如果有任何 skill 需要审批，则包装 skill tool
 			needsApproval := false
 			for _, riskLevel := range skillRiskLevels {
-				if d.shouldWrapForApproval("skill", riskLevel) {
+				if ShouldWrapForApproval("skill", riskLevel, d.request.Options.ApprovalPolicy) {
 					needsApproval = true
 					break
 				}
@@ -859,7 +859,7 @@ func (d *Dispatcher) initBuiltinTools(ctx context.Context) error {
 		}
 
 		// 包装工具并添加到列表
-		wrapped := d.wrapToolWithApproval(t, info.Name, "builtin", riskLevel)
+		wrapped := WrapToolWithApproval(t, info.Name, "builtin", riskLevel, d.request.Options.ApprovalPolicy)
 		d.tools = append(d.tools, wrapped)
 	}
 
@@ -910,7 +910,7 @@ func (d *Dispatcher) initCLIs(ctx context.Context) error {
 			riskLevel = "medium"
 		}
 
-		wrapped := d.wrapToolWithApproval(cliTool, "cli_"+cliReq.Name, "cli", riskLevel)
+		wrapped := WrapToolWithApproval(cliTool, "cli_"+cliReq.Name, "cli", riskLevel, d.request.Options.ApprovalPolicy)
 		d.tools = append(d.tools, wrapped)
 		logger.Infof("[Dispatcher] initCLIs: registered CLI tool: %s", cliReq.Name)
 	}

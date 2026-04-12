@@ -212,22 +212,10 @@ func (r *Runner) getDefaultModelName() string {
 	return cfg.Name
 }
 
-const eventsChanKey contextKey = "eventsChan"
 const toolArgsMapKey contextKey = "toolArgsMap"
 
 // toolArgsMap 用于保存 tool_call_id -> arguments 的映射
 type toolArgsMapType map[string]string
-
-// withEventsChan 将 eventsChan 添加到 context 中
-func withEventsChan(ctx context.Context, ch chan StreamEvent) context.Context {
-	return context.WithValue(ctx, eventsChanKey, ch)
-}
-
-// getEventsChan 从 context 中获取 eventsChan
-func getEventsChan(ctx context.Context) chan StreamEvent {
-	ch, _ := ctx.Value(eventsChanKey).(chan StreamEvent)
-	return ch
-}
 
 // withToolArgsMap 将 toolArgsMap 添加到 context 中
 func withToolArgsMap(ctx context.Context, m toolArgsMapType) context.Context {
@@ -538,88 +526,6 @@ func (d *Dispatcher) initCompactService(ctx context.Context) {
 	logger.Infof("[Dispatcher] initCompactService: enabled with model=%s", d.defaultModelName)
 }
 
-// shouldWrapForApproval 判断工具是否需要包装审批
-func (d *Dispatcher) shouldWrapForApproval(toolName, riskLevel string) bool {
-	if d.request.Options == nil || d.request.Options.ApprovalPolicy == nil {
-		return false
-	}
-
-	policy := d.request.Options.ApprovalPolicy
-	if !policy.Enabled {
-		return false
-	}
-
-	// 检查是否在白名单中
-	for _, name := range policy.AutoApprove {
-		if name == toolName {
-			return false
-		}
-	}
-
-	// 检查 risk_level 是否达到阈值
-	return ShouldApprove(riskLevel, policy.RiskThreshold)
-}
-
-// wrapToolWithApproval 如果需要审批，包装工具
-func (d *Dispatcher) wrapToolWithApproval(t tool.InvokableTool, toolName, toolType, riskLevel string) tool.BaseTool {
-	if !d.shouldWrapForApproval(toolName, riskLevel) {
-		return t
-	}
-
-	logger.Infof("[Dispatcher] Wrapping tool %s (%s) with approval, risk_level=%s", toolName, toolType, riskLevel)
-	return NewInvokableApprovableTool(t, toolName, toolType, riskLevel)
-}
-
-// buildToolRiskLevels 构建工具名称到风险级别的映射
-func (d *Dispatcher) buildToolRiskLevels() map[string]string {
-	riskLevels := make(map[string]string)
-
-	logger.Infof("[Dispatcher] buildToolRiskLevels: d.request.Tools has %d tools", len(d.request.Tools))
-	for _, tc := range d.request.Tools {
-		logger.Infof("[Dispatcher]   tool: name=%s, type=%s, risk_level=%s", tc.Name, tc.Type, tc.RiskLevel)
-		riskLevels[tc.Name] = tc.RiskLevel
-	}
-
-	logger.Infof("[Dispatcher] buildToolRiskLevels: d.request.A2A has %d agents", len(d.request.A2A))
-	// A2A agents
-	for _, cfg := range d.request.A2A {
-		logger.Infof("[Dispatcher]   a2a: name=%s, risk_level=%s", cfg.Name, cfg.RiskLevel)
-		riskLevels["a2a"] = cfg.RiskLevel
-	}
-
-	logger.Infof("[Dispatcher] buildToolRiskLevels: d.request.MCPs has %d configs", len(d.request.MCPs))
-	// MCP tools (using the mcp name)
-	for _, cfg := range d.request.MCPs {
-		logger.Infof("[Dispatcher]   mcp: name=%s, risk_level=%s", cfg.Name, cfg.RiskLevel)
-		riskLevels[cfg.Name] = cfg.RiskLevel
-	}
-
-	// A2A agents
-	for _, cfg := range d.request.A2A {
-		riskLevels["a2a"] = cfg.RiskLevel
-	}
-
-	// MCP tools (using the mcp name)
-	for _, cfg := range d.request.MCPs {
-		riskLevels[cfg.Name] = cfg.RiskLevel
-	}
-
-	return riskLevels
-}
-
-// buildApprovalToolMiddleware 构建审批中间件
-func (d *Dispatcher) buildApprovalToolMiddleware() compose.InvokableToolMiddleware {
-	// 设置审批阈值
-	if d.request.Options != nil && d.request.Options.ApprovalPolicy != nil {
-		SetApprovalThreshold(d.request.Options.ApprovalPolicy.RiskThreshold)
-	}
-
-	riskLevels := d.buildToolRiskLevels()
-	logger.Infof("[Dispatcher] Building approval middleware with %d tools, threshold=%s", len(riskLevels), approvalThreshold)
-
-	return newApprovalToolMiddleware(riskLevels).Wrap
-}
-
 // mcpStdioTool stdio 模式的 MCP tool
 type mcpStdioTool struct {
 	name   string
@@ -744,7 +650,7 @@ func (d *Dispatcher) buildSystemPrompt() string {
 	basePrompt := strings.Join(parts, "\n\n")
 
 	// 尝试加载记忆 section
-	memorySection := d.loadMemorySection()
+	memorySection := memory.LoadMemorySection(d.memStore, d.request.Context)
 	if memorySection != "" {
 		return basePrompt + "\n\n" + memorySection
 	}
@@ -759,64 +665,6 @@ func (d *Dispatcher) computeToolsHash(enabledTools []string) string {
 	}
 	// Simple hash using strings.Join - for cache invalidation purposes only
 	return strings.Join(enabledTools, ",")
-}
-
-// loadMemorySection 加载记忆 section（使用本地文件存储）
-func (d *Dispatcher) loadMemorySection() string {
-	if d.memStore == nil {
-		return ""
-	}
-
-	// 从 context 中获取 session_id、user_id、agent_id
-	sessionID := ""
-	userID := ""
-	agentID := ""
-
-	if v, ok := d.request.Context["session_id"].(string); ok {
-		sessionID = v
-	}
-	if v, ok := d.request.Context["user_id"].(string); ok {
-		userID = v
-	}
-	if v, ok := d.request.Context["agent_id"].(string); ok {
-		agentID = v
-	}
-
-	// 构建记忆上下文
-	memCtx := memory.NewMemoryContext(sessionID, userID, agentID, d.memStore)
-
-	// 返回格式化的记忆块
-	return memCtx.ToPromptBlock()
-}
-
-// convertMemoryIndexToLines 将 memory index 转换为 hook line 列表
-func (d *Dispatcher) convertMemoryIndexToLines(indices interface{}) []string {
-	// indices 是 []interface{} 或具体的 slice 类型
-	// 反射提取每个元素的 hook_line 字段
-
-	lines := make([]string, 0, 200)
-
-	// 假设 indices 是 []map[string]interface{} 或类似结构
-	// 由于是动态调用，我们做简单的类型检查
-
-	switch v := indices.(type) {
-	case []interface{}:
-		for _, item := range v {
-			if m, ok := item.(map[string]interface{}); ok {
-				if hookLine, ok := m["hook_line"].(string); ok {
-					lines = append(lines, hookLine)
-				}
-			}
-		}
-	case []map[string]interface{}:
-		for _, m := range v {
-			if hookLine, ok := m["hook_line"].(string); ok {
-				lines = append(lines, hookLine)
-			}
-		}
-	}
-
-	return lines
 }
 
 // buildMessagesWithRewrite builds messages and optionally rewrites the last user query
@@ -895,24 +743,9 @@ func (d *Dispatcher) retrieveKnowledge(ctx context.Context, query string) string
 	}
 
 	logger.Infof("[Dispatcher] retrieveKnowledge: got %d docs", len(docs))
-	if len(docs) == 0 {
-		return ""
-	}
 
-	// 格式化成 section
-	var lines []string
-	lines = append(lines, "# Knowledge Base")
-	lines = append(lines, "Use the following information from knowledge base to answer questions:")
-	lines = append(lines, "")
-	for i, doc := range docs {
-		lines = append(lines, fmt.Sprintf("## [%d] %s", i+1, doc.MetaData["title"]))
-		lines = append(lines, fmt.Sprintf("Source: %s (score: %.2f)", doc.MetaData["kb_name"], doc.MetaData["score"]))
-		lines = append(lines, "")
-		lines = append(lines, doc.Content)
-		lines = append(lines, "")
-	}
-
-	return strings.Join(lines, "\n")
+	// 使用 retriever 包的格式化函数
+	return retriever.FormatKnowledgeResults(docs)
 }
 
 func (d *Dispatcher) buildMessages(systemPrompt string) []adk.Message {
@@ -970,32 +803,6 @@ func (d *Dispatcher) rewriteQuery(ctx context.Context, query string) (string, er
 	resp, err := rewriteModel.Generate(ctx, messages)
 	if err != nil {
 		return query, fmt.Errorf("rewrite failed: %w", err)
-	}
-
-	return resp.Content, nil
-}
-
-// summarizeContent uses the summarize model to summarize content
-func (d *Dispatcher) summarizeContent(ctx context.Context, content string) (string, error) {
-	summarizeModel := d.getModel(ModelRoleSummarize)
-	if summarizeModel == nil {
-		return content, nil // no summarize model, return original
-	}
-
-	routingCfg := d.getRoutingConfig()
-	prompt := routingCfg.SummarizePrompt
-	if prompt == "" {
-		prompt = "请总结以下内容，提取关键信息，保持简洁。只返回总结内容，不要其他内容。"
-	}
-
-	messages := []adk.Message{
-		schema.SystemMessage(prompt),
-		schema.UserMessage(content),
-	}
-
-	resp, err := summarizeModel.Generate(ctx, messages)
-	if err != nil {
-		return content, fmt.Errorf("summarize failed: %w", err)
 	}
 
 	return resp.Content, nil
@@ -1083,7 +890,7 @@ func (d *Dispatcher) checkAndTriggerCompaction(messages []adk.Message) {
 	}
 
 	// 转换消息格式
-	ccMessages := d.convertToCCMessages(messages)
+	ccMessages := contextcompressor.ConvertToCCMessages(messages)
 
 	// 检查是否需要压缩
 	if !d.compactService.ShouldCompact(ccMessages) {
@@ -1115,7 +922,7 @@ func (d *Dispatcher) applyCompactionResultNonBlocking(messages *[]adk.Message, c
 
 		// 压缩成功，转换为 adk.Message
 		compactedCC := contextcompressor.BuildPostCompactMessages(resp.Result)
-		compactedAdk := d.convertFromCCMessages(compactedCC)
+		compactedAdk := contextcompressor.ConvertFromCCMessages(compactedCC)
 
 		logger.Infof("[Dispatcher] applyCompactionResultNonBlocking: applied compaction [checkpointID=%s], original=%d, compacted=%d",
 			checkpointID, len(*messages), len(compactedAdk))
@@ -1137,7 +944,7 @@ func (d *Dispatcher) recheckCompactionAfterApply(messages []adk.Message) {
 		return
 	}
 
-	ccMessages := d.convertToCCMessages(messages)
+	ccMessages := contextcompressor.ConvertToCCMessages(messages)
 	if d.compactService.ShouldCompact(ccMessages) {
 		// 再次触发压缩（可能会选择更高等级）
 		select {
@@ -1147,52 +954,6 @@ func (d *Dispatcher) recheckCompactionAfterApply(messages []adk.Message) {
 			logger.Infof("[Dispatcher] recheckCompactionAfterApply: channel full, skipping")
 		}
 	}
-}
-
-// convertToCCMessages 将 adk.Message 转换为 contextcompressor.Message
-func (d *Dispatcher) convertToCCMessages(messages []adk.Message) []contextcompressor.Message {
-	result := make([]contextcompressor.Message, 0, len(messages))
-	for _, m := range messages {
-		// adk.Message = *schema.Message
-		ccMsg := contextcompressor.Message{
-			Role: string(m.Role),
-		}
-		switch m.Role {
-		case schema.User:
-			ccMsg.Type = contextcompressor.MessageTypeUser
-			ccMsg.Content = []contextcompressor.ContentBlock{{Type: "text", Text: m.Content}}
-		case schema.Assistant:
-			ccMsg.Type = contextcompressor.MessageTypeAssistant
-			ccMsg.Content = []contextcompressor.ContentBlock{{Type: "text", Text: m.Content}}
-		case schema.System:
-			ccMsg.Type = contextcompressor.MessageTypeSystem
-			ccMsg.Content = []contextcompressor.ContentBlock{{Type: "text", Text: m.Content}}
-		}
-		result = append(result, ccMsg)
-	}
-	return result
-}
-
-// convertFromCCMessages 将 contextcompressor.Message 转换回 adk.Message
-func (d *Dispatcher) convertFromCCMessages(messages []contextcompressor.Message) []adk.Message {
-	result := make([]adk.Message, 0, len(messages))
-	for _, m := range messages {
-		text := ""
-		for _, block := range m.Content {
-			if block.Type == "text" {
-				text += block.Text
-			}
-		}
-		switch m.Type {
-		case contextcompressor.MessageTypeUser:
-			result = append(result, schema.UserMessage(text))
-		case contextcompressor.MessageTypeAssistant:
-			result = append(result, schema.AssistantMessage(text, nil))
-		case contextcompressor.MessageTypeSystem:
-			result = append(result, schema.SystemMessage(text))
-		}
-	}
-	return result
 }
 
 func (d *Dispatcher) runAgent(ctx context.Context, messages []adk.Message) (*DispatchResult, error) {
@@ -1986,10 +1747,4 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 	}()
 
 	return eventsChan, nil
-}
-
-// StreamEvent 流式事件
-type StreamEvent struct {
-	Type string
-	Data map[string]any
 }

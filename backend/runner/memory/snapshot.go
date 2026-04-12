@@ -172,3 +172,32 @@ func (m *MemoryContext) ToPromptBlock() string {
 
 	return result
 }
+
+// LoadMemorySection 从 memory store 加载记忆 section
+// context 中的 session_id、user_id、agent_id 用于构建记忆上下文
+func LoadMemorySection(memStore *MemStore, context map[string]any) string {
+	if memStore == nil {
+		return ""
+	}
+
+	// 从 context 中获取 session_id、user_id、agent_id
+	sessionID := ""
+	userID := ""
+	agentID := ""
+
+	if v, ok := context["session_id"].(string); ok {
+		sessionID = v
+	}
+	if v, ok := context["user_id"].(string); ok {
+		userID = v
+	}
+	if v, ok := context["agent_id"].(string); ok {
+		agentID = v
+	}
+
+	// 构建记忆上下文
+	memCtx := NewMemoryContext(sessionID, userID, agentID, memStore)
+
+	// 返回格式化的记忆块
+	return memCtx.ToPromptBlock()
+}
