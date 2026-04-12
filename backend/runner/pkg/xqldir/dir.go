@@ -14,13 +14,27 @@ var SourceSkillsDir = ""
 // BaseDirEnv is the environment variable for the base directory
 const BaseDirEnv = "XQL_BASE_DIR"
 
+// RunnerHomeEnv is the environment variable for RUNNER_HOME (similar to HERMES_HOME in Hermes-agent)
+// This allows complete profile isolation between different runner instances
+const RunnerHomeEnv = "RUNNER_HOME"
+
 // DefaultBaseDir is the default base directory name (in home directory)
 const DefaultBaseDir = ".xiaoqinglong"
 
 // GetBaseDir returns the unified base directory path
-// Priority: XQL_BASE_DIR env > ~/.xiaoqinglong
+// Priority: RUNNER_HOME > XQL_BASE_DIR > ~/.xiaoqinglong
 func GetBaseDir() string {
-	// 1. Check XQL_BASE_DIR environment variable
+	// 1. Check RUNNER_HOME environment variable (highest priority, for profile isolation)
+	if runnerHome := os.Getenv(RunnerHomeEnv); runnerHome != "" {
+		if filepath.IsAbs(runnerHome) {
+			return runnerHome
+		}
+		// Resolve relative paths relative to current working directory
+		cwd, _ := os.Getwd()
+		return filepath.Join(cwd, runnerHome)
+	}
+
+	// 2. Check XQL_BASE_DIR environment variable
 	if baseDir := os.Getenv(BaseDirEnv); baseDir != "" {
 		if filepath.IsAbs(baseDir) {
 			return baseDir
@@ -30,7 +44,7 @@ func GetBaseDir() string {
 		return filepath.Join(home, baseDir)
 	}
 
-	// 2. Default to ~/.xiaoqinglong
+	// 3. Default to ~/.xiaoqinglong
 	home, err := os.UserHomeDir()
 	if err != nil {
 		// Fallback to /tmp if home cannot be determined

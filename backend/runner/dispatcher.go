@@ -27,6 +27,7 @@ import (
 	"github.com/jettjia/XiaoQinglong/runner/prompt"
 	"github.com/jettjia/XiaoQinglong/runner/retriever"
 	"github.com/jettjia/XiaoQinglong/runner/subagent"
+	"github.com/jettjia/XiaoQinglong/runner/tools"
 	"github.com/jettjia/XiaoQinglong/runner/types"
 )
 
@@ -307,6 +308,35 @@ func toolCallEventsMiddleware() *compose.ToolMiddleware {
 	}
 }
 
+// iterationBudgetMiddleware 迭代预算中间件
+// 对只读工具（如 Read, Grep, Glob, WebSearch）标记为不消耗迭代预算
+// 参考 Hermes-agent 的 IterationBudget 模式
+func iterationBudgetMiddleware(budget *subagent.IterationBudget) *compose.ToolMiddleware {
+	return &compose.ToolMiddleware{
+		Invokable: func(next compose.InvokableToolEndpoint) compose.InvokableToolEndpoint {
+			return func(ctx context.Context, input *compose.ToolInput) (*compose.ToolOutput, error) {
+				toolName := input.Name
+
+				// 检查是否是豁免工具（只读工具不消耗迭代预算）
+				// 这些工具使用 tools.GlobalRegistry.IsReadOnly()
+				// 注意：这个检查在中间件层面进行，实际的迭代计数在 agent 层面
+				if tools.GlobalRegistry.IsReadOnly(toolName) {
+					logger.GetRunnerLogger().Infof("[IterationBudgetMiddleware] Tool %s is read-only, exempt from iteration budget", toolName)
+				} else {
+					// 非只读工具，尝试消耗迭代预算
+					if budget != nil && !budget.ConsumeForTool(toolName) {
+						logger.GetRunnerLogger().Infof("[IterationBudgetMiddleware] Iteration budget exhausted, tool %s blocked", toolName)
+						return nil, fmt.Errorf("iteration budget exhausted")
+					}
+				}
+
+				// 执行实际的工具调用
+				return next(ctx, input)
+			}
+		},
+	}
+}
+
 // ========== Dispatcher ==========
 
 // CompactionRequest 压缩请求
@@ -357,6 +387,9 @@ type Dispatcher struct {
 
 	// Prompt cache
 	promptCache *prompt.PromptCache
+
+	// Iteration Budget - 用于追踪迭代次数，对只读工具不消耗预算
+	iterationBudget *subagent.IterationBudget
 }
 
 func NewDispatcher(req *types.RunRequest) *Dispatcher {
@@ -370,7 +403,25 @@ func NewDispatcher(req *types.RunRequest) *Dispatcher {
 	d.compactDoneChan = make(chan CompactionResponse, 1)
 	// 初始化记忆存储
 	d.memStore = memory.NewMemStore()
+	// 初始化迭代预算
+	d.initIterationBudget()
 	return d
+}
+
+// initIterationBudget 初始化迭代预算
+// 基于请求中的 max_iterations 创建共享预算
+func (d *Dispatcher) initIterationBudget() {
+	maxIterations := 10
+	if d.request.Options != nil && d.request.Options.MaxIterations > 0 {
+		maxIterations = d.request.Options.MaxIterations
+	}
+	d.iterationBudget = subagent.NewIterationBudget(maxIterations)
+	logger.GetRunnerLogger().Infof("[Dispatcher] IterationBudget initialized with %d iterations", maxIterations)
+}
+
+// GetIterationBudget 获取迭代预算
+func (d *Dispatcher) GetIterationBudget() *subagent.IterationBudget {
+	return d.iterationBudget
 }
 
 func (d *Dispatcher) Run(ctx context.Context) (*DispatchResult, error) {
@@ -1304,8 +1355,11 @@ func (d *Dispatcher) runSimpleAgent(ctx context.Context, messages []adk.Message)
 		ModelRetryConfig: d.buildModelRetryConfig(),
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
-				Tools:               d.tools,
-				ToolCallMiddlewares: []compose.ToolMiddleware{*toolCallEventsMiddleware()},
+				Tools: d.tools,
+				ToolCallMiddlewares: []compose.ToolMiddleware{
+					*toolCallEventsMiddleware(),
+					*iterationBudgetMiddleware(d.iterationBudget),
+				},
 			},
 		},
 	}

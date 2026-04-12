@@ -823,6 +823,9 @@ func (d *Dispatcher) initBuiltinTools(ctx context.Context) error {
 		}
 	}
 
+	// 获取临时目录用于存储过大的工具结果
+	tempDir := os.TempDir()
+
 	// 从注册中心获取所有已注册的工具
 	registeredTools := tools.GlobalRegistry.List()
 	logger.Infof("[Dispatcher] initBuiltinTools: found %d registered tools in registry", len(registeredTools))
@@ -844,6 +847,16 @@ func (d *Dispatcher) initBuiltinTools(ctx context.Context) error {
 
 		// 从注册中心获取默认风险级别
 		riskLevel := tools.GlobalRegistry.GetDefaultRisk(toolName)
+
+		// 从注册中心获取该工具的最大结果限制
+		maxChars := tools.GlobalRegistry.GetMaxResultChars(toolName)
+		if maxChars > 0 {
+			// 创建结果限制器
+			limiter := tools.NewResultLimiter(tempDir, maxChars)
+			// 包装工具以限制结果大小
+			t = tools.WrapToolWithLimiter(t, limiter)
+			logger.Infof("[Dispatcher] initBuiltinTools: tool %s has result limit %d chars", toolName, maxChars)
+		}
 
 		// 包装工具并添加到列表
 		wrapped := d.wrapToolWithApproval(t, info.Name, "builtin", riskLevel)

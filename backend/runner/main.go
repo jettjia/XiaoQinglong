@@ -26,6 +26,20 @@ var stopMu sync.Mutex
 // globalMemStore 全局记忆存储
 var globalMemStore = memory.NewMemStore()
 
+// globalBackgroundReviewer 全局后台记忆审查器
+// 在主响应发送后才在后台运行，不与主任务竞争模型注意力
+var globalBackgroundReviewer *memory.BackgroundReviewer
+
+// init 初始化全局组件
+func init() {
+	// 初始化后台记忆审查器（默认启用）
+	config := &memory.BackgroundReviewConfig{
+		Enabled:   true,
+		MaxMemory: 10,
+	}
+	globalBackgroundReviewer = memory.NewBackgroundReviewer(config, globalMemStore)
+}
+
 func main() {
 	// 设置源码 skills 目录（用于首次初始化时复制）
 	// 优先级：环境变量 XQL_SOURCE_SKILLS_DIR > 自动检测
@@ -79,11 +93,14 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 同步提取记忆并直接保存到文件（不再回调 agent-frame）
-	if len(req.Messages) >= 2 {
+	// 后台提取记忆（不阻塞主流程，参考 Hermes-agent 的 _spawn_background_review 模式）
+	// 如果配置了模型，后台审查器会在独立 goroutine 中提取并保存记忆
+	if globalBackgroundReviewer != nil && len(req.Messages) >= 2 {
 		modelConfig := memory.GetModelConfigForMemory(req.Models)
-		extractor := memory.NewMemoryExtractor(modelConfig)
-		if extractor != nil {
+		if modelConfig != nil && modelConfig.APIKey != "" {
+			// 更新审查器的模型配置
+			globalBackgroundReviewer.UpdateModelConfig(modelConfig)
+
 			// 获取最后一条 user 和 assistant 的内容
 			var userInput, assistantOutput string
 			for i := len(req.Messages) - 1; i >= 0; i-- {
@@ -97,27 +114,11 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 					break
 				}
 			}
-			if userInput != "" && assistantOutput != "" {
-				memories, err := extractor.ExtractMemories(r.Context(), userInput, assistantOutput)
-				if err != nil {
-					logger.Errorf("[Memory] Failed to extract memories: %v", err)
-				} else if len(memories) > 0 {
-					logger.Infof("[Memory] Extracted %d memories from conversation", len(memories))
-					resp.Memories = memories
 
-					// 直接保存到文件，不再回调 agent-frame
-					sessionID := getContextStr(req.Context, "session_id")
-					userID := getContextStr(req.Context, "user_id")
-					if sessionID != "" {
-						go func() {
-							if err := globalMemStore.SaveMemoriesFromTypes(sessionID, userID, memories); err != nil {
-								logger.Errorf("[Memory] Failed to save memories: %v", err)
-							} else {
-								logger.Infof("[Memory] Saved %d memories to file for session %s", len(memories), sessionID)
-							}
-						}()
-					}
-				}
+			if userInput != "" && assistantOutput != "" {
+				// 触发后台审查（不等待完成）
+				globalBackgroundReviewer.ReviewIfNeeded(r.Context(), userInput, assistantOutput)
+				logger.Infof("[Memory] Background review triggered for session: %s", getContextStr(req.Context, "session_id"))
 			}
 		}
 	}
@@ -448,35 +449,28 @@ func handleRunStream(w http.ResponseWriter, r *http.Request, req *types.RunReque
 	close(stopHeartbeat)
 
 
-	// 流结束后，提取记忆并直接保存到文件
-	var userInput, assistantOutput string
-	for i := len(req.Messages) - 1; i >= 0; i-- {
-		if req.Messages[i].Role == "user" && userInput == "" {
-			userInput = req.Messages[i].Content
-		}
-		if req.Messages[i].Role == "assistant" && assistantOutput == "" {
-			assistantOutput = req.Messages[i].Content
-		}
-		if userInput != "" && assistantOutput != "" {
-			break
-		}
-	}
-	if userInput != "" && assistantOutput != "" {
+	// 流结束后，后台提取记忆（不阻塞，参考 Hermes-agent 模式）
+	if globalBackgroundReviewer != nil && len(req.Messages) >= 2 {
 		modelConfig := memory.GetModelConfigForMemory(req.Models)
-		extractor := memory.NewMemoryExtractor(modelConfig)
-		if extractor != nil {
-			memories, err := extractor.ExtractMemories(context.Background(), userInput, assistantOutput)
-			if err != nil || len(memories) == 0 {
-				return
-			}
-			sessionID := getContextStr(req.Context, "session_id")
-			userID := getContextStr(req.Context, "user_id")
-			if sessionID != "" {
-				if err := globalMemStore.SaveMemoriesFromTypes(sessionID, userID, memories); err != nil {
-					logger.Errorf("[Memory] Failed to save memories: %v", err)
-				} else {
-					logger.Infof("[Memory] Saved %d memories to file for session %s", len(memories), sessionID)
+		if modelConfig != nil && modelConfig.APIKey != "" {
+			globalBackgroundReviewer.UpdateModelConfig(modelConfig)
+
+			var userInput, assistantOutput string
+			for i := len(req.Messages) - 1; i >= 0; i-- {
+				if req.Messages[i].Role == "user" && userInput == "" {
+					userInput = req.Messages[i].Content
 				}
+				if req.Messages[i].Role == "assistant" && assistantOutput == "" {
+					assistantOutput = req.Messages[i].Content
+				}
+				if userInput != "" && assistantOutput != "" {
+					break
+				}
+			}
+
+			if userInput != "" && assistantOutput != "" {
+				globalBackgroundReviewer.ReviewIfNeeded(context.Background(), userInput, assistantOutput)
+				logger.Infof("[Memory] Background review triggered for stream session: %s", getContextStr(req.Context, "session_id"))
 			}
 		}
 	}
