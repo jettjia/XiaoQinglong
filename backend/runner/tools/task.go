@@ -506,6 +506,60 @@ func NewTodoWriteTool(taskDir ...string) *TodoWriteTool {
 	}
 }
 
+func init() {
+	// Task tools - Read/Write mix
+	GlobalRegistry.Register(ToolMeta{
+		Name:           "TaskCreate",
+		Desc:           "Create a new task for tracking progress.",
+		IsReadOnly:     false,
+		MaxResultChars: 500,
+		DefaultRisk:    "low",
+		Creator: func(basePath string) interface{} {
+			return NewTaskCreateTool(basePath)
+		},
+	})
+	GlobalRegistry.Register(ToolMeta{
+		Name:           "TaskGet",
+		Desc:           "Retrieve a task by its ID with full details.",
+		IsReadOnly:     true,
+		MaxResultChars: 1000,
+		DefaultRisk:    "low",
+		Creator: func(basePath string) interface{} {
+			return NewTaskGetTool(basePath)
+		},
+	})
+	GlobalRegistry.Register(ToolMeta{
+		Name:           "TaskList",
+		Desc:           "List all tasks in the task list.",
+		IsReadOnly:     true,
+		MaxResultChars: 5000,
+		DefaultRisk:    "low",
+		Creator: func(basePath string) interface{} {
+			return NewTaskListTool(basePath)
+		},
+	})
+	GlobalRegistry.Register(ToolMeta{
+		Name:           "TaskUpdate",
+		Desc:           "Update a task's status, details, or ownership.",
+		IsReadOnly:     false,
+		MaxResultChars: 500,
+		DefaultRisk:    "low",
+		Creator: func(basePath string) interface{} {
+			return NewTaskUpdateTool(basePath)
+		},
+	})
+	GlobalRegistry.Register(ToolMeta{
+		Name:           "TodoWrite",
+		Desc:           "Create and manage a todo list for tracking progress.",
+		IsReadOnly:     false,
+		MaxResultChars: 2000,
+		DefaultRisk:    "low",
+		Creator: func(basePath string) interface{} {
+			return NewTodoWriteTool(basePath)
+		},
+	})
+}
+
 func (t *TodoWriteTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "TodoWrite",

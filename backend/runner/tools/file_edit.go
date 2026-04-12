@@ -40,6 +40,19 @@ func NewFileEditTool(basePath ...string) *FileEditTool {
 	return &FileEditTool{basePath: "."}
 }
 
+func init() {
+	GlobalRegistry.Register(ToolMeta{
+		Name:           "Edit",
+		Desc:           "Perform exact string replacements in files. Use this instead of sed or awk commands.",
+		IsReadOnly:     false,
+		MaxResultChars: 0, // Edit 不返回结果内容
+		DefaultRisk:    "medium",
+		Creator: func(basePath string) interface{} {
+			return NewFileEditTool(basePath)
+		},
+	})
+}
+
 func (t *FileEditTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "Edit",

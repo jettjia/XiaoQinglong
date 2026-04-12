@@ -43,6 +43,19 @@ func NewBashTool(workingDir string) *BashTool {
 	}
 }
 
+func init() {
+	GlobalRegistry.Register(ToolMeta{
+		Name:           "Bash",
+		Desc:           "Execute bash commands in the shell. Use this exclusively for system commands that cannot be done through other tools.",
+		IsReadOnly:     false,
+		MaxResultChars: 100000, // 限制结果大小
+		DefaultRisk:    "high",
+		Creator: func(basePath string) interface{} {
+			return NewBashTool(basePath)
+		},
+	})
+}
+
 func (t *BashTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "Bash",

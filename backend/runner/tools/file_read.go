@@ -45,6 +45,19 @@ func NewFileReadTool(basePath ...string) *FileReadTool {
 	return &FileReadTool{basePath: "."}
 }
 
+func init() {
+	GlobalRegistry.Register(ToolMeta{
+		Name:           "Read",
+		Desc:           "Read the contents of a file from the local filesystem. Use this instead of cat, head, tail, or sed commands.",
+		IsReadOnly:     true,
+		MaxResultChars: 500000, // 限制结果大小
+		DefaultRisk:    "low",
+		Creator: func(basePath string) interface{} {
+			return NewFileReadTool(basePath)
+		},
+	})
+}
+
 func (t *FileReadTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "Read",

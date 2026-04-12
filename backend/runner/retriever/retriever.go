@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
@@ -138,6 +139,27 @@ type kbResult struct {
 }
 
 // ========== Tool 包装 ==========
+
+// FormatKnowledgeResults 将检索结果格式化为字符串
+func FormatKnowledgeResults(docs []*schema.Document) string {
+	if len(docs) == 0 {
+		return ""
+	}
+
+	var lines []string
+	lines = append(lines, "# Knowledge Base")
+	lines = append(lines, "Use the following information from knowledge base to answer questions:")
+	lines = append(lines, "")
+	for i, doc := range docs {
+		lines = append(lines, fmt.Sprintf("## [%d] %s", i+1, doc.MetaData["title"]))
+		lines = append(lines, fmt.Sprintf("Source: %s (score: %.2f)", doc.MetaData["kb_name"], doc.MetaData["score"]))
+		lines = append(lines, "")
+		lines = append(lines, doc.Content)
+		lines = append(lines, "")
+	}
+
+	return strings.Join(lines, "\n")
+}
 
 // CreateRetrievalTool 创建检索工具（供 Agent 调用）
 func CreateRetrievalTool(kbConfigs []KnowledgeBaseConfig) tool.BaseTool {

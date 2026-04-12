@@ -57,6 +57,19 @@ func NewWebFetchTool() *WebFetchTool {
 	}
 }
 
+func init() {
+	GlobalRegistry.Register(ToolMeta{
+		Name:           "WebFetch",
+		Desc:           "Fetch and analyze web content from a URL. Use this to retrieve information from web pages.",
+		IsReadOnly:     true,
+		MaxResultChars: 500000,
+		DefaultRisk:    "low",
+		Creator: func(basePath string) interface{} {
+			return NewWebFetchTool()
+		},
+	})
+}
+
 func (t *WebFetchTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "WebFetch",

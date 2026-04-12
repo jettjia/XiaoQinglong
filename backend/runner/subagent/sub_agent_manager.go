@@ -30,17 +30,54 @@ type SubAgentManager struct {
 	tasks       map[string]*TaskInfo // taskID -> task info
 	taskCounter int64
 	taskMu      sync.RWMutex
+	// Iteration Budget - 父子 agent 共享迭代预算
+	iterationBudget *IterationBudget
 }
 
 // NewSubAgentManager 创建 Sub-Agent 管理器
 func NewSubAgentManager(defaultModel model.ToolCallingChatModel) *SubAgentManager {
 	return &SubAgentManager{
-		configs:      make(map[string]*SubAgentConfig),
-		agents:       make(map[string]*SubAgent),
-		defaultModel: defaultModel,
-		tools:        make(map[string]interface{}),
-		tasks:        make(map[string]*TaskInfo),
+		configs:         make(map[string]*SubAgentConfig),
+		agents:          make(map[string]*SubAgent),
+		defaultModel:    defaultModel,
+		tools:          make(map[string]interface{}),
+		tasks:          make(map[string]*TaskInfo),
+		iterationBudget: nil, // 延迟初始化
 	}
+}
+
+// SetIterationBudget 设置共享的迭代预算
+func (m *SubAgentManager) SetIterationBudget(budget *IterationBudget) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.iterationBudget = budget
+}
+
+// GetIterationBudget 获取迭代预算
+func (m *SubAgentManager) GetIterationBudget() *IterationBudget {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.iterationBudget
+}
+
+// CanSpawn 检查是否可以启动新任务（基于迭代预算）
+func (m *SubAgentManager) CanSpawn() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.iterationBudget == nil {
+		return true // 没有预算限制
+	}
+	return !m.iterationBudget.IsExhausted()
+}
+
+// ConsumeIteration 消耗一次迭代（用于 subagent）
+func (m *SubAgentManager) ConsumeIteration() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.iterationBudget == nil {
+		return true
+	}
+	return m.iterationBudget.Consume()
 }
 
 // NextTaskID 生成下一个任务 ID

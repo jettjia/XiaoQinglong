@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/adk"
@@ -13,7 +14,6 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
-	"github.com/cloudwego/eino/schema"
 	"github.com/jettjia/XiaoQinglong/runner/cliext"
 	"github.com/jettjia/XiaoQinglong/runner/cron"
 	"github.com/jettjia/XiaoQinglong/runner/memory"
@@ -144,7 +144,7 @@ func (d *Dispatcher) initTools(ctx context.Context) error {
 				RiskLevel:   tc.RiskLevel,
 			})
 			// 根据 risk_level 判断是否需要包装审批
-			wrapped := d.wrapToolWithApproval(httpTool, tc.Name, "http", tc.RiskLevel)
+			wrapped := WrapToolWithApproval(httpTool, tc.Name, "http", tc.RiskLevel, d.request.Options.ApprovalPolicy)
 			d.tools = append(d.tools, wrapped)
 		}
 	}
@@ -273,7 +273,7 @@ func (d *Dispatcher) initA2A(ctx context.Context) error {
 			}
 
 			// 根据 risk_level 判断是否需要包装审批
-			wrappedA2ATool := d.wrapToolWithApproval(a2aTool, "a2a", "a2a", a2aRiskLevel)
+			wrappedA2ATool := WrapToolWithApproval(a2aTool, "a2a", "a2a", a2aRiskLevel, d.request.Options.ApprovalPolicy)
 			d.tools = append(d.tools, wrappedA2ATool)
 		}
 	}
@@ -493,7 +493,7 @@ func (d *Dispatcher) initMCPs(ctx context.Context) error {
 			for _, t := range tools {
 				// HTTP/SSE MCP tools 需要包装审批
 				if invokableTool, ok := t.(tool.InvokableTool); ok {
-					wrapped := d.wrapToolWithApproval(invokableTool, mcpCfg.Name, "mcp", mcpCfg.RiskLevel)
+					wrapped := WrapToolWithApproval(invokableTool, mcpCfg.Name, "mcp", mcpCfg.RiskLevel, d.request.Options.ApprovalPolicy)
 					d.tools = append(d.tools, wrapped)
 				} else {
 					d.tools = append(d.tools, t)
@@ -526,7 +526,7 @@ func (d *Dispatcher) initMCPs(ctx context.Context) error {
 					name:   t.Name,
 					client: client,
 				}
-				wrapped := d.wrapToolWithApproval(mcpTool, t.Name, "mcp", mcpCfg.RiskLevel)
+				wrapped := WrapToolWithApproval(mcpTool, t.Name, "mcp", mcpCfg.RiskLevel, d.request.Options.ApprovalPolicy)
 				d.tools = append(d.tools, wrapped)
 			}
 			logger.Infof("[Dispatcher] initMCP: %s (stdio) initialized with %d tools", mcpCfg.Name, len(tools))
@@ -594,6 +594,35 @@ func (d *Dispatcher) initSkills(ctx context.Context) error {
 		}
 
 		skills = append(skills, skill)
+	}
+
+	// 自动从 GLOBAL_SKILLS_DIR (默认 ~/.agents/skills) 加载额外的 skills
+	globalSkillsDir := os.Getenv("GLOBAL_SKILLS_DIR")
+	if globalSkillsDir == "" {
+		home := os.Getenv("HOME")
+		if home != "" {
+			globalSkillsDir = filepath.Join(home, ".agents", "skills")
+		}
+	}
+	if globalSkillsDir != "" {
+		if _, err := os.Stat(globalSkillsDir); err == nil {
+			logger.Infof("[Dispatcher] initSkills: scanning global skills dir: %s", globalSkillsDir)
+			globalSkills := discoverSkillsFromDir(globalSkillsDir, skillsDir)
+			for _, gs := range globalSkills {
+				// 检查是否已存在（request 中的 skill 优先）
+				exists := false
+				for _, s := range skills {
+					if s.ID == gs.ID {
+						exists = true
+						break
+					}
+				}
+				if !exists {
+					logger.Infof("[Dispatcher] initSkills: added global skill: %s", gs.ID)
+					skills = append(skills, gs)
+				}
+			}
+		}
 	}
 
 	var sandboxCfg *types.SandboxConfig
@@ -680,7 +709,7 @@ func (d *Dispatcher) initSkills(ctx context.Context) error {
 			// 如果有任何 skill 需要审批，则包装 skill tool
 			needsApproval := false
 			for _, riskLevel := range skillRiskLevels {
-				if d.shouldWrapForApproval("skill", riskLevel) {
+				if ShouldWrapForApproval("skill", riskLevel, d.request.Options.ApprovalPolicy) {
 					needsApproval = true
 					break
 				}
@@ -794,44 +823,47 @@ func (d *Dispatcher) initBuiltinTools(ctx context.Context) error {
 		}
 	}
 
-	// 创建内置工具
-	builtinTools := []interface {
-		Info(ctx context.Context) (*schema.ToolInfo, error)
-		InvokableRun(ctx context.Context, input string, opts ...tool.Option) (string, error)
-	}{
-		tools.NewGlobTool(workingDir),
-		tools.NewGrepTool(workingDir),
-		tools.NewFileReadTool(workingDir),
-		tools.NewFileEditTool(workingDir),
-		tools.NewFileWriteTool(workingDir),
-		tools.NewBashTool(workingDir),
-		tools.NewSleepTool(),
-		tools.NewWebFetchTool(),
-		tools.NewWebSearchTool(),
-		tools.NewTaskCreateTool(workingDir),
-		tools.NewTaskGetTool(workingDir),
-		tools.NewTaskListTool(workingDir),
-		tools.NewTaskUpdateTool(workingDir),
-		tools.NewTodoWriteTool(workingDir),
-		tools.NewEnterPlanModeTool(),
-		tools.NewExitPlanModeTool(),
-		tools.NewAskUserQuestionTool(),
-	}
+	// 获取临时目录用于存储过大的工具结果
+	tempDir := os.TempDir()
 
-	// 注册工具，使用默认风险级别（低风险工具默认不需要审批）
-	for _, t := range builtinTools {
-		info, err := t.Info(ctx)
+	// 从注册中心获取所有已注册的工具
+	registeredTools := tools.GlobalRegistry.List()
+	logger.Infof("[Dispatcher] initBuiltinTools: found %d registered tools in registry", len(registeredTools))
+
+	// 注册工具，使用注册中心中的默认风险级别
+	for _, toolName := range registeredTools {
+		// 从注册中心创建工具实例
+		t, err := tools.GlobalRegistry.CreateTool(toolName, workingDir)
 		if err != nil {
-			logger.Warnf("[Dispatcher] initBuiltinTools: failed to get tool info: %v", err)
+			logger.Warnf("[Dispatcher] initBuiltinTools: failed to create tool %s: %v", toolName, err)
 			continue
 		}
 
+		info, err := t.Info(ctx)
+		if err != nil {
+			logger.Warnf("[Dispatcher] initBuiltinTools: failed to get tool info for %s: %v", toolName, err)
+			continue
+		}
+
+		// 从注册中心获取默认风险级别
+		riskLevel := tools.GlobalRegistry.GetDefaultRisk(toolName)
+
+		// 从注册中心获取该工具的最大结果限制
+		maxChars := tools.GlobalRegistry.GetMaxResultChars(toolName)
+		if maxChars > 0 {
+			// 创建结果限制器
+			limiter := tools.NewResultLimiter(tempDir, maxChars)
+			// 包装工具以限制结果大小
+			t = tools.WrapToolWithLimiter(t, limiter)
+			logger.Infof("[Dispatcher] initBuiltinTools: tool %s has result limit %d chars", toolName, maxChars)
+		}
+
 		// 包装工具并添加到列表
-		wrapped := d.wrapToolWithApproval(t, info.Name, "builtin", "low")
+		wrapped := WrapToolWithApproval(t, info.Name, "builtin", riskLevel, d.request.Options.ApprovalPolicy)
 		d.tools = append(d.tools, wrapped)
 	}
 
-	logger.Infof("[Dispatcher] initBuiltinTools: registered %d builtin tools", len(builtinTools))
+	logger.Infof("[Dispatcher] initBuiltinTools: registered %d builtin tools from registry", len(registeredTools))
 	return nil
 }
 
@@ -878,7 +910,7 @@ func (d *Dispatcher) initCLIs(ctx context.Context) error {
 			riskLevel = "medium"
 		}
 
-		wrapped := d.wrapToolWithApproval(cliTool, "cli_"+cliReq.Name, "cli", riskLevel)
+		wrapped := WrapToolWithApproval(cliTool, "cli_"+cliReq.Name, "cli", riskLevel, d.request.Options.ApprovalPolicy)
 		d.tools = append(d.tools, wrapped)
 		logger.Infof("[Dispatcher] initCLIs: registered CLI tool: %s", cliReq.Name)
 	}
@@ -938,4 +970,140 @@ func (h *cronTaskHandler) OnTaskFired(taskID string, prompt string) {
 // OnTaskError 当任务执行出错时记录日志
 func (h *cronTaskHandler) OnTaskError(taskID string, err error) {
 	logger.Errorf("[CronTaskHandler] Task %s error: %v", taskID, err)
+}
+
+// discoverSkillsFromDir 从目录中发现所有 skills
+// 扫描子目录，寻找包含 SKILL.md 的目录，每个目录视为一个 skill
+func discoverSkillsFromDir(globalDir string, fallbackSkillsDir string) []types.Skill {
+	var discovered []types.Skill
+
+	entries, err := os.ReadDir(globalDir)
+	if err != nil {
+		logger.Warnf("[discoverSkillsFromDir] failed to read global skills dir: %v", err)
+		return discovered
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		skillID := entry.Name()
+		skillDir := filepath.Join(globalDir, skillID)
+		skillMD := filepath.Join(skillDir, "SKILL.md")
+
+		// 检查 SKILL.md 是否存在
+		if _, err := os.Stat(skillMD); err != nil {
+			continue
+		}
+
+		// 读取 SKILL.md
+		data, err := os.ReadFile(skillMD)
+		if err != nil {
+			continue
+		}
+
+		skill := types.Skill{
+			ID:          skillID,
+			Name:        skillID,
+			Instruction: string(data),
+			Scope:       "both",
+		}
+
+		// 尝试从 frontmatter 解析 name 和 description
+		frontmatter := parseSkillFrontmatter(string(data))
+		if frontmatter != nil {
+			if name, ok := frontmatter["name"].(string); ok && name != "" {
+				skill.Name = name
+			}
+			if desc, ok := frontmatter["description"].(string); ok && desc != "" {
+				skill.Description = desc
+			}
+			if scope, ok := frontmatter["scope"].(string); ok && scope != "" {
+				skill.Scope = scope
+			}
+			if trigger, ok := frontmatter["trigger"].(string); ok && trigger != "" {
+				skill.Trigger = trigger
+			}
+		}
+
+		// 设置 FilePath 为 skill 目录
+		skill.FilePath = skillDir
+
+		// 检查 scripts 目录
+		scriptsDir := filepath.Join(skillDir, "scripts")
+		if info, err := os.Stat(scriptsDir); err == nil && info.IsDir() {
+			// 尝试找到入口脚本
+			// 按优先级查找: skillID.sh > main.sh > 第一个 .sh 文件
+			entryScript := ""
+			for _, name := range []string{skillID + ".sh", "main.sh"} {
+				scriptPath := filepath.Join(scriptsDir, name)
+				if _, err := os.Stat(scriptPath); err == nil {
+					entryScript = name
+					break
+				}
+			}
+			if entryScript == "" {
+				// 找第一个 .sh 文件
+				if entries, err := os.ReadDir(scriptsDir); err == nil {
+					for _, e := range entries {
+						if !e.IsDir() && strings.HasSuffix(e.Name(), ".sh") {
+							entryScript = e.Name()
+							break
+						}
+					}
+				}
+			}
+			if entryScript != "" {
+				skill.EntryScript = entryScript
+			}
+		}
+
+		discovered = append(discovered, skill)
+		logger.Infof("[discoverSkillsFromDir] discovered skill: %s (name=%s, entry=%s)", skill.ID, skill.Name, skill.EntryScript)
+	}
+
+	return discovered
+}
+
+// parseSkillFrontmatter 解析 SKILL.md 的 YAML frontmatter
+func parseSkillFrontmatter(content string) map[string]any {
+	// 简单解析 --- ... --- 格式的 frontmatter
+	if !strings.HasPrefix(content, "---") {
+		return nil
+	}
+
+	lines := strings.Split(content, "\n")
+	if len(lines) < 3 {
+		return nil
+	}
+
+	// 找到结束 ---
+	endIdx := -1
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			endIdx = i
+			break
+		}
+	}
+
+	if endIdx < 2 {
+		return nil
+	}
+
+	// 简单解析 key: value 格式
+	result := make(map[string]any)
+	for i := 1; i < endIdx; i++ {
+		line := strings.TrimSpace(lines[i])
+		if idx := strings.Index(line, ":"); idx > 0 {
+			key := strings.TrimSpace(line[:idx])
+			value := strings.TrimSpace(line[idx+1:])
+			// 去掉可能的引号
+			value = strings.Trim(value, "\"")
+			value = strings.Trim(value, "'")
+			result[key] = value
+		}
+	}
+
+	return result
 }

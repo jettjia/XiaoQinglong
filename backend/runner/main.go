@@ -26,6 +26,20 @@ var stopMu sync.Mutex
 // globalMemStore 全局记忆存储
 var globalMemStore = memory.NewMemStore()
 
+// globalBackgroundReviewer 全局后台记忆审查器
+// 在主响应发送后才在后台运行，不与主任务竞争模型注意力
+var globalBackgroundReviewer *memory.BackgroundReviewer
+
+// init 初始化全局组件
+func init() {
+	// 初始化后台记忆审查器（默认启用）
+	config := &memory.BackgroundReviewConfig{
+		Enabled:   true,
+		MaxMemory: 10,
+	}
+	globalBackgroundReviewer = memory.NewBackgroundReviewer(config, globalMemStore)
+}
+
 func main() {
 	// 设置源码 skills 目录（用于首次初始化时复制）
 	// 优先级：环境变量 XQL_SOURCE_SKILLS_DIR > 自动检测
@@ -79,48 +93,8 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 同步提取记忆并直接保存到文件（不再回调 agent-frame）
-	if len(req.Messages) >= 2 {
-		modelConfig := memory.GetModelConfigForMemory(req.Models)
-		extractor := memory.NewMemoryExtractor(modelConfig)
-		if extractor != nil {
-			// 获取最后一条 user 和 assistant 的内容
-			var userInput, assistantOutput string
-			for i := len(req.Messages) - 1; i >= 0; i-- {
-				if req.Messages[i].Role == "user" && userInput == "" {
-					userInput = req.Messages[i].Content
-				}
-				if req.Messages[i].Role == "assistant" && assistantOutput == "" {
-					assistantOutput = req.Messages[i].Content
-				}
-				if userInput != "" && assistantOutput != "" {
-					break
-				}
-			}
-			if userInput != "" && assistantOutput != "" {
-				memories, err := extractor.ExtractMemories(r.Context(), userInput, assistantOutput)
-				if err != nil {
-					logger.Errorf("[Memory] Failed to extract memories: %v", err)
-				} else if len(memories) > 0 {
-					logger.Infof("[Memory] Extracted %d memories from conversation", len(memories))
-					resp.Memories = memories
-
-					// 直接保存到文件，不再回调 agent-frame
-					sessionID := getContextStr(req.Context, "session_id")
-					userID := getContextStr(req.Context, "user_id")
-					if sessionID != "" {
-						go func() {
-							if err := globalMemStore.SaveMemoriesFromTypes(sessionID, userID, memories); err != nil {
-								logger.Errorf("[Memory] Failed to save memories: %v", err)
-							} else {
-								logger.Infof("[Memory] Saved %d memories to file for session %s", len(memories), sessionID)
-							}
-						}()
-					}
-				}
-			}
-		}
-	}
+	// 后台提取记忆（不阻塞主流程，参考 Hermes-agent 的 _spawn_background_review 模式）
+	triggerBackgroundReview(r.Context(), req.Messages, req.Models, req.Context)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
@@ -235,7 +209,30 @@ func handleAgentStream(w http.ResponseWriter, r *http.Request, req *types.RunReq
 
 	// 创建可取消的上下文
 	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
+
+	// 保存取消函数到 stopFuncs (同时用 checkpoint_id 和 session_id 作为 key)
+	sessionID := ""
+	if req.Context != nil {
+		if s, ok := req.Context["session_id"].(string); ok {
+			sessionID = s
+		}
+	}
+	stopMu.Lock()
+	stopFuncs[checkpointID] = cancel
+	if sessionID != "" {
+		stopFuncs[sessionID] = cancel
+	}
+	stopMu.Unlock()
+
+	// 确保退出时清理
+	defer func() {
+		stopMu.Lock()
+		delete(stopFuncs, checkpointID)
+		if sessionID != "" {
+			delete(stopFuncs, sessionID)
+		}
+		stopMu.Unlock()
+	}()
 
 	runner := NewRunner(req)
 	eventsChan, err := runner.RunStream(ctx)
@@ -447,52 +444,54 @@ func handleRunStream(w http.ResponseWriter, r *http.Request, req *types.RunReque
 
 	close(stopHeartbeat)
 
+	// 流结束后，后台提取记忆（不阻塞，参考 Hermes-agent 的 _spawn_background_review 模式）
+	triggerBackgroundReview(context.Background(), req.Messages, req.Models, req.Context)
+}
 
-	// 流结束后，提取记忆并直接保存到文件
+// triggerBackgroundReview 触发后台记忆审查
+// 参考 Hermes-agent 的 _spawn_background_review 模式
+func triggerBackgroundReview(ctx context.Context, messages []types.Message, models map[string]types.ModelConfig, contextData map[string]any) {
+	if globalBackgroundReviewer == nil || len(messages) < 2 {
+		return
+	}
+
+	modelConfig := memory.GetModelConfigForMemory(models)
+	if modelConfig == nil || modelConfig.APIKey == "" {
+		return
+	}
+
+	globalBackgroundReviewer.UpdateModelConfig(modelConfig)
+
+	// 获取最后一条 user 和 assistant 的内容
 	var userInput, assistantOutput string
-	for i := len(req.Messages) - 1; i >= 0; i-- {
-		if req.Messages[i].Role == "user" && userInput == "" {
-			userInput = req.Messages[i].Content
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "user" && userInput == "" {
+			userInput = messages[i].Content
 		}
-		if req.Messages[i].Role == "assistant" && assistantOutput == "" {
-			assistantOutput = req.Messages[i].Content
+		if messages[i].Role == "assistant" && assistantOutput == "" {
+			assistantOutput = messages[i].Content
 		}
 		if userInput != "" && assistantOutput != "" {
 			break
 		}
 	}
+
 	if userInput != "" && assistantOutput != "" {
-		modelConfig := memory.GetModelConfigForMemory(req.Models)
-		extractor := memory.NewMemoryExtractor(modelConfig)
-		if extractor != nil {
-			memories, err := extractor.ExtractMemories(context.Background(), userInput, assistantOutput)
-			if err != nil || len(memories) == 0 {
-				return
-			}
-			sessionID := getContextStr(req.Context, "session_id")
-			userID := getContextStr(req.Context, "user_id")
-			if sessionID != "" {
-				if err := globalMemStore.SaveMemoriesFromTypes(sessionID, userID, memories); err != nil {
-					logger.Errorf("[Memory] Failed to save memories: %v", err)
-				} else {
-					logger.Infof("[Memory] Saved %d memories to file for session %s", len(memories), sessionID)
-				}
-			}
-		}
+		globalBackgroundReviewer.ReviewIfNeeded(ctx, userInput, assistantOutput)
+		logger.Infof("[Memory] Background review triggered for session: %s", getContextStr(contextData, "session_id"))
 	}
 }
 
 // getContextStr 从 context 中获取字符串值
-func getContextStr(context map[string]any, key string) string {
-	if context == nil {
+func getContextStr(contextData map[string]any, key string) string {
+	if contextData == nil {
 		return ""
 	}
-	if v, ok := context[key].(string); ok {
+	if v, ok := contextData[key].(string); ok {
 		return v
 	}
 	return ""
 }
-
 
 func handleResume(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -615,9 +614,4 @@ func expandEnvStr(s string) string {
 		envVar := match[2 : len(match)-1]
 		return os.Getenv(envVar)
 	})
-}
-
-// containsEnvVar 检查字符串是否包含环境变量
-func containsEnvVar(s string) bool {
-	return strings.Contains(s, "${")
 }

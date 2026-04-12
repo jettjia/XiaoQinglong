@@ -39,6 +39,19 @@ func NewFileWriteTool(basePath ...string) *FileWriteTool {
 	return &FileWriteTool{basePath: "."}
 }
 
+func init() {
+	GlobalRegistry.Register(ToolMeta{
+		Name:           "Write",
+		Desc:           "Write content to a file. Creates a new file or overwrites existing file. Use this instead of echo redirection or cat with heredoc.",
+		IsReadOnly:     false,
+		MaxResultChars: 0, // Write 不返回结果内容
+		DefaultRisk:    "high",
+		Creator: func(basePath string) interface{} {
+			return NewFileWriteTool(basePath)
+		},
+	})
+}
+
 func (t *FileWriteTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "Write",
