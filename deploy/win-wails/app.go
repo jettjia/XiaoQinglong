@@ -18,29 +18,48 @@ import (
 
 var runnerProcess *exec.Cmd
 
+func init() {
+	// 初始化日志到文件
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		home = "/tmp"
+	}
+	logDir := filepath.Join(home, ".xiaoqinglong", "logs")
+	os.MkdirAll(logDir, 0755)
+	logFile := filepath.Join(logDir, "wails.log")
+	f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err == nil {
+		log.SetOutput(f)
+	}
+}
+
 func startup() {
-	log.Println("[Wails] XiaoQinglong starting...")
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[Wails] PANIC recovered in startup: %v", r)
+		}
+	}()
+
+	log.Println("[Wails] startup() called")
 	log.Printf("[Wails] Executable path: %s", getExecutablePath())
 
 	// 设置环境变量
 	os.Setenv("env", "debug")
 
-	// 设置 skills 目录（与 xiaoqinglong.exe 同目录的 skills）
-	exeDir := filepath.Dir(getExecutablePath())
-	skillsPath := filepath.Join(exeDir, "skills")
-	if _, err := os.Stat(skillsPath); err == nil {
-		os.Setenv("XQL_SOURCE_SKILLS_DIR", skillsPath)
-		log.Printf("[Wails] Set XQL_SOURCE_SKILLS_DIR: %s", skillsPath)
-	}
+	// 资源已在 init() 中释放到 ~/.xiaoqinglong/
+	// 设置 skills 目录
+	baseDir := getBaseDir()
+	skillsPath := filepath.Join(baseDir, "skills")
+	os.Setenv("XQL_SOURCE_SKILLS_DIR", skillsPath)
+	log.Printf("[Wails] XQL_SOURCE_SKILLS_DIR: %s", skillsPath)
 
-	// 查找 runner.exe（与 xiaoqinglong.exe 同目录）
-	runnerPath := filepath.Join(exeDir, "runner.exe")
-
+	// 查找 runner.exe（从 ~/.xiaoqinglong/runner.exe）
+	runnerPath := filepath.Join(baseDir, "runner.exe")
 	log.Printf("[Wails] Runner path: %s", runnerPath)
 
 	// 检查 runner 是否存在
 	if _, err := os.Stat(runnerPath); os.IsNotExist(err) {
-		log.Printf("[Wails] runner.exe not found at %s, will only start agent-frame", runnerPath)
+		log.Printf("[Wails] runner.exe not found at %s", runnerPath)
 	} else {
 		// 启动 runner 作为子进程
 		log.Println("[Wails] Starting runner subprocess...")
@@ -56,7 +75,9 @@ func startup() {
 	time.Sleep(2 * time.Second)
 
 	log.Println("[Wails] Initializing database...")
+
 	// 初始化 agent-frame 数据库
+	log.Println("[Wails] Calling po.AutoTable()...")
 	if err := po.AutoTable(); err != nil {
 		log.Printf("[Wails] AutoTable error: %v", err)
 	} else {
@@ -64,13 +85,19 @@ func startup() {
 	}
 
 	// 初始化目录
+	log.Println("[Wails] Calling boot.InitDirs()...")
 	if err := boot.InitDirs(); err != nil {
 		log.Printf("[Wails] InitDirs error: %v", err)
+	} else {
+		log.Println("[Wails] InitDirs done")
 	}
 
 	// 初始化数据
+	log.Println("[Wails] Calling boot.InitData()...")
 	if err := boot.InitData(); err != nil {
 		log.Printf("[Wails] InitData error: %v", err)
+	} else {
+		log.Println("[Wails] InitData done")
 	}
 
 	// 启动 HTTP 服务
@@ -113,11 +140,11 @@ func startup() {
 		}
 	}()
 
-	log.Println("[Wails] XiaoQinglong started successfully!")
+	log.Println("[Wails] XiaoQingLong started successfully!")
 }
 
 func shutdown() {
-	log.Println("[Wails] XiaoQinglong shutting down...")
+	log.Println("[Wails] XiaoQingLong shutting down...")
 
 	// 停止 runner 子进程
 	if runnerProcess != nil && runnerProcess.Process != nil {
@@ -127,10 +154,18 @@ func shutdown() {
 		log.Println("[Wails] Runner subprocess stopped")
 	}
 
-	log.Println("[Wails] XiaoQinglong stopped")
+	log.Println("[Wails] XiaoQingLong stopped")
 }
 
 func getExecutablePath() string {
 	execPath, _ := os.Executable()
 	return execPath
+}
+
+func getBaseDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "/tmp"
+	}
+	return filepath.Join(home, ".xiaoqinglong")
 }

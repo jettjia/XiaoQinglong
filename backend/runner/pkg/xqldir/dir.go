@@ -11,6 +11,10 @@ import (
 // This is used to copy default skills to the user's .xiaoqinglong/skills on first init
 var SourceSkillsDir = ""
 
+// SourceConfigDir is the source config directory (relative to runner binary)
+// This is used to copy default config files to the user's .xiaoqinglong/config on first init
+var SourceConfigDir = ""
+
 // BaseDirEnv is the environment variable for the base directory
 const BaseDirEnv = "XQL_BASE_DIR"
 
@@ -135,6 +139,9 @@ func Init() {
 
 	// 确保 skills 目录是正确的（不是 symlink），并复制默认 skills
 	ensureSkillsDir()
+
+	// 确保配置文件在 ~/.xiaoqinglong/config/ 目录
+	ensureConfigFiles()
 }
 
 // ensureSkillsDir 确保 skills 目录存在且是真实目录（非 symlink），并复制默认 skills
@@ -150,22 +157,116 @@ func ensureSkillsDir() {
 		}
 	}
 
-	// 如果目录不存在，复制默认 skills
+	// 如果目录不存在，或者目录为空，复制默认 skills
+	needsCopy := false
 	if _, err := os.Stat(skillsDir); os.IsNotExist(err) {
-		if SourceSkillsDir != "" {
-			// 检查源目录是否存在
-			if _, srcErr := os.Stat(SourceSkillsDir); srcErr == nil {
-				log.Printf("[xqldir] Copying default skills from %s to %s", SourceSkillsDir, skillsDir)
-				if err := copyDir(SourceSkillsDir, skillsDir); err != nil {
-					log.Printf("[xqldir] Warning: failed to copy default skills: %v, creating empty dir", err)
-					os.MkdirAll(skillsDir, 0755)
-				}
-			} else {
-				log.Printf("[xqldir] Source skills dir not found: %s, creating empty skills dir", SourceSkillsDir)
+		needsCopy = true
+	} else {
+		// 检查是否为空目录
+		entries, err := os.ReadDir(skillsDir)
+		if err != nil || len(entries) == 0 {
+			needsCopy = true
+		}
+	}
+
+	if needsCopy && SourceSkillsDir != "" {
+		// 检查源目录是否存在
+		if _, srcErr := os.Stat(SourceSkillsDir); srcErr == nil {
+			log.Printf("[xqldir] Copying default skills from %s to %s", SourceSkillsDir, skillsDir)
+			// 先删除可能存在的空目录
+			os.RemoveAll(skillsDir)
+			if err := copyDir(SourceSkillsDir, skillsDir); err != nil {
+				log.Printf("[xqldir] Warning: failed to copy default skills: %v, creating empty dir", err)
 				os.MkdirAll(skillsDir, 0755)
 			}
 		} else {
+			log.Printf("[xqldir] Source skills dir not found: %s, creating empty skills dir", SourceSkillsDir)
 			os.MkdirAll(skillsDir, 0755)
+		}
+	} else if needsCopy {
+		os.MkdirAll(skillsDir, 0755)
+	}
+}
+
+// ensureConfigFiles 确保配置文件在 ~/.xiaoqinglong/config/ 目录
+func ensureConfigFiles() {
+	configDir := GetConfigDir()
+
+	// 创建配置目录（如果不存在）
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		log.Printf("[xqldir] Warning: failed to create config dir: %v", err)
+		return
+	}
+
+	// 复制 skills-config.yaml（如果不存在）
+	skillsConfigPath := filepath.Join(configDir, "skills-config.yaml")
+	if _, err := os.Stat(skillsConfigPath); os.IsNotExist(err) {
+		copySkillsConfig(configDir)
+	}
+
+	// 复制 config.yaml（如果不存在）
+	configYamlPath := filepath.Join(configDir, "config.yaml")
+	if _, err := os.Stat(configYamlPath); os.IsNotExist(err) {
+		copyAgentConfig(configDir)
+	}
+}
+
+func copySkillsConfig(configDir string) {
+	// 从 SourceSkillsDir 复制 skills-config.yaml
+	if SourceSkillsDir != "" {
+		srcSkillsConfig := filepath.Join(SourceSkillsDir, "..", "skills-config.yaml")
+		if _, err := os.Stat(srcSkillsConfig); err == nil {
+			dstSkillsConfig := filepath.Join(configDir, "skills-config.yaml")
+			if err := copyFile(srcSkillsConfig, dstSkillsConfig); err != nil {
+				log.Printf("[xqldir] Warning: failed to copy skills-config.yaml: %v", err)
+			} else {
+				log.Printf("[xqldir] Copied skills-config.yaml to %s", dstSkillsConfig)
+			}
+		}
+	}
+}
+
+// GetSourceConfigDir returns the source config directory
+// This is used to find config files to copy to ~/.xiaoqinglong/config/
+func GetSourceConfigDir() string {
+	if SourceConfigDir != "" {
+		return SourceConfigDir
+	}
+
+	// Fallback: 查找可执行文件同目录下的 config 目录
+	execPath, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	execDir := filepath.Dir(execPath)
+	localConfig := filepath.Join(execDir, "config")
+	if _, err := os.Stat(localConfig); err == nil {
+		return localConfig
+	}
+
+	// Fallback: 查找 dev 路径 (runner 在 build/bin/ 时，config 在 build/bin/config/)
+	devConfig := filepath.Join(execDir, "..", "config")
+	if _, err := os.Stat(devConfig); err == nil {
+		return devConfig
+	}
+
+	return ""
+}
+
+func copyAgentConfig(configDir string) {
+	srcDir := GetSourceConfigDir()
+	if srcDir == "" {
+		log.Printf("[xqldir] Source config dir not found, skipping config.yaml copy")
+		return
+	}
+
+	srcConfig := filepath.Join(srcDir, "config.yaml")
+	if _, err := os.Stat(srcConfig); err == nil {
+		dstConfig := filepath.Join(configDir, "config.yaml")
+		if err := copyFile(srcConfig, dstConfig); err != nil {
+			log.Printf("[xqldir] Warning: failed to copy config.yaml: %v", err)
+		} else {
+			log.Printf("[xqldir] Copied config.yaml to %s", dstConfig)
 		}
 	}
 }

@@ -194,10 +194,12 @@ func DefaultSkillConfigPath() string {
 	// 1. ./dev-skills-config.yaml (开发环境配置，优先)
 	// 2. ./skills-config.yaml (默认配置)
 	// 3. ./config/skills-config.yaml
+	// 4. ~/.xiaoqinglong/config/skills-config.yaml (用户配置目录)
 	paths := []string{
 		"dev-skills-config.yaml",
 		"skills-config.yaml",
 		"config/skills-config.yaml",
+		filepath.Join(os.Getenv("HOME"), ".xiaoqinglong", "config", "skills-config.yaml"),
 		filepath.Join(os.Getenv("HOME"), ".skills-config.yaml"),
 	}
 
