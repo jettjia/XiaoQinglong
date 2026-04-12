@@ -34,7 +34,13 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=1 go build -o "$SCRIPT_DIR/build/bin/runne
 echo "      runner.exe built"
 
 echo ""
-echo "[2/5] Copying assets to embed directory..."
+echo "[1.5/6] Building frontend..."
+cd "$SCRIPT_DIR/../../frontend/agent-ui"
+npm run build
+echo "      Frontend built"
+
+echo ""
+echo "[2/6] Copying assets to embed directory..."
 
 # Ensure bin directory exists at deploy/win-wails/ (for Go embed)
 rm -rf "$SCRIPT_DIR/bin"
@@ -57,13 +63,13 @@ echo "      Assets copied to build/bin/"
 ls -la "$SCRIPT_DIR/build/bin/"
 echo ""
 
-echo "[3/5] Building xiaoqinglong.exe with embedded assets..."
+echo "[3/6] Building xiaoqinglong.exe with embedded assets..."
 cd "$SCRIPT_DIR"
 wails build -platform windows/amd64
 echo "      xiaoqinglong.exe built with embedded assets"
 
 echo ""
-echo "[4/5] Verifying single file distribution..."
+echo "[4/6] Verifying single file distribution..."
 if [ -f "$SCRIPT_DIR/build/bin/xiaoqinglong.exe" ]; then
     SIZE=$(du -h "$SCRIPT_DIR/build/bin/xiaoqinglong.exe" | cut -f1)
     echo "      xiaoqinglong.exe: $SIZE"
@@ -74,7 +80,7 @@ else
 fi
 
 echo ""
-echo "[5/5] Build complete!"
+echo "[5/6] Build complete!"
 echo ""
 echo "Distribution: Single file - xiaoqinglong.exe"
 echo "No additional files needed!"
