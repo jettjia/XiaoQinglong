@@ -140,7 +140,6 @@ func fromCompactorsResult(result *compactors.CompactionResult) *CompactionResult
 }
 
 // Compact 自动选择合适的压缩策略
-// 参考 Hermes-agent 的压缩算法：
 // 1. PruneToolResults - 裁剪旧工具结果的详细内容
 // 2. ProtectHeadMessages - 保护头部消息（系统 + 前几个对话轮次）
 // 3. ProtectTailMessages - 保护尾部消息（最近的上下文）
@@ -154,7 +153,7 @@ func (c *Compactor) Compact(ctx context.Context, messages []Message, opts ...Opt
 	tokenCount := c.tokenizer.EstimateMessages(toCompactorsMessages(messages))
 	threshold := c.getThreshold()
 
-	// Hermes-agent 风格预处理：先裁剪旧工具结果
+	// 风格预处理：先裁剪旧工具结果
 	// 这可以显著减少 token 数量，避免过早触发完整压缩
 	ccMessages := c.preprocessMessages(messages)
 
@@ -192,7 +191,7 @@ func (c *Compactor) Compact(ctx context.Context, messages []Message, opts ...Opt
 	return fromCompactorsResult(result), nil
 }
 
-// preprocessMessages 预处理消息，应用 Hermes-agent 风格的裁剪
+// preprocessMessages 预处理消息 风格的裁剪
 // 1. 裁剪旧工具结果
 // 2. 保护头部和尾部消息
 func (c *Compactor) preprocessMessages(messages []Message) []compactors.Message {

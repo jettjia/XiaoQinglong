@@ -33,7 +33,7 @@ func StripImagesFromMessages(messages []Message) []Message {
 }
 
 // PruneToolResults 裁剪旧的工具结果，替换为占位符
-// 这是 Hermes-agent 风格压缩的第一步：删除旧工具调用的详细结果
+// 压缩的第一步：删除旧工具调用的详细结果
 // 参考: agent/context_compressor.py
 func PruneToolResults(messages []Message, maxResultLen int) []Message {
 	if maxResultLen <= 0 {

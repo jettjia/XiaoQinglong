@@ -310,7 +310,6 @@ func toolCallEventsMiddleware() *compose.ToolMiddleware {
 
 // iterationBudgetMiddleware 迭代预算中间件
 // 对只读工具（如 Read, Grep, Glob, WebSearch）标记为不消耗迭代预算
-// 参考 Hermes-agent 的 IterationBudget 模式
 func iterationBudgetMiddleware(budget *subagent.IterationBudget) *compose.ToolMiddleware {
 	return &compose.ToolMiddleware{
 		Invokable: func(next compose.InvokableToolEndpoint) compose.InvokableToolEndpoint {

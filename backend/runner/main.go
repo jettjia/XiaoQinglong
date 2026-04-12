@@ -93,7 +93,7 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 后台提取记忆（不阻塞主流程，参考 Hermes-agent 的 _spawn_background_review 模式）
+	// 后台提取记忆（不阻塞主流程， _spawn_background_review 模式）
 	// 如果配置了模型，后台审查器会在独立 goroutine 中提取并保存记忆
 	if globalBackgroundReviewer != nil && len(req.Messages) >= 2 {
 		modelConfig := memory.GetModelConfigForMemory(req.Models)
@@ -448,8 +448,7 @@ func handleRunStream(w http.ResponseWriter, r *http.Request, req *types.RunReque
 
 	close(stopHeartbeat)
 
-
-	// 流结束后，后台提取记忆（不阻塞，参考 Hermes-agent 模式）
+	// 流结束后，后台提取记忆（不阻塞）
 	if globalBackgroundReviewer != nil && len(req.Messages) >= 2 {
 		modelConfig := memory.GetModelConfigForMemory(req.Models)
 		if modelConfig != nil && modelConfig.APIKey != "" {
@@ -486,7 +485,6 @@ func getContextStr(context map[string]any, key string) string {
 	}
 	return ""
 }
-
 
 func handleResume(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {

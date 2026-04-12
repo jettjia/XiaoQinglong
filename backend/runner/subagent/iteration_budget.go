@@ -5,30 +5,29 @@ import (
 )
 
 // IterationBudget 迭代预算管理器，用于在父子 agent 之间共享迭代次数
-// 参考 Hermes-agent 的 IterationBudget 模式
 type IterationBudget struct {
-	mu            sync.RWMutex
-	remaining     int
-	total         int
-	refunded      int // 已退还的迭代次数（如 execute_code 等操作）
-	exemptTools   map[string]bool // 不消耗预算的工具（如 read-only 操作）
+	mu          sync.RWMutex
+	remaining   int
+	total       int
+	refunded    int             // 已退还的迭代次数（如 execute_code 等操作）
+	exemptTools map[string]bool // 不消耗预算的工具（如 read-only 操作）
 }
 
 // NewIterationBudget 创建迭代预算
 func NewIterationBudget(total int) *IterationBudget {
 	return &IterationBudget{
-		remaining:   total,
-		total:      total,
-		refunded:   0,
+		remaining: total,
+		total:     total,
+		refunded:  0,
 		exemptTools: map[string]bool{
-			"Read":       true, // 读取文件不消耗预算
-			"Glob":       true,
-			"Grep":       true,
-			"WebFetch":   true,
-			"WebSearch":  true,
-			"TaskGet":    true,
-			"TaskList":   true,
-			"Sleep":      true,
+			"Read":          true, // 读取文件不消耗预算
+			"Glob":          true,
+			"Grep":          true,
+			"WebFetch":      true,
+			"WebSearch":     true,
+			"TaskGet":       true,
+			"TaskList":      true,
+			"Sleep":         true,
 			"EnterPlanMode": true,
 			"ExitPlanMode":  true,
 		},

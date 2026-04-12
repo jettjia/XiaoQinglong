@@ -11,9 +11,9 @@ import (
 
 // BackgroundReviewConfig 后台审查配置
 type BackgroundReviewConfig struct {
-	Enabled       bool // 是否启用后台审查
-	MaxMemory     int  // 最多审查多少条记忆
-	ModelConfig   *types.ModelConfig
+	Enabled     bool // 是否启用后台审查
+	MaxMemory   int  // 最多审查多少条记忆
+	ModelConfig *types.ModelConfig
 }
 
 // DefaultBackgroundReviewConfig 返回默认配置
@@ -28,13 +28,13 @@ func DefaultBackgroundReviewConfig() *BackgroundReviewConfig {
 type BackgroundReviewCallback func(summary string)
 
 // BackgroundReviewer 后台记忆/技能审查器
-// 参考 Hermes-agent 的 _spawn_background_review 模式
+// _spawn_background_review 模式
 // 在主响应发送后才在后台运行，不与主任务竞争模型注意力
 type BackgroundReviewer struct {
-	config     *BackgroundReviewConfig
-	memStore   *MemStore
-	callback   BackgroundReviewCallback
-	mu         sync.RWMutex
+	config       *BackgroundReviewConfig
+	memStore     *MemStore
+	callback     BackgroundReviewCallback
+	mu           sync.RWMutex
 	activeReview bool
 }
 
@@ -116,7 +116,7 @@ func (r *BackgroundReviewer) shouldTriggerReview(userInput, assistantOutput stri
 	return false
 }
 
-// spawnBackgroundReview 启动后台审查（参考 Hermes-agent _spawn_background_review）
+// spawnBackgroundReview 启动后台审查（_spawn_background_review）
 // 使用独立 goroutine，不阻塞主流程
 func (r *BackgroundReviewer) spawnBackgroundReview(ctx context.Context, userInput, assistantOutput string) {
 	r.mu.Lock()

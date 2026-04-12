@@ -14,7 +14,7 @@ var SourceSkillsDir = ""
 // BaseDirEnv is the environment variable for the base directory
 const BaseDirEnv = "XQL_BASE_DIR"
 
-// RunnerHomeEnv is the environment variable for RUNNER_HOME (similar to HERMES_HOME in Hermes-agent)
+// RunnerHomeEnv is the environment variable for RUNNER_HOME
 // This allows complete profile isolation between different runner instances
 const RunnerHomeEnv = "RUNNER_HOME"
 
