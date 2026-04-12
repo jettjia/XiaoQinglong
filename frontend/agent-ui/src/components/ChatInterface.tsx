@@ -57,7 +57,7 @@ import { INITIAL_AGENTS } from '../constants';
 import { agentApi, chatApi } from '../lib/api';
 import { useTranslation } from 'react-i18next';
 
-const API_BASE = '/api/xiaoqinglong/agent-frame/v1';
+const API_BASE = import.meta.env.VITE_AGENT_FRAME_API_URL || 'http://localhost:9292/api/xiaoqinglong/agent-frame/v1';
 const CURRENT_USER_ID = 'user-1'; // TODO: Get from auth context
 
 // 辅助函数：检测并提取 Markdown 中的 HTML 代码块

@@ -41,7 +41,14 @@ func initConfig() *conf.Config {
 	// 默认配置路径
 	defaultFile := "./manifest/config/config.yaml"
 
-	// 用户配置目录（优先使用）
+	// 优先使用 XQL_CONFIG_PATH 环境变量
+	if xqlConfigPath := os.Getenv("XQL_CONFIG_PATH"); xqlConfigPath != "" {
+		if _, err := os.Stat(xqlConfigPath); err == nil {
+			defaultFile = xqlConfigPath
+		}
+	}
+
+	// 用户配置目录（次优先）
 	userConfigDir := getConfigDir()
 	userConfigFile := filepath.Join(userConfigDir, "config.yaml")
 

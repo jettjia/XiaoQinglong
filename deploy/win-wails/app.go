@@ -53,6 +53,11 @@ func startup() {
 	os.Setenv("XQL_SOURCE_SKILLS_DIR", skillsPath)
 	log.Printf("[Wails] XQL_SOURCE_SKILLS_DIR: %s", skillsPath)
 
+	// 设置配置文件路径
+	configPath := filepath.Join(baseDir, "config", "config.yaml")
+	os.Setenv("XQL_CONFIG_PATH", configPath)
+	log.Printf("[Wails] XQL_CONFIG_PATH: %s", configPath)
+
 	// 查找 runner.exe（从 ~/.xiaoqinglong/runner.exe）
 	runnerPath := filepath.Join(baseDir, "runner.exe")
 	log.Printf("[Wails] Runner path: %s", runnerPath)
