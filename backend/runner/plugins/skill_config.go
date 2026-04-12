@@ -190,23 +190,29 @@ func toString(v any) string {
 
 // DefaultSkillConfigPath 返回默认的 skill 配置路径
 func DefaultSkillConfigPath() string {
-	// 依次查找：
-	// 1. ./dev-skills-config.yaml (开发环境配置，优先)
-	// 2. ./skills-config.yaml (默认配置)
-	// 3. ./config/skills-config.yaml
-	// 4. ~/.xiaoqinglong/config/skills-config.yaml (用户配置目录)
-	paths := []string{
-		"dev-skills-config.yaml",
-		"skills-config.yaml",
-		"config/skills-config.yaml",
-		filepath.Join(os.Getenv("HOME"), ".xiaoqinglong", "config", "skills-config.yaml"),
-		filepath.Join(os.Getenv("HOME"), ".skills-config.yaml"),
+	// 开发环境使用 dev-skills-config.yaml
+	if os.Getenv("env") == "debug" {
+		devPath := "backend/runner/dev-skills-config.yaml"
+		if _, err := os.Stat(devPath); err == nil {
+			return devPath
+		}
 	}
 
-	for _, p := range paths {
-		if _, err := os.Stat(p); err == nil {
-			return p
+	// 生产环境优先使用 XQL_SKILLS_CONFIG_PATH 环境变量
+	if xqlSkillsConfigPath := os.Getenv("XQL_SKILLS_CONFIG_PATH"); xqlSkillsConfigPath != "" {
+		if _, err := os.Stat(xqlSkillsConfigPath); err == nil {
+			return xqlSkillsConfigPath
 		}
+	}
+
+	// 生产环境使用 ~/.xiaoqinglong/config/skills-config.yaml
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		home = "/tmp"
+	}
+	configPath := filepath.Join(home, ".xiaoqinglong", "config", "skills-config.yaml")
+	if _, err := os.Stat(configPath); err == nil {
+		return configPath
 	}
 
 	return "" // 没有找到，返回空

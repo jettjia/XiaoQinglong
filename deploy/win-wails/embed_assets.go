@@ -155,6 +155,12 @@ func extractDirFromFS(fs embed.FS, srcPath, dstPath string) error {
 func init() {
 	log.Println("[Embed] init() starting...")
 
+	// 设置配置文件路径（必须在提取资源之后、使用配置之前）
+	baseDir := getBaseDir()
+	configPath := filepath.Join(baseDir, "config", "config.yaml")
+	os.Setenv("XQL_CONFIG_PATH", configPath)
+	log.Printf("[Embed] XQL_CONFIG_PATH set to: %s", configPath)
+
 	// Write to a test file
 	home, _ := os.UserHomeDir()
 	if home == "" {

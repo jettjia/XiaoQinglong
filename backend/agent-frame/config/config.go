@@ -36,51 +36,50 @@ func NewConfig() (conf *conf.Config) {
 	return cfg
 }
 
-// InitConfig read config
+// initConfig read config
 func initConfig() *conf.Config {
-	// 默认配置路径
-	defaultFile := "./manifest/config/config.yaml"
-
-	// 优先使用 XQL_CONFIG_PATH 环境变量
-	if xqlConfigPath := os.Getenv("XQL_CONFIG_PATH"); xqlConfigPath != "" {
-		if _, err := os.Stat(xqlConfigPath); err == nil {
-			defaultFile = xqlConfigPath
+	// 开发环境使用 dev-config.yaml
+	if os.Getenv("env") == "debug" {
+		devConfig := "agent-frame/manifest/config/dev-config.yaml"
+		if _, err := os.Stat(devConfig); err == nil {
+			cfg = &conf.Config{}
+			if err := flag.Set("conf", devConfig); err != nil {
+				panic(err)
+			}
+			if err := conf.ParseYaml(cfg); err != nil {
+				panic(err)
+			}
+			return cfg
 		}
 	}
 
-	// 用户配置目录（次优先）
-	userConfigDir := getConfigDir()
-	userConfigFile := filepath.Join(userConfigDir, "config.yaml")
-
-	// product: load k8s config path
-	if os.Getenv("env") == "release" {
-		defaultFile = "/sysvol/conf/public-center.yaml"
+	// 生产环境：优先使用 XQL_CONFIG_PATH 环境变量
+	if xqlConfigPath := os.Getenv("XQL_CONFIG_PATH"); xqlConfigPath != "" {
+		if _, err := os.Stat(xqlConfigPath); err == nil {
+			cfg = &conf.Config{}
+			if err := flag.Set("conf", xqlConfigPath); err != nil {
+				panic(err)
+			}
+			if err := conf.ParseYaml(cfg); err != nil {
+				panic(err)
+			}
+			return cfg
+		}
 	}
 
-	// product: load docker config path
-	if os.Getenv("env") == "docker" {
-		defaultFile = "./manifest/config/config-docker.yaml"
-	}
-
-	// 确定使用的配置文件
-	file := defaultFile
+	// 生产环境：使用 ~/.xiaoqinglong/config/config.yaml
+	userConfigFile := filepath.Join(getConfigDir(), "config.yaml")
 	if _, err := os.Stat(userConfigFile); err == nil {
-		// 用户配置存在，优先使用
-		file = userConfigFile
+		cfg = &conf.Config{}
+		if err := flag.Set("conf", userConfigFile); err != nil {
+			panic(err)
+		}
+		if err := conf.ParseYaml(cfg); err != nil {
+			panic(err)
+		}
+		return cfg
 	}
 
-	// load config.yaml
-	cfg = &conf.Config{}
-	if err := flag.Set("conf", file); err != nil {
-		panic(err)
-	}
-	if err := conf.ParseYaml(cfg); err != nil {
-		panic(err)
-	}
-
-	if err := conf.ParseYaml(cfg); err != nil {
-		panic(err)
-	}
-
-	return cfg
+	// 异常：配置不存在
+	panic("config file not found: " + userConfigFile)
 }

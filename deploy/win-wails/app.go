@@ -43,20 +43,17 @@ func startup() {
 	log.Println("[Wails] startup() called")
 	log.Printf("[Wails] Executable path: %s", getExecutablePath())
 
-	// 设置环境变量
-	os.Setenv("env", "debug")
+	// 设置环境变量（生产环境）
+	os.Setenv("env", "release")
 
-	// 资源已在 init() 中释放到 ~/.xiaoqinglong/
+	// 资源已在 embed_assets.go init() 中释放到 ~/.xiaoqinglong/
+	// 配置文件路径已在 embed_assets.go 中设置到 XQL_CONFIG_PATH
+
 	// 设置 skills 目录
 	baseDir := getBaseDir()
 	skillsPath := filepath.Join(baseDir, "skills")
 	os.Setenv("XQL_SOURCE_SKILLS_DIR", skillsPath)
 	log.Printf("[Wails] XQL_SOURCE_SKILLS_DIR: %s", skillsPath)
-
-	// 设置配置文件路径
-	configPath := filepath.Join(baseDir, "config", "config.yaml")
-	os.Setenv("XQL_CONFIG_PATH", configPath)
-	log.Printf("[Wails] XQL_CONFIG_PATH: %s", configPath)
 
 	// 查找 runner.exe（从 ~/.xiaoqinglong/runner.exe）
 	runnerPath := filepath.Join(baseDir, "runner.exe")
