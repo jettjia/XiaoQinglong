@@ -93,35 +93,8 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 后台提取记忆（不阻塞主流程， _spawn_background_review 模式）
-	// 如果配置了模型，后台审查器会在独立 goroutine 中提取并保存记忆
-	if globalBackgroundReviewer != nil && len(req.Messages) >= 2 {
-		modelConfig := memory.GetModelConfigForMemory(req.Models)
-		if modelConfig != nil && modelConfig.APIKey != "" {
-			// 更新审查器的模型配置
-			globalBackgroundReviewer.UpdateModelConfig(modelConfig)
-
-			// 获取最后一条 user 和 assistant 的内容
-			var userInput, assistantOutput string
-			for i := len(req.Messages) - 1; i >= 0; i-- {
-				if req.Messages[i].Role == "user" && userInput == "" {
-					userInput = req.Messages[i].Content
-				}
-				if req.Messages[i].Role == "assistant" && assistantOutput == "" {
-					assistantOutput = req.Messages[i].Content
-				}
-				if userInput != "" && assistantOutput != "" {
-					break
-				}
-			}
-
-			if userInput != "" && assistantOutput != "" {
-				// 触发后台审查（不等待完成）
-				globalBackgroundReviewer.ReviewIfNeeded(r.Context(), userInput, assistantOutput)
-				logger.Infof("[Memory] Background review triggered for session: %s", getContextStr(req.Context, "session_id"))
-			}
-		}
-	}
+	// 后台提取记忆（不阻塞主流程，参考 Hermes-agent 的 _spawn_background_review 模式）
+	triggerBackgroundReview(r.Context(), req.Messages, req.Models, req.Context)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
@@ -236,7 +209,30 @@ func handleAgentStream(w http.ResponseWriter, r *http.Request, req *types.RunReq
 
 	// 创建可取消的上下文
 	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
+
+	// 保存取消函数到 stopFuncs (同时用 checkpoint_id 和 session_id 作为 key)
+	sessionID := ""
+	if req.Context != nil {
+		if s, ok := req.Context["session_id"].(string); ok {
+			sessionID = s
+		}
+	}
+	stopMu.Lock()
+	stopFuncs[checkpointID] = cancel
+	if sessionID != "" {
+		stopFuncs[sessionID] = cancel
+	}
+	stopMu.Unlock()
+
+	// 确保退出时清理
+	defer func() {
+		stopMu.Lock()
+		delete(stopFuncs, checkpointID)
+		if sessionID != "" {
+			delete(stopFuncs, sessionID)
+		}
+		stopMu.Unlock()
+	}()
 
 	runner := NewRunner(req)
 	eventsChan, err := runner.RunStream(ctx)
@@ -448,39 +444,50 @@ func handleRunStream(w http.ResponseWriter, r *http.Request, req *types.RunReque
 
 	close(stopHeartbeat)
 
-	// 流结束后，后台提取记忆（不阻塞）
-	if globalBackgroundReviewer != nil && len(req.Messages) >= 2 {
-		modelConfig := memory.GetModelConfigForMemory(req.Models)
-		if modelConfig != nil && modelConfig.APIKey != "" {
-			globalBackgroundReviewer.UpdateModelConfig(modelConfig)
+	// 流结束后，后台提取记忆（不阻塞，参考 Hermes-agent 的 _spawn_background_review 模式）
+	triggerBackgroundReview(context.Background(), req.Messages, req.Models, req.Context)
+}
 
-			var userInput, assistantOutput string
-			for i := len(req.Messages) - 1; i >= 0; i-- {
-				if req.Messages[i].Role == "user" && userInput == "" {
-					userInput = req.Messages[i].Content
-				}
-				if req.Messages[i].Role == "assistant" && assistantOutput == "" {
-					assistantOutput = req.Messages[i].Content
-				}
-				if userInput != "" && assistantOutput != "" {
-					break
-				}
-			}
+// triggerBackgroundReview 触发后台记忆审查
+// 参考 Hermes-agent 的 _spawn_background_review 模式
+func triggerBackgroundReview(ctx context.Context, messages []types.Message, models map[string]types.ModelConfig, contextData map[string]any) {
+	if globalBackgroundReviewer == nil || len(messages) < 2 {
+		return
+	}
 
-			if userInput != "" && assistantOutput != "" {
-				globalBackgroundReviewer.ReviewIfNeeded(context.Background(), userInput, assistantOutput)
-				logger.Infof("[Memory] Background review triggered for stream session: %s", getContextStr(req.Context, "session_id"))
-			}
+	modelConfig := memory.GetModelConfigForMemory(models)
+	if modelConfig == nil || modelConfig.APIKey == "" {
+		return
+	}
+
+	globalBackgroundReviewer.UpdateModelConfig(modelConfig)
+
+	// 获取最后一条 user 和 assistant 的内容
+	var userInput, assistantOutput string
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "user" && userInput == "" {
+			userInput = messages[i].Content
 		}
+		if messages[i].Role == "assistant" && assistantOutput == "" {
+			assistantOutput = messages[i].Content
+		}
+		if userInput != "" && assistantOutput != "" {
+			break
+		}
+	}
+
+	if userInput != "" && assistantOutput != "" {
+		globalBackgroundReviewer.ReviewIfNeeded(ctx, userInput, assistantOutput)
+		logger.Infof("[Memory] Background review triggered for session: %s", getContextStr(contextData, "session_id"))
 	}
 }
 
 // getContextStr 从 context 中获取字符串值
-func getContextStr(context map[string]any, key string) string {
-	if context == nil {
+func getContextStr(contextData map[string]any, key string) string {
+	if contextData == nil {
 		return ""
 	}
-	if v, ok := context[key].(string); ok {
+	if v, ok := contextData[key].(string); ok {
 		return v
 	}
 	return ""
@@ -607,9 +614,4 @@ func expandEnvStr(s string) string {
 		envVar := match[2 : len(match)-1]
 		return os.Getenv(envVar)
 	})
-}
-
-// containsEnvVar 检查字符串是否包含环境变量
-func containsEnvVar(s string) bool {
-	return strings.Contains(s, "${")
 }
