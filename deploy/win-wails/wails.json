@@ -25,6 +25,7 @@
   "outputType": "desktop",
   "platform": "windows",
   "architecture": "amd64",
+  "devtools": true,
   "optimise": {
     "disabled": false,
     "lto": true,

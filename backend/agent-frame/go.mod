@@ -10,7 +10,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
-	github.com/jettjia/igo-pkg v1.9.8
+	github.com/jettjia/igo-pkg/pkg v1.20.1
 	github.com/jinzhu/copier v0.4.0
 	github.com/larksuite/oapi-sdk-go/v3 v3.5.3
 	github.com/mark3labs/mcp-go v0.47.1
@@ -39,8 +39,6 @@ require (
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/elastic/elastic-transport-go/v8 v8.10.0 // indirect
-	github.com/elastic/go-elasticsearch/v8 v8.19.3 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/emirpasic/gods/v2 v2.0.0-alpha // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
@@ -119,6 +117,3 @@ require (
 	modernc.org/memory v1.5.0 // indirect
 	modernc.org/sqlite v1.23.1 // indirect
 )
-
-// Replace gorm.io/driver/sqlite with pure-Go implementation
-replace gorm.io/driver/sqlite => github.com/glebarez/sqlite v1.11.0

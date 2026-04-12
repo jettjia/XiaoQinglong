@@ -3,8 +3,8 @@ package memory
 import (
 	"time"
 
-	"github.com/jinzhu/copier"
 	"github.com/jettjia/igo-pkg/pkg/util"
+	"github.com/jinzhu/copier"
 	"gorm.io/gorm"
 )
 

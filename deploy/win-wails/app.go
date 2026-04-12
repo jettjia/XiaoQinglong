@@ -141,6 +141,7 @@ func startup() {
 	}()
 
 	log.Println("[Wails] XiaoQingLong started successfully!")
+	log.Println("[Wails] Waiting for WebView2 to load frontend...")
 }
 
 func shutdown() {
