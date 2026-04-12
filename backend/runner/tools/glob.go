@@ -31,6 +31,19 @@ func NewGlobTool(basePath ...string) *GlobTool {
 	return &GlobTool{basePath: "."}
 }
 
+func init() {
+	GlobalRegistry.Register(ToolMeta{
+		Name:           "Glob",
+		Desc:           "Fast file pattern matching tool. Use this to find files by name patterns (e.g., **/*.go, *.json).",
+		IsReadOnly:     true,
+		MaxResultChars: 100000, // 限制结果大小
+		DefaultRisk:    "low",
+		Creator: func(basePath string) interface{} {
+			return NewGlobTool(basePath)
+		},
+	})
+}
+
 func (t *GlobTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "Glob",

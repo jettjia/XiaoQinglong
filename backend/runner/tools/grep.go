@@ -54,6 +54,19 @@ func NewGrepTool(basePath ...string) *GrepTool {
 	return &GrepTool{basePath: "."}
 }
 
+func init() {
+	GlobalRegistry.Register(ToolMeta{
+		Name:           "Grep",
+		Desc:           "Content search tool using ripgrep. Searches files for regex patterns.",
+		IsReadOnly:     true,
+		MaxResultChars: 200000, // 限制结果大小
+		DefaultRisk:    "low",
+		Creator: func(basePath string) interface{} {
+			return NewGrepTool(basePath)
+		},
+	})
+}
+
 func (t *GrepTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "Grep",

@@ -48,6 +48,19 @@ func NewWebSearchTool() *WebSearchTool {
 	}
 }
 
+func init() {
+	GlobalRegistry.Register(ToolMeta{
+		Name:           "WebSearch",
+		Desc:           "Search the web for current events and recent information. Use this for queries that require up-to-date information not in the model's training data.",
+		IsReadOnly:     true,
+		MaxResultChars: 50000,
+		DefaultRisk:    "low",
+		Creator: func(basePath string) interface{} {
+			return NewWebSearchTool()
+		},
+	})
+}
+
 func (t *WebSearchTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "WebSearch",

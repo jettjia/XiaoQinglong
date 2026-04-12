@@ -154,6 +154,29 @@ func NewExitPlanModeTool() *ExitPlanModeTool {
 	return &ExitPlanModeTool{state: GlobalPlanModeState}
 }
 
+func init() {
+	GlobalRegistry.Register(ToolMeta{
+		Name:           "EnterPlanMode",
+		Desc:           "Enter plan mode for implementation planning before coding. Use this when you need to design an approach or get user approval before proceeding.",
+		IsReadOnly:     false,
+		MaxResultChars: 200,
+		DefaultRisk:    "low",
+		Creator: func(basePath string) interface{} {
+			return NewEnterPlanModeTool()
+		},
+	})
+	GlobalRegistry.Register(ToolMeta{
+		Name:           "ExitPlanMode",
+		Desc:           "Exit plan mode with user approval. Call this when the plan is ready for implementation.",
+		IsReadOnly:     false,
+		MaxResultChars: 200,
+		DefaultRisk:    "low",
+		Creator: func(basePath string) interface{} {
+			return NewExitPlanModeTool()
+		},
+	})
+}
+
 func (t *ExitPlanModeTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "ExitPlanMode",

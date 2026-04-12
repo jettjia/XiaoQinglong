@@ -39,6 +39,19 @@ func NewAskUserQuestionTool() *AskUserQuestionTool {
 	return &AskUserQuestionTool{}
 }
 
+func init() {
+	GlobalRegistry.Register(ToolMeta{
+		Name:           "AskUserQuestion",
+		Desc:           "Ask the user multiple choice questions to gather information, clarify ambiguity, or understand preferences.",
+		IsReadOnly:     false,
+		MaxResultChars: 1000,
+		DefaultRisk:    "low",
+		Creator: func(basePath string) interface{} {
+			return NewAskUserQuestionTool()
+		},
+	})
+}
+
 func (t *AskUserQuestionTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "AskUserQuestion",

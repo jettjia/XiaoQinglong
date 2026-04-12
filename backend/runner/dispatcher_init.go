@@ -14,7 +14,6 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
-	"github.com/cloudwego/eino/schema"
 	"github.com/jettjia/XiaoQinglong/runner/cliext"
 	"github.com/jettjia/XiaoQinglong/runner/cron"
 	"github.com/jettjia/XiaoQinglong/runner/memory"
@@ -824,44 +823,34 @@ func (d *Dispatcher) initBuiltinTools(ctx context.Context) error {
 		}
 	}
 
-	// 创建内置工具
-	builtinTools := []interface {
-		Info(ctx context.Context) (*schema.ToolInfo, error)
-		InvokableRun(ctx context.Context, input string, opts ...tool.Option) (string, error)
-	}{
-		tools.NewGlobTool(workingDir),
-		tools.NewGrepTool(workingDir),
-		tools.NewFileReadTool(workingDir),
-		tools.NewFileEditTool(workingDir),
-		tools.NewFileWriteTool(workingDir),
-		tools.NewBashTool(workingDir),
-		tools.NewSleepTool(),
-		tools.NewWebFetchTool(),
-		tools.NewWebSearchTool(),
-		tools.NewTaskCreateTool(workingDir),
-		tools.NewTaskGetTool(workingDir),
-		tools.NewTaskListTool(workingDir),
-		tools.NewTaskUpdateTool(workingDir),
-		tools.NewTodoWriteTool(workingDir),
-		tools.NewEnterPlanModeTool(),
-		tools.NewExitPlanModeTool(),
-		tools.NewAskUserQuestionTool(),
-	}
+	// 从注册中心获取所有已注册的工具
+	registeredTools := tools.GlobalRegistry.List()
+	logger.Infof("[Dispatcher] initBuiltinTools: found %d registered tools in registry", len(registeredTools))
 
-	// 注册工具，使用默认风险级别（低风险工具默认不需要审批）
-	for _, t := range builtinTools {
-		info, err := t.Info(ctx)
+	// 注册工具，使用注册中心中的默认风险级别
+	for _, toolName := range registeredTools {
+		// 从注册中心创建工具实例
+		t, err := tools.GlobalRegistry.CreateTool(toolName, workingDir)
 		if err != nil {
-			logger.Warnf("[Dispatcher] initBuiltinTools: failed to get tool info: %v", err)
+			logger.Warnf("[Dispatcher] initBuiltinTools: failed to create tool %s: %v", toolName, err)
 			continue
 		}
 
+		info, err := t.Info(ctx)
+		if err != nil {
+			logger.Warnf("[Dispatcher] initBuiltinTools: failed to get tool info for %s: %v", toolName, err)
+			continue
+		}
+
+		// 从注册中心获取默认风险级别
+		riskLevel := tools.GlobalRegistry.GetDefaultRisk(toolName)
+
 		// 包装工具并添加到列表
-		wrapped := d.wrapToolWithApproval(t, info.Name, "builtin", "low")
+		wrapped := d.wrapToolWithApproval(t, info.Name, "builtin", riskLevel)
 		d.tools = append(d.tools, wrapped)
 	}
 
-	logger.Infof("[Dispatcher] initBuiltinTools: registered %d builtin tools", len(builtinTools))
+	logger.Infof("[Dispatcher] initBuiltinTools: registered %d builtin tools from registry", len(registeredTools))
 	return nil
 }
 

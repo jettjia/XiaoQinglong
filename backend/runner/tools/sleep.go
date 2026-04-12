@@ -29,6 +29,19 @@ func NewSleepTool() *SleepTool {
 	return &SleepTool{}
 }
 
+func init() {
+	GlobalRegistry.Register(ToolMeta{
+		Name:           "Sleep",
+		Desc:           "Wait for a specified duration. Use this to add delays between operations.",
+		IsReadOnly:     true, // 只读，不修改任何东西
+		MaxResultChars: 100,
+		DefaultRisk:    "low",
+		Creator: func(basePath string) interface{} {
+			return NewSleepTool()
+		},
+	})
+}
+
 func (t *SleepTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "Sleep",
