@@ -42,7 +42,7 @@ func init() {
 
 func main() {
 	// 设置源码 skills 目录（用于首次初始化时复制）
-	// 优先级：环境变量 XQL_SOURCE_SKILLS_DIR > 自动检测
+	// 优先级：环境变量 XQL_SOURCE_SKILLS_DIR > 自动检测 > 同目录 skills
 	if envDir := os.Getenv("XQL_SOURCE_SKILLS_DIR"); envDir != "" {
 		xqldir.SourceSkillsDir = envDir
 	} else {
@@ -50,7 +50,22 @@ func main() {
 		execPath, _ := os.Executable()
 		if execPath != "" {
 			// runner/bin/runner -> 项目根目录
-			xqldir.SourceSkillsDir = filepath.Join(execPath, "..", "..", "..", "skills")
+			devSkills := filepath.Join(execPath, "..", "..", "..", "skills")
+			if _, err := os.Stat(devSkills); err == nil {
+				xqldir.SourceSkillsDir = devSkills
+			}
+		}
+
+		// 如果找不到，尝试同目录（Windows 部署时 runner.exe 和 skills 同目录）
+		if xqldir.SourceSkillsDir == "" {
+			execPath, _ := os.Executable()
+			if execPath != "" {
+				execDir := filepath.Dir(execPath)
+				localSkills := filepath.Join(execDir, "skills")
+				if _, err := os.Stat(localSkills); err == nil {
+					xqldir.SourceSkillsDir = localSkills
+				}
+			}
 		}
 	}
 

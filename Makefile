@@ -18,12 +18,19 @@ MOCK_SERVICES := a2a http kb-service mcp
 # Docker deploy directory
 DEPLOY_DIR := deploy/docker
 
+# Win-wails deploy directory
+WIN_WAILS_DIR := deploy/win-wails
+
 # ================================================
 # Build Targets
 # ================================================
 
-.PHONY: build build-frame build-runner build-ui build-all
+.PHONY: build build-frame build-runner build-ui build-all build-win
 build: build-frame build-runner build-ui
+
+build-win:
+	@echo "Building XiaoQinglong for Windows (Wails)..."
+	@cd $(WIN_WAILS_DIR) && ./build.sh
 
 build-frame:
 	@echo "Building agent-frame..."
@@ -200,6 +207,7 @@ help:
 	@echo "  build-frame    - Build agent-frame"
 	@echo "  build-runner   - Build runner"
 	@echo "  build-ui       - Build agent-ui"
+	@echo "  build-win      - Build Windows exe (Wails)"
 	@echo ""
 	@echo "Docker Targets:"
 	@echo "  docker-build       - Build all docker images"
