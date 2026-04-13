@@ -101,6 +101,12 @@ func handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 检查是否启用循环模式
+	if req.Options != nil && req.Options.LoopInterval != "" {
+		handleRunLoop(w, r, &req)
+		return
+	}
+
 	runner := NewRunner(&req)
 	resp, err := runner.Run(r.Context())
 	if err != nil {
@@ -630,3 +636,75 @@ func expandEnvStr(s string) string {
 		return os.Getenv(envVar)
 	})
 }
+
+// handleRunLoop 处理连续循环执行（复用 /run 端点）
+func handleRunLoop(w http.ResponseWriter, r *http.Request, req *types.RunRequest) {
+	opts := req.Options
+
+	// 构建 LoopRequest
+	loopReq := &types.LoopRequest{
+		Prompt:   req.Prompt,
+		Models:   req.Models,
+		Context:  req.Context,
+		Skills:   req.Skills,
+		MCPs:     req.MCPs,
+		Tools:    req.Tools,
+		Options: &types.LoopOptions{
+			Interval:      opts.LoopInterval,
+			MaxIterations: opts.LoopMaxIterations,
+			StopCondition: opts.LoopStopCondition,
+			Stream:        opts.Stream,
+		},
+	}
+
+	// 创建循环控制器
+	controller := NewLoopController(loopReq)
+
+	// 执行循环
+	if opts.Stream {
+		// 流式输出
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.WriteHeader(http.StatusOK)
+
+		eventsChan, err := controller.RunStream(r.Context())
+		if err != nil {
+			fmt.Fprintf(w, "data: {\"error\": \"%v\"}\n\n", err)
+			return
+		}
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "SSE not supported", http.StatusInternalServerError)
+			return
+		}
+
+		for event := range eventsChan {
+			data, _ := json.Marshal(event.Data)
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, string(data))
+			flusher.Flush()
+		}
+
+		// 流结束后，后台提取记忆（非阻塞）
+		go func() {
+			triggerBackgroundReview(context.Background(), []types.Message{}, req.Models, req.Context)
+		}()
+	} else {
+		// 非流式输出
+		resp, err := controller.Run(r.Context())
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Loop execution failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// 后台提取记忆（非阻塞）
+		go func() {
+			triggerBackgroundReview(context.Background(), []types.Message{}, req.Models, req.Context)
+		}()
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}
+}
+

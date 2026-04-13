@@ -1,0 +1,37 @@
+{
+    "endpoint": "http://localhost:18080/run",
+    "models": {
+        "default": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        }
+    },
+    "system_prompt": "",
+    "user_message": "请用中文回答：1+1等于几？只回答数字。",
+    "messages": [],
+    "tools": [],
+    "a2a": [],
+    "mcps": [],
+    "sandbox": {
+        "enabled": false
+    },
+    "options": {
+        "temperature": 0.7,
+        "max_tokens": 1000,
+        "stream": false,
+        "loop_interval": "3s",
+        "loop_max_iterations": 2,
+        "loop_stop_condition": "LOOP_COMPLETE"
+    },
+    "skills": [],
+    "sub_agents": [],
+    "context": {
+        "session_id": "sess_loop_001",
+        "user_id": "user_loop_001",
+        "channel_id": "test"
+    },
+    "knowledge_bases": [],
+    "files": []
+}
