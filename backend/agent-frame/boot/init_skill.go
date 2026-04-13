@@ -11,8 +11,8 @@ import (
 	"github.com/jettjia/igo-pkg/pkg/xsql/builder"
 	dtoSkill "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/skill"
 	"github.com/jettjia/xiaoqinglong/agent-frame/application/service/skill"
-	"github.com/jettjia/xiaoqinglong/agent-frame/pkg/xqldir"
 	srvSkill "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/skill"
+	"github.com/jettjia/xiaoqinglong/agent-frame/pkg/xqldir"
 )
 
 // getSourceSkillsPath 获取源码仓库中的 skills 目录路径

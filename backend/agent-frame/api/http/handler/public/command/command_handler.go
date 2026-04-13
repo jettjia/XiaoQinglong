@@ -15,10 +15,10 @@ import (
 	"github.com/jettjia/igo-pkg/pkg/xresponse"
 
 	agentDto "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/agent"
-	agentSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/agent"
 	kbDto "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/knowledge_base"
-	kbSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/knowledge_base"
 	modelDto "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/model"
+	agentSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/agent"
+	kbSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/knowledge_base"
 	modelSvc "github.com/jettjia/xiaoqinglong/agent-frame/application/service/model"
 	"github.com/jettjia/xiaoqinglong/agent-frame/types/apierror"
 )

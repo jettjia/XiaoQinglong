@@ -1,4 +1,10 @@
-const API_BASE = '/api/xiaoqinglong/agent-frame/v1';
+// For production Wails build, use direct localhost URL since proxy doesn't apply
+// For dev, Vite proxy handles /api routing
+// Detect Wails environment (http://wails.localhost) and use correct API endpoint
+const isWails = window.location.hostname === 'wails.localhost';
+const API_BASE = isWails
+  ? 'http://wails.localhost:9292/api/xiaoqinglong/agent-frame/v1'
+  : (import.meta.env.VITE_AGENT_FRAME_API_URL || 'http://localhost:9292/api/xiaoqinglong/agent-frame/v1');
 
 import type { Agent } from '../types';
 

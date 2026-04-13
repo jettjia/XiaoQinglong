@@ -11,7 +11,7 @@ server:
   enable_grpc: false
 
 db:
-  db_type: "postgres"
+  db_type: "sqlite"
   username: "root"
   password: "admin123"
   db_host: "127.0.0.1"

@@ -3,13 +3,13 @@ package dashboard
 import (
 	"context"
 
+	"github.com/jettjia/igo-pkg/pkg/xsql/builder"
 	dto "github.com/jettjia/xiaoqinglong/agent-frame/application/dto/dashboard"
 	agentSrv "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/agent"
 	channelSrv "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/channel"
 	chatSrv "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/chat"
 	jobSrv "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/job"
 	knowledgeBaseSrv "github.com/jettjia/xiaoqinglong/agent-frame/domain/srv/knowledge_base"
-	"github.com/jettjia/igo-pkg/pkg/xsql/builder"
 )
 
 type DashboardSvc struct {

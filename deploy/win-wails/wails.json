@@ -1,0 +1,35 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "XiaoQinglong",
+  "outputfilename": "xiaoqinglong.exe",
+  "icon": "./app-icon.png",
+  "frontend": {
+    "path": "./frontend",
+    "devurl": "",
+    "installurl": "",
+    "builddir": ""
+  },
+  "author": {
+    "name": "jettjia",
+    "email": ""
+  },
+  "info": {
+    "companyName": "XiaoQinglong",
+    "productName": "XiaoQinglong",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright 2024",
+    "comments": "XiaoQinglong AI Agent"
+  },
+  "wailsjsdir": "./wailsjs",
+  "version": "2",
+  "outputType": "desktop",
+  "platform": "windows",
+  "architecture": "amd64",
+  "devtools": true,
+  "optimise": {
+    "disabled": false,
+    "lto": true,
+    "compress": true,
+    "裁剪": true
+  }
+}

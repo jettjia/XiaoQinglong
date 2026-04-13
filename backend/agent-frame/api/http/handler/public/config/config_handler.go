@@ -12,14 +12,46 @@ import (
 	"github.com/jettjia/xiaoqinglong/agent-frame/types/apierror"
 )
 
-const (
-	ConfigFilePath   = "./manifest/config/config.yaml"
-	SkillsConfigPath = "../runner/skills-config.yaml"
-)
+// GetConfigFilePath returns the actual config file path
+func GetConfigFilePath() string {
+	// 开发环境使用 dev-config.yaml
+	if os.Getenv("env") == "debug" {
+		return "agent-frame/manifest/config/dev-config.yaml"
+	}
+	// 生产环境优先使用 XQL_CONFIG_PATH
+	if xqlConfigPath := os.Getenv("XQL_CONFIG_PATH"); xqlConfigPath != "" {
+		return xqlConfigPath
+	}
+	// 生产环境使用用户配置目录
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		home = "/tmp"
+	}
+	return filepath.Join(home, ".xiaoqinglong", "config", "config.yaml")
+}
+
+// GetSkillsConfigFilePath returns the actual skills config file path
+func GetSkillsConfigFilePath() string {
+	// 开发环境使用 dev-skills-config.yaml
+	if os.Getenv("env") == "debug" {
+		return "backend/runner/dev-skills-config.yaml"
+	}
+	// 生产环境优先使用 XQL_SKILLS_CONFIG_PATH
+	if xqlSkillsConfigPath := os.Getenv("XQL_SKILLS_CONFIG_PATH"); xqlSkillsConfigPath != "" {
+		return xqlSkillsConfigPath
+	}
+	// 生产环境使用用户配置目录
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		home = "/tmp"
+	}
+	return filepath.Join(home, ".xiaoqinglong", "config", "skills-config.yaml")
+}
 
 // GetAppConfig 获取应用配置 config.yaml
 func (h *Handler) GetAppConfig(c *gin.Context) {
-	content, err := os.ReadFile(ConfigFilePath)
+	configFilePath := GetConfigFilePath()
+	content, err := os.ReadFile(configFilePath)
 	if err != nil {
 		err = xerror.NewErrorOpt(apierror.InternalServerErr, xerror.WithCause("Failed to read config file: "+err.Error()))
 		_ = c.Error(err)
@@ -43,14 +75,15 @@ func (h *Handler) SaveAppConfig(c *gin.Context) {
 	}
 
 	// 确保目录存在
-	dir := filepath.Dir(ConfigFilePath)
+	configFilePath := GetConfigFilePath()
+	dir := filepath.Dir(configFilePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		err = xerror.NewErrorOpt(apierror.InternalServerErr, xerror.WithCause("Failed to create directory: "+err.Error()))
 		_ = c.Error(err)
 		return
 	}
 
-	if err := os.WriteFile(ConfigFilePath, []byte(req.Content), 0644); err != nil {
+	if err := os.WriteFile(configFilePath, []byte(req.Content), 0644); err != nil {
 		err = xerror.NewErrorOpt(apierror.InternalServerErr, xerror.WithCause("Failed to write config file: "+err.Error()))
 		_ = c.Error(err)
 		return
@@ -63,7 +96,8 @@ func (h *Handler) SaveAppConfig(c *gin.Context) {
 
 // GetSkillsConfig 获取技能配置 skills-config.yaml
 func (h *Handler) GetSkillsConfig(c *gin.Context) {
-	content, err := os.ReadFile(SkillsConfigPath)
+	skillsConfigPath := GetSkillsConfigFilePath()
+	content, err := os.ReadFile(skillsConfigPath)
 	if err != nil {
 		err = xerror.NewErrorOpt(apierror.InternalServerErr, xerror.WithCause("Failed to read skills config file: "+err.Error()))
 		_ = c.Error(err)
@@ -87,14 +121,15 @@ func (h *Handler) SaveSkillsConfig(c *gin.Context) {
 	}
 
 	// 确保目录存在
-	dir := filepath.Dir(SkillsConfigPath)
+	skillsConfigPath := GetSkillsConfigFilePath()
+	dir := filepath.Dir(skillsConfigPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		err = xerror.NewErrorOpt(apierror.InternalServerErr, xerror.WithCause("Failed to create directory: "+err.Error()))
 		_ = c.Error(err)
 		return
 	}
 
-	if err := os.WriteFile(SkillsConfigPath, []byte(req.Content), 0644); err != nil {
+	if err := os.WriteFile(skillsConfigPath, []byte(req.Content), 0644); err != nil {
 		err = xerror.NewErrorOpt(apierror.InternalServerErr, xerror.WithCause("Failed to write skills config file: "+err.Error()))
 		_ = c.Error(err)
 		return

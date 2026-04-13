@@ -9,7 +9,6 @@ import (
 	"syscall"
 
 	"github.com/jettjia/xiaoqinglong/agent-frame/api/event"
-	"github.com/jettjia/xiaoqinglong/agent-frame/api/grpc"
 	"github.com/jettjia/xiaoqinglong/agent-frame/api/http"
 	"github.com/jettjia/xiaoqinglong/agent-frame/api/job"
 	"github.com/jettjia/xiaoqinglong/agent-frame/application/service/agent"
@@ -54,7 +53,7 @@ func main() {
 	}
 
 	// start grpc
-	grpc.InitGrpc()
+	// grpc.InitGrpc()
 
 	// start mcp
 	// mcp.InitMCP()
