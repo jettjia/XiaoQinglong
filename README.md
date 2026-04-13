@@ -12,14 +12,14 @@
 
 ## 核心特性
 
-| 分类 | 功能 |
-|------|------|
+| 分类         | 功能                                                |
+| ------------ | --------------------------------------------------- |
 | **模型能力** | 多模型路由 · 上下文压缩 · Prompt 缓存 · deep-agents |
-| **工具生态** | Skills · MCP (SSE/stdio/HTTP) · Tools · A2A |
-| **执行保障** | 沙箱执行 · 审批策略 · 重试熔断 · Checkpoint |
-| **记忆系统** | user · feedback · project · reference |
-| **工程化** | 定时任务 · Sub-Agent 并行 · 知识检索 |
-| **响应格式** | text · markdown · json · a2ui · 多媒体 |
+| **工具生态** | Skills · MCP (SSE/stdio/HTTP) · Tools · A2A         |
+| **执行保障** | 沙箱执行 · 审批策略 · 重试熔断 · Checkpoint         |
+| **记忆系统** | user · feedback · project · reference               |
+| **工程化**   | 定时任务 · Sub-Agent 并行 · 知识检索                |
+| **响应格式** | text · markdown · json · a2ui · 多媒体              |
 
 ---
 
@@ -29,12 +29,12 @@
 
 按任务角色自动选择最优模型，兼顾成本与效果：
 
-| 角色 | 用途 | 典型场景 |
-|------|------|----------|
-| `default` | 主对话 | 用户问答 |
-| `rewrite` | Query 改写 | 搜索增强 |
-| `skill` | 技能执行 | 复杂任务 |
-| `summarize` | 内容总结 | 长文摘要 |
+| 角色        | 用途       | 典型场景 |
+| ----------- | ---------- | -------- |
+| `default`   | 主对话     | 用户问答 |
+| `rewrite`   | Query 改写 | 搜索增强 |
+| `skill`     | 技能执行   | 复杂任务 |
+| `summarize` | 内容总结   | 长文摘要 |
 
 ### 🛡️ 企业级安全保障
 
@@ -59,6 +59,25 @@
 - **Skills 生态**：自我创建 Skill，Agent 自我进化
 
 ---
+
+### 场景演示
+* 数据分析：
+
+<img src="./docs/README/data.gif" height="280" />
+
+
+* 微信claw:
+
+<img src="./docs/README/wechat.gif" height="280" />
+
+* 飞书:
+
+<img src="./docs/README/feishu.png" height="280" />
+
+
+* 丰富的功能与编排：
+
+<img src="./docs/README/xql.gif" height="280" />
 
 ## 整体架构
 
@@ -216,17 +235,17 @@ curl -X POST http://localhost:18080/run \
 
 每次响应包含完整执行详情：
 
-| 字段 | 说明 |
-|------|------|
-| `model` | 使用的模型 |
-| `latency_ms` | 总延迟(毫秒) |
-| `prompt_tokens` | Prompt token 消耗 |
+| 字段                | 说明                  |
+| ------------------- | --------------------- |
+| `model`             | 使用的模型            |
+| `latency_ms`        | 总延迟(毫秒)          |
+| `prompt_tokens`     | Prompt token 消耗     |
 | `completion_tokens` | Completion token 消耗 |
-| `tool_calls_count` | 工具调用次数 |
-| `a2a_calls_count` | A2A 调用次数 |
-| `skill_calls_count` | Skill 调用次数 |
-| `iterations` | 迭代次数 |
-| `tool_calls_detail` | 工具调用详情 |
+| `tool_calls_count`  | 工具调用次数          |
+| `a2a_calls_count`   | A2A 调用次数          |
+| `skill_calls_count` | Skill 调用次数        |
+| `iterations`        | 迭代次数              |
+| `tool_calls_detail` | 工具调用详情          |
 
 ---
 
