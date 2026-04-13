@@ -40,6 +40,9 @@ make mock-start
 # 快速停止 mock 服务
 make mock-stop
 
+# 构建 win的运行 xiaoqinglong.exe
+make build-win
+
 ```
 
 # 测试 channel
