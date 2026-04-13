@@ -127,21 +127,24 @@ type InternalAgentConfig struct {
 }
 
 type RunOptions struct {
-	Temperature    float64               `json:"temperature"`
-	MaxTokens      int                   `json:"max_tokens"`
-	Stream         bool                  `json:"stream"`
-	TopP           float64               `json:"top_p"`
-	Stop           []string              `json:"stop"`
-	TimeoutMs      int                   `json:"timeout_ms"`
-	MaxIterations  int                   `json:"max_iterations"`
-	MaxToolCalls   int                   `json:"max_tool_calls"`
-	MaxA2ACalls    int                   `json:"max_a2a_calls"`
-	MaxTotalTokens int                   `json:"max_total_tokens"`
-	Retry          *RetryConfig          `json:"retry"`
-	ResponseSchema *ResponseSchemaConfig `json:"response_schema"`
-	Routing        *RoutingConfig        `json:"routing"`
-	ApprovalPolicy *ApprovalPolicy       `json:"approval_policy"`
-	CheckPointID   string                `json:"checkpoint_id"`
+	Temperature        float64               `json:"temperature"`
+	MaxTokens          int                   `json:"max_tokens"`
+	Stream             bool                  `json:"stream"`
+	TopP               float64               `json:"top_p"`
+	Stop               []string              `json:"stop"`
+	TimeoutMs          int                   `json:"timeout_ms"`
+	MaxIterations      int                   `json:"max_iterations"`
+	MaxToolCalls       int                   `json:"max_tool_calls"`
+	MaxA2ACalls        int                   `json:"max_a2a_calls"`
+	MaxTotalTokens     int                   `json:"max_total_tokens"`
+	Retry              *RetryConfig          `json:"retry"`
+	ResponseSchema     *ResponseSchemaConfig `json:"response_schema"`
+	Routing            *RoutingConfig        `json:"routing"`
+	ApprovalPolicy     *ApprovalPolicy       `json:"approval_policy"`
+	CheckPointID       string                `json:"checkpoint_id"`
+	LoopInterval       string                `json:"loop_interval"`
+	LoopMaxIterations  int                   `json:"loop_max_iterations"`
+	LoopStopCondition  string                `json:"loop_stop_condition"`
 }
 
 type RetryConfig struct {

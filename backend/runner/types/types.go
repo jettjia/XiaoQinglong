@@ -112,6 +112,10 @@ type RunOptions struct {
 	Routing        *RoutingConfig        `json:"routing"`
 	ApprovalPolicy *ApprovalPolicy       `json:"approval_policy"`
 	CheckPointID   string                `json:"checkpoint_id"`
+	// Loop options 连续循环执行选项
+	LoopInterval      string `json:"loop_interval"`       // 迭代间隔（如 "5s", "10s", "1m"），为空则不循环
+	LoopMaxIterations int    `json:"loop_max_iterations"` // 最大迭代次数，0=无限制
+	LoopStopCondition string `json:"loop_stop_condition"` // 停止条件表达式
 }
 
 // ApprovalPolicy 审批策略
@@ -357,4 +361,56 @@ type AgentResponse struct {
 	FinishReason string           `json:"finish_reason"`
 	Metadata     ResponseMetadata `json:"metadata"`
 	Error        string           `json:"error,omitempty"`
+}
+
+// ========== Loop Types ==========
+
+// LoopOptions 循环执行选项
+type LoopOptions struct {
+	Interval          string `json:"interval"`            // 迭代间隔（如 "5s", "10s", "1m"）
+	MaxIterations     int    `json:"max_iterations"`       // 最大迭代次数，0=无限制
+	StopCondition     string `json:"stop_condition"`       // 停止条件表达式
+	ContextWindowLimit int   `json:"context_window_limit"` // 上下文窗口限制（token）
+	EnableCompression bool   `json:"enable_compression"`   // 启用自动压缩
+	Stream            bool   `json:"stream"`               // 流式输出
+}
+
+// LoopIterationResult 单次迭代结果
+type LoopIterationResult struct {
+	Iteration    int               `json:"iteration"`
+	Content      string            `json:"content"`
+	ToolCalls    []ToolCall       `json:"tool_calls,omitempty"`
+	FinishReason string           `json:"finish_reason"`
+	TokensUsed   int              `json:"tokens_used"`
+	Error        string           `json:"error,omitempty"`
+	Done         bool             `json:"done"`
+}
+
+// LoopRequest 循环执行请求
+type LoopRequest struct {
+	Prompt   string                  `json:"prompt"`
+	Models  map[string]ModelConfig  `json:"models"`
+	Context map[string]any         `json:"context"`
+	Skills  []Skill                `json:"skills"`
+	MCPs    []MCPConfig             `json:"mcps"`
+	Tools   []ToolConfig            `json:"tools"`
+	Options *LoopOptions            `json:"options"`
+}
+
+// LoopResponse 循环执行响应
+type LoopResponse struct {
+	LoopID          string                 `json:"loop_id"`
+	Status          string                 `json:"status"`
+	Iterations      []LoopIterationResult  `json:"iterations"`
+	TotalTokens     int                    `json:"total_tokens"`
+	TotalIterations int                    `json:"total_iterations"`
+	FinalContent    string                 `json:"final_content,omitempty"`
+	CheckpointID    string                 `json:"checkpoint_id,omitempty"`
+}
+
+// LoopStatus 循环状态
+type LoopStatus struct {
+	LoopID     string    `json:"loop_id"`
+	Iteration int       `json:"iteration"`
+	Status    string    `json:"status"` // running, paused, stopped, completed
 }
