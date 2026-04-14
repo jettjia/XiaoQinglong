@@ -1470,10 +1470,10 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                           setActiveAgent(agent);
                         }}
                         className={cn(
-                          "flex items-center gap-1 px-2 py-1.5 rounded-lg transition-all text-xs font-medium whitespace-nowrap shrink-0 ring-2",
+                          "flex items-center gap-1 px-2 py-1.5 rounded-lg transition-all text-xs font-medium whitespace-nowrap shrink-0",
                           activeAgent && (activeAgent.ulid ? activeAgent.ulid === agent.ulid : activeAgent.id === agent.id)
-                            ? "ring-brand-500 bg-brand-50 text-brand-700"
-                            : "text-slate-600 hover:bg-slate-50 ring-transparent"
+                            ? "bg-slate-100 text-slate-700"
+                            : "text-slate-600 hover:bg-slate-50"
                         )}
                       >
                         {getAgentIcon(agent.icon || '', 12)}
@@ -1518,7 +1518,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                                     }}
                                     className={cn(
                                       "w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors",
-                                      activeAgent && (activeAgent.ulid ? activeAgent.ulid === agent.ulid : activeAgent.id === agent.id) ? "bg-brand-50 text-brand-700 font-semibold ring-2 ring-brand-500" : "text-slate-700 hover:bg-slate-50"
+                                      activeAgent && (activeAgent.ulid ? activeAgent.ulid === agent.ulid : activeAgent.id === agent.id) ? "bg-slate-200 text-slate-800 font-semibold" : "text-slate-700 hover:bg-slate-50"
                                     )}
                                   >
                                     {getAgentIcon(agent.icon || '', 14)}
