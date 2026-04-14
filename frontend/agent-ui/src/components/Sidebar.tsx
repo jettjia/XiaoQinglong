@@ -44,24 +44,26 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
   };
 
   return (
-    <aside 
+    <aside
       className={cn(
-        "flex flex-col h-screen bg-slate-900 text-slate-300 transition-all duration-300 border-r border-slate-800",
-        isCollapsed ? "w-16" : "w-64"
+        "flex flex-col h-screen transition-all duration-300 border-r border-gray-200",
+        isCollapsed ? "w-16" : "w-64",
+        // 背景色 #F1F4F9，文字色 #1F2937（深灰）
+        "bg-[#F1F4F9] text-gray-700"
       )}
     >
-      <div className="p-4 flex items-center justify-between border-b border-slate-800">
+      <div className="p-4 flex items-center justify-between border-b border-gray-200">
         {!isCollapsed && (
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center">
               <Zap className="w-5 h-5 text-white fill-white" />
             </div>
-            <span className="font-bold text-white tracking-tight">{t('sidebar.brand')}</span>
+            <span className="font-bold text-gray-900 tracking-tight">{t('sidebar.brand')}</span>
           </div>
         )}
-        <button 
+        <button
           onClick={() => setIsCollapsed(!isCollapsed)}
-          className="p-1 hover:bg-slate-800 rounded-md transition-colors"
+          className="p-1 hover:bg-gray-200 rounded-md transition-colors text-gray-500"
         >
           {isCollapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
         </button>
@@ -71,7 +73,7 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeView === item.id;
-          
+
           return (
             <button
               key={item.id}
@@ -79,13 +81,13 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
               className={cn(
                 "w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all group",
                 isActive
-                  ? "bg-brand-500/10 text-brand-500"
-                  : "hover:bg-slate-800 hover:text-white"
+                  ? "bg-slate-200 text-slate-800 shadow-sm"
+                  : "hover:bg-gray-200 text-gray-700"
               )}
             >
               <Icon className={cn(
                 "w-5 h-5 shrink-0",
-                isActive ? "text-brand-500" : "text-slate-400 group-hover:text-white"
+                isActive ? "text-slate-700" : "text-gray-500 group-hover:text-gray-700"
               )} />
               {!isCollapsed && (
                 <span className="text-sm font-medium">{item.label}</span>
@@ -95,34 +97,31 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
                   {item.badge}
                 </div>
               )}
-              {isActive && !isCollapsed && !item.badge && (
-                <div className="ml-auto w-1.5 h-1.5 rounded-full bg-brand-500" />
-              )}
             </button>
           );
         })}
       </nav>
 
-      <div className="p-4 border-t border-slate-800 space-y-2">
-        <button 
+      <div className="p-4 border-t border-gray-200 space-y-2">
+        <button
           onClick={toggleLanguage}
-          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-800 hover:text-white transition-all"
+          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-200 text-gray-700 transition-all"
         >
-          <Globe className="w-5 h-5 text-slate-400" />
+          <Globe className="w-5 h-5 text-gray-500" />
           {!isCollapsed && <span className="text-sm font-medium">{i18n.language === 'en' ? 'English' : '中文'}</span>}
         </button>
-        <button 
+        <button
           onClick={() => onViewChange('settings')}
           className={cn(
             "w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all group",
-            activeView === 'settings' 
-              ? "bg-brand-500/10 text-brand-500" 
-              : "hover:bg-slate-800 hover:text-white"
+            activeView === 'settings'
+              ? "bg-slate-200 text-slate-800 shadow-sm"
+              : "hover:bg-gray-200 text-gray-700"
           )}
         >
           <Settings className={cn(
             "w-5 h-5 shrink-0",
-            activeView === 'settings' ? "text-brand-500" : "text-slate-400 group-hover:text-white"
+            activeView === 'settings' ? "text-slate-700" : "text-gray-500 group-hover:text-gray-700"
           )} />
           {!isCollapsed && <span className="text-sm font-medium">{t('sidebar.settings')}</span>}
         </button>
