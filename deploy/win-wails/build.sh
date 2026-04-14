@@ -40,6 +40,12 @@ npm run build
 echo "      Frontend built"
 
 echo ""
+echo "[1.6/6] Copying frontend dist to embed directory..."
+rm -rf "$SCRIPT_DIR/frontend"
+cp -r "$SCRIPT_DIR/../../frontend/agent-ui/dist" "$SCRIPT_DIR/frontend"
+echo "      Frontend copied to deploy/win-wails/frontend"
+
+echo ""
 echo "[2/6] Copying assets to embed directory..."
 
 # Ensure bin directory exists at deploy/win-wails/ (for Go embed)
