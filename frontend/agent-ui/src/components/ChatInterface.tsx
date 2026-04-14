@@ -232,7 +232,6 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
   const [activeConversationId, setActiveConversationId] = React.useState<string | null>(null);
   const [currentSession, setCurrentSession] = React.useState<ChatSession | null>(null);
   const [isMoreAgentsOpen, setIsMoreAgentsOpen] = React.useState(false);
-  const [searchQuery, setSearchQuery] = React.useState('');
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
   const [isTraceOpen, setIsTraceOpen] = React.useState(false);
   const [selectedMessageId, setSelectedMessageId] = React.useState<string | null>(null);
@@ -978,37 +977,22 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
             <Plus size={18} className="text-slate-600" />
           </button>
         </div>
-        <div className="p-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-3.5 h-3.5" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={t('agents.search')}
-              className="w-full pl-9 pr-4 py-1.5 bg-white border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-brand-500/20"
-            />
-          </div>
-        </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-1 min-w-[280px]">
           {(() => {
-            const filteredConvs = conversations.filter(c =>
-              c.title.toLowerCase().includes(searchQuery.toLowerCase())
-            );
-            if (filteredConvs.length === 0) {
+            if (conversations.length === 0) {
               return (
                 <div className="p-4 text-center">
-                  <p className="text-xs text-slate-400">{searchQuery ? t('chat.noConversations') : t('chat.noConversations')}</p>
+                  <p className="text-xs text-slate-400">{t('chat.noConversations')}</p>
                 </div>
               );
             }
-            return filteredConvs.map(conv => (
+            return conversations.map(conv => (
               <div key={conv.id} className="group relative">
                 <button
                   onClick={() => handleSelectConversation(conv)}
                   className={cn(
                     "w-full text-left p-3 rounded-lg transition-all flex flex-col gap-1",
-                    activeConversationId === conv.id ? "bg-white shadow-sm border border-slate-200" : "hover:bg-white/50"
+                    activeConversationId === conv.id ? "bg-[#F4F4F4]" : "hover:bg-slate-50"
                   )}
                 >
                   <p className="text-sm font-medium text-slate-700 truncate pr-6">{conv.title}</p>
@@ -1019,7 +1003,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                     e.stopPropagation();
                     deleteConversation(conv.id);
                   }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 opacity-0 group-hover:opacity-100 hover:bg-red-50 text-red-400 rounded-md transition-all"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 opacity-0 group-hover:opacity-100 hover:bg-slate-100 text-slate-400 rounded-md transition-all"
                 >
                   <Trash2 size={14} />
                 </button>
