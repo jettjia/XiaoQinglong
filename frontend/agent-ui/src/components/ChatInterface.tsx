@@ -1218,8 +1218,8 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                 <div className={cn(
                   "p-4 lg:p-5 rounded-2xl text-sm leading-relaxed shadow-sm",
                   msg.role === 'user'
-                    ? "bg-gradient-to-br from-slate-700 to-slate-600 text-white rounded-tr-none shadow-lg shadow-slate-500/10 w-full max-w-2xl"
-                    : "bg-white border border-slate-200 text-slate-800 rounded-tl-none w-fit w-full max-w-2xl shadow-slate-200/50"
+                    ? "bg-[#F4F4F4] text-slate-800 rounded-tr-none shadow-lg shadow-slate-500/10 w-full max-w-2xl"
+                    : "bg-white text-slate-800 rounded-tl-none w-fit w-full max-w-2xl shadow-slate-200/50"
                 )}>
                   {msg.role === 'assistant' ? (
                     msg.status === 'streaming' ? (
