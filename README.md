@@ -56,7 +56,7 @@
 
 - **MCP 协议**：支持 SSE / stdio / HTTP 三种传输模式
 - **A2A 协议**：Agent 之间互相调用，构建复杂工作流
-- **Skills 生态**：自我创建 Skill，Agent 自我进化
+- **Skills 生态**：支持agent-skills，Agent 自我进化完成skill的创建去完成任务
 
 ---
 
