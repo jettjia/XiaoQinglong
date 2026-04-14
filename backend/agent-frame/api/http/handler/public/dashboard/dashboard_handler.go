@@ -57,6 +57,29 @@ func (h *Handler) GetTokenRanking(c *gin.Context) {
 	xresponse.RspOk(c, http.StatusOK, rsp)
 }
 
+// GetAgentRanking 获取智能体使用排行
+func (h *Handler) GetAgentRanking(c *gin.Context) {
+	dtoReq := dto.AgentUsageRankingReq{}
+	if err := c.ShouldBindQuery(&dtoReq); err != nil {
+		err = xerror.NewErrorOpt(apierror.BadRequestErr, xerror.WithCause(err.Error()))
+		_ = c.Error(err)
+		return
+	}
+
+	if dtoReq.Limit <= 0 {
+		dtoReq.Limit = 10
+	}
+
+	rsp, err := h.dashboardSvc.GetAgentUsageRanking(c, &dtoReq)
+	if err != nil {
+		err = xerror.NewErrorOpt(apierror.InternalServerErr, xerror.WithCause(err.Error()))
+		_ = c.Error(err)
+		return
+	}
+
+	xresponse.RspOk(c, http.StatusOK, rsp)
+}
+
 // GetChannelActivity 获取渠道活动统计
 func (h *Handler) GetChannelActivity(c *gin.Context) {
 	rsp, err := h.dashboardSvc.GetChannelActivity(c, &dto.ChannelActivityReq{})

@@ -26,7 +26,7 @@ import {
   chatApi,
   dashboardApi,
   type DashboardOverview,
-  type TokenUsageItem,
+  type AgentUsageItem,
   type ChannelActivityItem,
   type ChatSession,
   type ChatApproval
@@ -67,7 +67,7 @@ export function Dashboard({ onViewChange }: DashboardProps) {
 
   // Data states
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
-  const [tokenRanking, setTokenRanking] = useState<TokenUsageItem[]>([]);
+  const [agentRanking, setAgentRanking] = useState<AgentUsageItem[]>([]);
   const [channelActivity, setChannelActivity] = useState<ChannelActivityItem[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState<ChatApproval[]>([]);
   const [recentSessions, setRecentSessions] = useState<ChatSession[]>([]);
@@ -82,7 +82,7 @@ export function Dashboard({ onViewChange }: DashboardProps) {
       // Fetch all data in parallel
       const [
         overviewData,
-        tokenRankingData,
+        agentRankingData,
         channelActivityData,
         approvalsData,
         agentsData,
@@ -90,7 +90,7 @@ export function Dashboard({ onViewChange }: DashboardProps) {
         sessionsData,
       ] = await Promise.allSettled([
         dashboardApi.getOverview().catch(() => null),
-        dashboardApi.getTokenUsageRanking().catch(() => []),
+        dashboardApi.getAgentUsageRanking().catch(() => []),
         dashboardApi.getChannelActivity().catch(() => []),
         chatApi.getPendingApprovals().catch(() => []),
         agentApi.findAll().catch(() => []),
@@ -116,9 +116,9 @@ export function Dashboard({ onViewChange }: DashboardProps) {
       }
 
       // Set other data
-      if (tokenRankingData.status === 'fulfilled' && tokenRankingData.value) {
-        const tr = tokenRankingData.value;
-        setTokenRanking(Array.isArray(tr) ? tr : (tr as any)?.rankings || []);
+      if (agentRankingData.status === 'fulfilled' && agentRankingData.value) {
+        const tr = agentRankingData.value;
+        setAgentRanking(Array.isArray(tr) ? tr : (tr as any)?.rankings || []);
       }
       if (channelActivityData.status === 'fulfilled' && channelActivityData.value) {
         const ca = channelActivityData.value;
@@ -432,25 +432,25 @@ export function Dashboard({ onViewChange }: DashboardProps) {
         </div>
       </div>
 
-      {/* Token Usage Ranking */}
+      {/* Agent Usage Ranking */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-          <h3 className="font-bold text-slate-900 mb-6">{t('dashboard.tokenUsageRanking')}</h3>
-          {tokenRanking.length === 0 ? (
+          <h3 className="font-bold text-slate-900 mb-6">{t('dashboard.agentUsageRanking')}</h3>
+          {agentRanking.length === 0 ? (
             <div className="text-center py-8 text-slate-400">
-              <Cpu className="mx-auto h-12 w-12 mb-3 opacity-50" />
-              <p>No token usage data</p>
+              <Users className="mx-auto h-12 w-12 mb-3 opacity-50" />
+              <p>No agent usage data</p>
             </div>
           ) : (
             <div className="space-y-4">
-              {tokenRanking.slice(0, 4).map((item) => {
-                const maxTokens = tokenRanking[0]?.total_tokens || 1;
-                const percentage = Math.round((item.total_tokens / maxTokens) * 100);
+              {agentRanking.slice(0, 4).map((item) => {
+                const maxSessions = agentRanking[0]?.session_count || 1;
+                const percentage = Math.round((item.session_count / maxSessions) * 100);
                 return (
                   <div key={item.agent_id} className="space-y-2">
                     <div className="flex justify-between text-xs">
                       <span className="font-bold text-slate-700">{item.agent_name}</span>
-                      <span className="text-slate-400">{formatNumber(item.total_tokens)} tokens</span>
+                      <span className="text-slate-400">{item.session_count} sessions</span>
                     </div>
                     <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
                       <div

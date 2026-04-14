@@ -171,6 +171,24 @@ func (r *ChatSession) CountByChannel(ctx context.Context) (map[string]int, error
 	return countMap, nil
 }
 
+// CountByAgent 按智能体统计会话数和消息数
+func (r *ChatSession) CountByAgent(ctx context.Context) ([]*irepository.AgentUsageItem, error) {
+	var results []*irepository.AgentUsageItem
+
+	err := r.data.DB(ctx).Table("chat_session cs").
+		Select("cs.agent_id, COUNT(DISTINCT cs.ulid) as session_count, COUNT(cm.ulid) as message_count").
+		Joins("LEFT JOIN chat_message cm ON cm.session_id = cs.ulid AND cm.deleted_at = 0").
+		Where("cs.deleted_at = 0 AND cs.agent_id != ''").
+		Group("cs.agent_id").
+		Order("session_count DESC").
+		Scan(&results).Error
+
+	if err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
 // ====== ChatMessage ======
 
 var _ irepository.IChatMessageRepo = (*ChatMessage)(nil)

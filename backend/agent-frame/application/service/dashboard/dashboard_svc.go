@@ -104,6 +104,39 @@ func (s *DashboardSvc) GetTokenUsageRanking(ctx context.Context, req *dto.TokenU
 	return &dto.TokenUsageRankingRsp{Rankings: rankings}, nil
 }
 
+func (s *DashboardSvc) GetAgentUsageRanking(ctx context.Context, req *dto.AgentUsageRankingReq) (*dto.AgentUsageRankingRsp, error) {
+	items, err := s.chatSessionSvc.CountByAgent(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+
+	rankings := make([]dto.AgentUsageItem, 0, limit)
+	for i := 0; i < len(items) && i < limit; i++ {
+		item := items[i]
+		agentName := item.AgentId
+
+		// Resolve agent name from sys_agent table
+		agent, err := s.agentSvc.FindById(ctx, item.AgentId)
+		if err == nil && agent != nil {
+			agentName = agent.Name
+		}
+
+		rankings = append(rankings, dto.AgentUsageItem{
+			AgentId:      item.AgentId,
+			AgentName:    agentName,
+			SessionCount: item.SessionCount,
+			MessageCount: item.MessageCount,
+		})
+	}
+
+	return &dto.AgentUsageRankingRsp{Rankings: rankings}, nil
+}
+
 func (s *DashboardSvc) GetChannelActivity(ctx context.Context, req *dto.ChannelActivityReq) (*dto.ChannelActivityRsp, error) {
 	channels, err := s.channelSvc.FindAll(ctx, nil)
 	if err != nil {
