@@ -233,7 +233,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
   const [currentSession, setCurrentSession] = React.useState<ChatSession | null>(null);
   const [isMoreAgentsOpen, setIsMoreAgentsOpen] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState('');
-  const [isSidebarOpen, setIsSidebarOpen] = React.useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
   const [isTraceOpen, setIsTraceOpen] = React.useState(false);
   const [selectedMessageId, setSelectedMessageId] = React.useState<string | null>(null);
   const [showThinking, setShowThinking] = React.useState<Record<string, boolean>>({});
@@ -1049,7 +1049,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
               </div>
             </div>
             <div>
-              <h3 className="font-bold text-slate-900 text-xs lg:text-sm">{activeAgent?.name || '选择智能体'}</h3>
+              <h3 className="font-bold text-slate-900 text-xs lg:text-sm">{activeAgent?.name || t('chat.selectAgent')}</h3>
               <div className="flex items-center gap-1.5">
                 <div className="w-1 h-1 rounded-full bg-green-500" />
                 <span className="text-[8px] lg:text-[10px] font-medium text-slate-400 uppercase tracking-wider">{t('chat.active')}</span>
@@ -1076,13 +1076,18 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
         >
           {messages.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto">
-              <div className="w-16 h-16 rounded-2xl bg-brand-500/10 flex items-center justify-center text-brand-500 mb-4">
-                <MessageSquare size={32} />
+              <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-brand-500 to-purple-500 flex items-center justify-center text-white mb-6 shadow-xl shadow-brand-500/20">
+                <MessageSquare size={40} />
               </div>
-              <h2 className="text-xl font-bold text-slate-900 mb-2">{t('chat.startNew')}</h2>
-              <p className="text-sm text-slate-500">
-                Ask {activeAgent?.name || 'an agent'} anything. You can upload documents, images, or just start typing.
+              <h2 className="text-2xl font-bold text-slate-900 mb-3">{t('chat.startNew')}</h2>
+              <p className="text-sm text-slate-500 leading-relaxed">
+                {t('chat.askAgent', { name: activeAgent?.name || t('chat.agents') || '智能体' })}
               </p>
+              <div className="mt-6 flex items-center gap-2 text-xs text-slate-400">
+                <div className="px-3 py-1.5 bg-slate-100 rounded-full">{t('chat.supportMultiFileUpload')}</div>
+                <div className="px-3 py-1.5 bg-slate-100 rounded-full">{t('chat.realTimeStream')}</div>
+                <div className="px-3 py-1.5 bg-slate-100 rounded-full">{t('chat.toolCalling')}</div>
+              </div>
             </div>
           )}
 
@@ -1114,7 +1119,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                       className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest hover:text-brand-500 transition-colors mb-2"
                     >
                       <Brain size={12} />
-                      {showThinking[msg.id] ? "隐藏思考过程" : "查看思考过程"}
+                      {showThinking[msg.id] ? t('chat.hideThinking') : t('chat.viewThinking')}
                       {showThinking[msg.id] ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                     </button>
                     <AnimatePresence>
@@ -1125,7 +1130,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                           exit={{ opacity: 0, height: 0 }}
                           className="overflow-hidden"
                         >
-                          <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl text-xs text-slate-500 italic leading-relaxed mb-3">
+                          <div className="p-4 bg-gradient-to-br from-slate-50 to-slate-100/50 border border-slate-100 rounded-xl text-xs text-slate-600 leading-relaxed mb-3 border-l-4 border-l-slate-500">
                             {msg.thinking}
                           </div>
                         </motion.div>
@@ -1140,10 +1145,14 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                     {msg.toolCalls.map((tool, idx) => {
                       const toolKey = `${msg.id}-${idx}`;
                       const isCollapsed = collapsedTools[toolKey];
-                      const isRunning = tool.status === 'running' || tool.result === '执行中...';
-                      const isError = tool.result?.startsWith('错误:') || tool.status === 'error';
+                      const isRunning = tool.status === 'running' || tool.result === t('chat.executing');
+                      const isError = tool.result?.startsWith('Error:') || tool.status === 'error';
                       return (
-                        <div key={idx} className="bg-slate-50 border border-slate-100 rounded-xl overflow-hidden">
+                        <div key={idx} className={cn(
+                          "bg-slate-50 border border-slate-100 rounded-xl overflow-hidden",
+                          "border-l-4",
+                          isRunning ? "border-l-amber-400" : isError ? "border-l-red-500" : "border-l-green-500"
+                        )}>
                           <div
                             className="px-4 py-2 border-b border-slate-100 flex items-center justify-between bg-slate-100/50 cursor-pointer hover:bg-slate-100/70 transition-colors"
                             onClick={() => {
@@ -1163,7 +1172,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                             {isRunning ? (
                               <div className="flex items-center gap-1 text-amber-500">
                                 <div className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-bounce" />
-                                <span className="text-[10px]">执行中</span>
+                                <span className="text-[10px]">{t('chat.executing')}</span>
                               </div>
                             ) : isError ? (
                               <XCircle size={12} className="text-red-500" />
@@ -1207,10 +1216,10 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                 )}
 
                 <div className={cn(
-                  "p-3 lg:p-4 rounded-2xl text-sm leading-relaxed shadow-sm",
+                  "p-4 lg:p-5 rounded-2xl text-sm leading-relaxed shadow-sm",
                   msg.role === 'user'
-                    ? "bg-slate-900 text-white rounded-tr-none w-full max-w-2xl"
-                    : "bg-white border border-slate-200 text-slate-800 rounded-tl-none w-fit w-full max-w-2xl"
+                    ? "bg-gradient-to-br from-slate-700 to-slate-600 text-white rounded-tr-none shadow-lg shadow-slate-500/10 w-full max-w-2xl"
+                    : "bg-white border border-slate-200 text-slate-800 rounded-tl-none w-fit w-full max-w-2xl shadow-slate-200/50"
                 )}>
                   {msg.role === 'assistant' ? (
                     msg.status === 'streaming' ? (
@@ -1262,7 +1271,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                                 setIsTraceOpen(true);
                               }}
                               className="p-1 hover:bg-slate-200 rounded text-slate-400 transition-colors"
-                              title="查看执行追踪"
+                              title={t('chat.viewTrace')}
                             >
                               <Search size={12} />
                             </button>
@@ -1307,7 +1316,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                         className="flex items-center gap-1.5 text-[10px] font-bold text-brand-500 hover:text-brand-600 uppercase tracking-wider"
                       >
                         <Search size={12} />
-                        查看执行追踪
+                        {t('chat.viewTrace')}
                       </button>
                     </div>
                   )}
@@ -1340,7 +1349,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                         <ShieldAlert size={20} />
                       </div>
                       <div>
-                        <h4 className="font-bold text-slate-900">待审批请求</h4>
+                        <h4 className="font-bold text-slate-900">{t('chat.pendingApprovalRequest')}</h4>
                         <div className="flex items-center gap-2 text-[10px] text-slate-400 font-medium">
                           <Clock size={10} />
                           {approval.timestamp.toLocaleString()}
@@ -1348,7 +1357,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                       </div>
                     </div>
                     <div className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-600 border border-amber-100">
-                      待审批
+                      {t('chat.pendingApproval')}
                     </div>
                   </div>
 
@@ -1358,11 +1367,11 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                       <span className="text-sm font-bold">工具: {approval.toolName}</span>
                     </div>
                     <p className="text-sm text-slate-600 mb-4">
-                      风险等级: <span className={approval.riskLevel === 'high' ? 'text-red-500 font-bold' : 'text-amber-500 font-bold'}>{approval.riskLevel.toUpperCase()}</span>
+                      {t('chat.riskLevel')}: <span className={approval.riskLevel === 'high' ? 'text-red-500 font-bold' : 'text-amber-500 font-bold'}>{approval.riskLevel.toUpperCase()}</span>
                     </p>
 
                     <div className="space-y-2">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">参数</p>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t('chat.parameters')}</p>
                       <div className="bg-white rounded-lg border border-slate-200 p-3 font-mono text-xs text-slate-700">
                         <pre>{JSON.stringify(approval.parameters, null, 2)}</pre>
                       </div>
@@ -1375,14 +1384,14 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                       className="flex items-center gap-2 px-6 py-2 bg-white border border-slate-200 rounded-lg text-sm font-bold text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-all"
                     >
                       <XCircle size={16} />
-                      拒绝
+                      {t('chat.reject')}
                     </button>
                     <button
                       onClick={() => handleApproval(approval.id, 'approved')}
                       className="flex items-center gap-2 px-6 py-2 bg-brand-500 text-white rounded-lg text-sm font-bold hover:bg-brand-600 transition-all shadow-lg shadow-brand-500/20"
                     >
                       <UserCheck size={16} />
-                      批准
+                      {t('chat.approve')}
                     </button>
                   </div>
                 </div>
@@ -1418,7 +1427,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
           </AnimatePresence>
 
           <div className="relative group w-full max-w-4xl mx-auto">
-            <div className="relative bg-white border border-slate-200 rounded-[24px] shadow-[0_4px_20px_rgb(0,0,0,0.03)] transition-all">
+            <div className="relative bg-white border border-slate-200 rounded-[24px] shadow-[0_4px_20px_rgb(0,0,0,0.03)] transition-all focus-within:shadow-[0_4px_30px_rgba(0,0,0,0.08)] focus-within:border-slate-400">
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -1448,7 +1457,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                     className="flex items-center gap-1 px-2 py-1 rounded-lg bg-brand-50 text-brand-600 hover:bg-brand-100 transition-all text-[10px] font-bold whitespace-nowrap shrink-0"
                   >
                     <Zap size={12} />
-                    演示全场景
+                    {t('chat.demoFullScene')}
                   </button>
 
                   <div className="h-4 w-px bg-slate-100 shrink-0" />
@@ -1470,7 +1479,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                         {getAgentIcon(agent.icon || '', 12)}
                         <span>{agent.name}</span>
                         {agent.id === 'quick' && (
-                          <span className="bg-blue-50 text-blue-500 text-[9px] px-1 py-0.5 rounded font-bold">新</span>
+                          <span className="bg-slate-100 text-slate-600 text-[9px] px-1 py-0.5 rounded font-bold">新</span>
                         )}
                       </button>
                     ))}
@@ -1531,9 +1540,9 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                   className={cn(
                     "w-10 h-10 rounded-full flex items-center justify-center transition-all shrink-0",
                     isLoading
-                      ? "bg-red-500 text-white shadow-lg shadow-red-500/20 hover:scale-105 active:scale-95"
+                      ? "bg-gradient-to-br from-red-500 to-orange-500 text-white shadow-lg shadow-red-500/20 hover:scale-105 active:scale-95"
                       : (input.trim() || files.length > 0)
-                        ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:scale-105 active:scale-95"
+                        ? "bg-gradient-to-br from-slate-700 to-slate-600 text-white shadow-lg shadow-slate-500/30 hover:scale-105 active:scale-95"
                         : "bg-slate-100 text-slate-300 cursor-not-allowed"
                   )}
                 >
