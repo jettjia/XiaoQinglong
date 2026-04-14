@@ -81,13 +81,13 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
               className={cn(
                 "w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all group",
                 isActive
-                  ? "bg-brand-500 text-white shadow-sm"
+                  ? "bg-slate-200 text-slate-800 shadow-sm"
                   : "hover:bg-gray-200 text-gray-700"
               )}
             >
               <Icon className={cn(
                 "w-5 h-5 shrink-0",
-                isActive ? "text-white" : "text-gray-500 group-hover:text-gray-700"
+                isActive ? "text-slate-700" : "text-gray-500 group-hover:text-gray-700"
               )} />
               {!isCollapsed && (
                 <span className="text-sm font-medium">{item.label}</span>
@@ -96,9 +96,6 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
                 <div className="ml-auto px-2 py-0.5 rounded-full bg-red-500 text-white text-xs font-bold">
                   {item.badge}
                 </div>
-              )}
-              {isActive && !isCollapsed && !item.badge && (
-                <div className="ml-auto w-1.5 h-1.5 rounded-full bg-brand-500" />
               )}
             </button>
           );
@@ -118,13 +115,13 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
           className={cn(
             "w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all group",
             activeView === 'settings'
-              ? "bg-brand-500 text-white shadow-sm"
+              ? "bg-slate-200 text-slate-800 shadow-sm"
               : "hover:bg-gray-200 text-gray-700"
           )}
         >
           <Settings className={cn(
             "w-5 h-5 shrink-0",
-            activeView === 'settings' ? "text-white" : "text-gray-500 group-hover:text-gray-700"
+            activeView === 'settings' ? "text-slate-700" : "text-gray-500 group-hover:text-gray-700"
           )} />
           {!isCollapsed && <span className="text-sm font-medium">{t('sidebar.settings')}</span>}
         </button>
