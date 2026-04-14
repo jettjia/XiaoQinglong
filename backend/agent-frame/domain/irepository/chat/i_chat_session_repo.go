@@ -21,6 +21,7 @@ type IChatSessionRepo interface {
 	FindRecent(ctx context.Context, limit int) ([]*entity.ChatSession, error) // 获取最近的会话
 	CountByChannel(ctx context.Context) (map[string]int, error)              // 按渠道统计消息数
 	FindByUserIdAndChannel(ctx context.Context, userId, channel string) (*entity.ChatSession, error)
+	CountByAgent(ctx context.Context) ([]*AgentUsageItem, error)
 }
 
 // IChatMessageRepo 聊天消息仓库接口
@@ -59,4 +60,11 @@ type TokenRankingItem struct {
 	AgentId     string
 	AgentName   string
 	TotalTokens int
+}
+
+// AgentUsageItem 智能体使用项
+type AgentUsageItem struct {
+	AgentId      string
+	SessionCount int
+	MessageCount int
 }

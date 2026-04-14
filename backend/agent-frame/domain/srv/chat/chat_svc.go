@@ -103,6 +103,11 @@ func (s *ChatSessionSvc) CountByChannel(ctx context.Context) (map[string]int, er
 	return s.sessionRepo.CountByChannel(ctx)
 }
 
+// CountByAgent 按智能体统计会话数和消息数
+func (s *ChatSessionSvc) CountByAgent(ctx context.Context) ([]*irepository.AgentUsageItem, error) {
+	return s.sessionRepo.CountByAgent(ctx)
+}
+
 // ====== ChatMessage ======
 
 // CreateMessage 创建消息

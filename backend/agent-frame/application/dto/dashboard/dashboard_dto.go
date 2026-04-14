@@ -30,6 +30,24 @@ type TokenUsageItem struct {
 	TotalTokens int    `json:"total_tokens"`
 }
 
+// AgentUsageRankingReq 智能体使用排行请求
+type AgentUsageRankingReq struct {
+	Limit int `form:"limit" json:"limit"`
+}
+
+// AgentUsageRankingRsp 智能体使用排行响应
+type AgentUsageRankingRsp struct {
+	Rankings []AgentUsageItem `json:"rankings"`
+}
+
+// AgentUsageItem 智能体使用项
+type AgentUsageItem struct {
+	AgentId      string `json:"agent_id"`
+	AgentName    string `json:"agent_name"`
+	SessionCount int    `json:"session_count"`
+	MessageCount int    `json:"message_count"`
+}
+
 // ChannelActivityReq 渠道活动请求
 type ChannelActivityReq struct {
 }

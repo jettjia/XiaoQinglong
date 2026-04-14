@@ -995,6 +995,13 @@ export interface TokenUsageItem {
   total_tokens: number;
 }
 
+export interface AgentUsageItem {
+  agent_id: string;
+  agent_name: string;
+  session_count: number;
+  message_count: number;
+}
+
 export interface ChannelActivityItem {
   channel_id: string;
   channel_name: string;
@@ -1033,6 +1040,24 @@ export const dashboardApi = {
       return [];
     } catch (e) {
       console.error('getTokenUsageRanking failed:', e);
+      return [];
+    }
+  },
+
+  // 智能体使用排行
+  async getAgentUsageRanking(limit: number = 10): Promise<AgentUsageItem[]> {
+    try {
+      const res = await fetch(`${API_BASE}/dashboard/agent-ranking?limit=${limit}`);
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.message || `Request failed: ${res.status}`);
+      }
+      const data = await res.json();
+      if (Array.isArray(data)) return data;
+      if (data.rankings && Array.isArray(data.rankings)) return data.rankings;
+      return [];
+    } catch (e) {
+      console.error('getAgentUsageRanking failed:', e);
       return [];
     }
   },
