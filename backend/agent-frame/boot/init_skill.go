@@ -32,7 +32,10 @@ func getTargetSkillsPath() string {
 	return xqldir.GetSkillsDir()
 }
 
-// syncSkillsFromDisk 扫描源码 skills 目录，同步到统一目录并入库
+// syncSkillsFromDisk 扫描 skills 目录，同步到统一目录并入库
+// 支持两种模式：
+// 1. 开发模式：源码 skills 在项目根目录，通过 ../../skills 访问
+// 2. 部署模式：skills 已提取到 ~/.xiaoqinglong/skills（通过 embed）
 func syncSkillsFromDisk() error {
 	sourceRoot := getSourceSkillsPath()
 	targetRoot := getTargetSkillsPath()
@@ -46,22 +49,42 @@ func syncSkillsFromDisk() error {
 		return err
 	}
 
-	// 检查源码 skills 目录是否存在
+	// 判断使用哪个源目录
+	useSource := false
+	useTarget := false
+
+	// 检查源码 skills 目录是否存在（开发模式）
 	info, err := os.Stat(sourceRoot)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// 源码 skills 目录不存在，跳过（统一目录中可能已有）
-			log.Println("[Init] Source skills directory not found, skipping copy")
-			return nil
-		}
-		return err
+	if err == nil && info.IsDir() {
+		useSource = true
+		log.Println("[Init] Using source skills from development path")
 	}
-	if !info.IsDir() {
+
+	// 检查目标目录是否有 skills（部署模式 / embed 提取）
+	targetInfo, err := os.Stat(targetRoot)
+	if err == nil && targetInfo.IsDir() {
+		// 检查目录是否为空
+		entries, _ := os.ReadDir(targetRoot)
+		if len(entries) > 0 {
+			useTarget = true
+			log.Println("[Init] Using target skills from unified directory")
+		}
+	}
+
+	// 两个都没有，跳过
+	if !useSource && !useTarget {
+		log.Println("[Init] No skills found (source and target both missing/empty), skipping")
 		return nil
 	}
 
-	// 读取源码 skills 目录下的所有子目录
-	entries, err := os.ReadDir(sourceRoot)
+	// 确定实际使用的源
+	actualSourceRoot := sourceRoot
+	if !useSource {
+		actualSourceRoot = targetRoot
+	}
+
+	// 读取源 skills 目录
+	entries, err := os.ReadDir(actualSourceRoot)
 	if err != nil {
 		return err
 	}
@@ -76,9 +99,21 @@ func syncSkillsFromDisk() error {
 		}
 
 		skillName := entry.Name()
-		sourcePath := filepath.Join(sourceRoot, skillName)
+		sourcePath := filepath.Join(actualSourceRoot, skillName)
 		targetPath := filepath.Join(targetRoot, skillName)
 		skillMdPath := filepath.Join(sourcePath, "SKILL.md")
+
+		// 只有在开发模式且源码和目标不同时，才拷贝
+		// 部署模式下，target 已经是完整目录，不需要再拷贝
+		if useSource && actualSourceRoot == sourceRoot && sourceRoot != targetRoot {
+			if _, err := os.Stat(targetPath); os.IsNotExist(err) {
+				log.Printf("[Init] Copying skill '%s' to unified directory", skillName)
+				if err := copyDir(sourcePath, targetPath); err != nil {
+					log.Printf("[Init] Failed to copy skill '%s': %v", skillName, err)
+					continue
+				}
+			}
+		}
 
 		// 解析 SKILL.md 获取元信息
 		skillType, description, version := parseSkillMd(skillMdPath)
