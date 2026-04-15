@@ -1130,7 +1130,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                       const toolKey = `${msg.id}-${idx}`;
                       const isCollapsed = collapsedTools[toolKey];
                       const isRunning = tool.status === 'running' || tool.result === t('chat.executing');
-                      const isError = tool.result?.startsWith('Error:') || tool.status === 'error';
+                      const isError = typeof tool.result === 'string' && tool.result.startsWith('Error:') || tool.status === 'error';
                       return (
                         <div key={idx} className={cn(
                           "bg-slate-50 border border-slate-100 rounded-xl overflow-hidden",
