@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/cloudwego/eino/components/model"
@@ -42,15 +43,25 @@ func RegisterFactory(factory ModelFactory) {
 	factories[factory.Provider()] = factory
 }
 
-// GetFactory returns the factory for the given provider.
+// GetFactory returns the factory for the given provider (case-insensitive).
 func GetFactory(provider string) (ModelFactory, error) {
 	factoriesMu.RLock()
 	defer factoriesMu.RUnlock()
-	f, ok := factories[provider]
-	if !ok {
-		return nil, fmt.Errorf("no model factory registered for provider: %s", provider)
+
+	// First try exact match
+	if f, ok := factories[provider]; ok {
+		return f, nil
 	}
-	return f, nil
+
+	// Try case-insensitive match
+	providerLower := strings.ToLower(provider)
+	for p, f := range factories {
+		if strings.ToLower(p) == providerLower {
+			return f, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no model factory registered for provider: %s", provider)
 }
 
 // ListProviders returns a list of all registered provider names.
