@@ -107,7 +107,7 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
           onClick={toggleLanguage}
           className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-200 text-gray-700 transition-all"
         >
-          <Globe className="w-5 h-5 text-gray-500" />
+          <Globe className="w-5 h-5 shrink-0 text-gray-500" />
           {!isCollapsed && <span className="text-sm font-medium">{i18n.language === 'en' ? 'English' : '中文'}</span>}
         </button>
         <button
