@@ -4,8 +4,8 @@ import (
 	"context"
 
 	claude "github.com/cloudwego/eino-ext/components/model/claude"
-	"github.com/jettjia/XiaoQinglong/runner/llm"
 	"github.com/cloudwego/eino/components/model"
+	"github.com/jettjia/XiaoQinglong/runner/llm"
 )
 
 type claudeFactory struct{}
