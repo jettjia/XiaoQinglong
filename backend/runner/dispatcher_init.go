@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/prebuilt/deep"
 	"github.com/cloudwego/eino/components/model"
@@ -16,6 +15,8 @@ import (
 	"github.com/cloudwego/eino/compose"
 	"github.com/jettjia/XiaoQinglong/runner/cliext"
 	"github.com/jettjia/XiaoQinglong/runner/cron"
+	"github.com/jettjia/XiaoQinglong/runner/llm"
+	_ "github.com/jettjia/XiaoQinglong/runner/llm/adapters"
 	"github.com/jettjia/XiaoQinglong/runner/memory"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/xqldir"
@@ -32,38 +33,36 @@ func (d *Dispatcher) initModels(ctx context.Context) error {
 	d.modelsByRole = make(map[ModelRole]model.ToolCallingChatModel)
 
 	for key, cfg := range d.request.Models {
-		openaiCfg := &openai.ChatModelConfig{
-			APIKey:  cfg.APIKey,
-			Model:   cfg.Name,
-			BaseURL: cfg.APIBase,
+		// 确定 provider，默认 openai
+		provider := cfg.Provider
+		if provider == "" {
+			provider = "openai"
+			logger.Warnf("[Dispatcher] initModels: model %s has no provider, defaulting to openai", key)
 		}
-		// 传递其他可选参数
-		if cfg.Temperature > 0 {
-			t := float32(cfg.Temperature)
-			openaiCfg.Temperature = &t
-		}
-		if cfg.MaxTokens > 0 {
-			openaiCfg.MaxTokens = &cfg.MaxTokens
-		}
-		if cfg.TopP > 0 {
-			t := float32(cfg.TopP)
-			openaiCfg.TopP = &t
-		}
-		// 如果配置了 ExtraFields，使用配置的
-		if len(cfg.ExtraFields) > 0 {
-			openaiCfg.ExtraFields = cfg.ExtraFields
-		}
-		// TODO: MiniMax reasoning_split 需要进一步验证，暂时禁用
-		// else if strings.Contains(strings.ToLower(cfg.APIBase), "minimaxi") || strings.Contains(strings.ToLower(cfg.APIBase), "minimax") {
-		// 	// MiniMax API 自动添加 reasoning_split 参数
-		// 	openaiCfg.ExtraFields = map[string]any{"reasoning_split": true}
-		// 	logger.Infof("[Dispatcher] initModels: detected MiniMax API, auto-added reasoning_split to ExtraFields")
-		// }
-		logger.Infof("[Dispatcher] initModels: key=%s, model=%s, baseURL=%s, openaiCfg.ExtraFields=%v",
-			key, cfg.Name, cfg.APIBase, openaiCfg.ExtraFields)
-		cm, err := openai.NewChatModel(ctx, openaiCfg)
+
+		// 获取 factory
+		factory, err := llm.GetFactory(provider)
 		if err != nil {
-			return fmt.Errorf("create model %s failed: %w", key, err)
+			return fmt.Errorf("get model factory for provider %s failed: %w", provider, err)
+		}
+
+		// 转换为 llm.ModelConfig
+		llmCfg := &llm.ModelConfig{
+			Name:        cfg.Name,
+			APIKey:      cfg.APIKey,
+			APIBase:     cfg.APIBase,
+			Temperature: cfg.Temperature,
+			MaxTokens:   cfg.MaxTokens,
+			TopP:        cfg.TopP,
+			ExtraFields: cfg.ExtraFields,
+		}
+
+		logger.Infof("[Dispatcher] initModels: key=%s, provider=%s, model=%s, baseURL=%s",
+			key, provider, cfg.Name, cfg.APIBase)
+
+		cm, err := factory.CreateChatModel(ctx, llmCfg)
+		if err != nil {
+			return fmt.Errorf("create model %s (provider=%s) failed: %w", key, provider, err)
 		}
 		d.models[key] = cm
 

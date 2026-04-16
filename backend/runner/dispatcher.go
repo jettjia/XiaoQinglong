@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
@@ -19,6 +18,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/google/uuid"
 	"github.com/jettjia/XiaoQinglong/runner/contextcompressor"
+	"github.com/jettjia/XiaoQinglong/runner/llm"
 	"github.com/jettjia/XiaoQinglong/runner/contextcompressor/compactors"
 	"github.com/jettjia/XiaoQinglong/runner/memory"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
@@ -565,15 +565,31 @@ func (d *Dispatcher) createInternalAgent(ctx context.Context, cfg types.Internal
 		if cm, ok := d.models[cfg.Model.Name]; ok {
 			chatModel = cm
 		} else {
-			// 创建新的模型实例
-			openaiCfg := &openai.ChatModelConfig{
-				APIKey:  cfg.Model.APIKey,
-				Model:   cfg.Model.Name,
-				BaseURL: cfg.Model.APIBase,
+			// 确定 provider，默认 openai
+			provider := cfg.Model.Provider
+			if provider == "" {
+				provider = "openai"
 			}
-			cm, err := openai.NewChatModel(ctx, openaiCfg)
+
+			// 获取 factory
+			factory, err := llm.GetFactory(provider)
 			if err != nil {
-				return nil, fmt.Errorf("create model failed: %w", err)
+				return nil, fmt.Errorf("get model factory for provider %s failed: %w", provider, err)
+			}
+
+			// 创建模型实例
+			llmCfg := &llm.ModelConfig{
+				Name:        cfg.Model.Name,
+				APIKey:      cfg.Model.APIKey,
+				APIBase:     cfg.Model.APIBase,
+				Temperature: cfg.Model.Temperature,
+				MaxTokens:   cfg.Model.MaxTokens,
+				TopP:        cfg.Model.TopP,
+				ExtraFields: cfg.Model.ExtraFields,
+			}
+			cm, err := factory.CreateChatModel(ctx, llmCfg)
+			if err != nil {
+				return nil, fmt.Errorf("create model %s (provider=%s) failed: %w", cfg.Model.Name, provider, err)
 			}
 			chatModel = cm
 		}
