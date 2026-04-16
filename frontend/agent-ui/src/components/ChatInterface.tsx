@@ -6,7 +6,6 @@ import {
   Mic,
   MoreHorizontal,
   Plus,
-  History,
   Trash2,
   ChevronDown,
   MessageSquare,
@@ -965,8 +964,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
             >
               <PanelLeftClose size={18} />
             </button>
-            <h2 className="font-bold text-slate-800 flex items-center gap-2">
-              <History size={18} className="text-slate-400" />
+            <h2 className="font-bold text-slate-800">
               {t('chat.history')}
             </h2>
           </div>
@@ -977,7 +975,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
             <Plus size={18} className="text-slate-600" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-2 space-y-1 min-w-[280px]">
+        <div className="flex-1 overflow-y-auto p-2 space-y-1 min-w-[280px] chat-history-scrollbar">
           {(() => {
             if (conversations.length === 0) {
               return (
@@ -1386,31 +1384,31 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
 
         {/* Input Area */}
         <div className="p-4 lg:p-6 bg-white border-t border-slate-100">
-          <AnimatePresence>
-            {files.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="mb-3 flex flex-wrap gap-2"
-              >
-                {files.map((file, i) => (
-                  <div key={i} className="group relative flex items-center gap-2 p-2 bg-slate-50 rounded-lg border border-slate-200">
-                    <Paperclip size={14} className="text-slate-400" />
-                    <span className="text-xs text-slate-600 truncate max-w-[150px]">{file.name}</span>
-                    <button
-                      onClick={() => removeFile(i)}
-                      className="p-1 hover:bg-slate-200 rounded-full text-slate-400 hover:text-red-500 transition-colors"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                ))}
-              </motion.div>
-            )}
-          </AnimatePresence>
-
           <div className="relative group w-full max-w-4xl mx-auto">
+            <AnimatePresence>
+              {files.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="mb-3 flex flex-wrap gap-2"
+                >
+                  {files.map((file, i) => (
+                    <div key={i} className="group relative flex items-center gap-2 p-2 bg-slate-50 rounded-lg border border-slate-200">
+                      <Paperclip size={14} className="text-slate-400" />
+                      <span className="text-xs text-slate-600 truncate max-w-[150px]">{file.name}</span>
+                      <button
+                        onClick={() => removeFile(i)}
+                        className="p-1 hover:bg-slate-200 rounded-full text-slate-400 hover:text-red-500 transition-colors"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             <div className="relative bg-white border border-slate-200 rounded-[24px] shadow-[0_4px_20px_rgb(0,0,0,0.03)] transition-all focus-within:shadow-[0_4px_30px_rgba(0,0,0,0.08)] focus-within:border-slate-400">
               <textarea
                 value={input}

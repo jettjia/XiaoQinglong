@@ -8,6 +8,7 @@ require (
 	github.com/cloudwego/eino-ext/components/model/deepseek v0.1.2
 	github.com/cloudwego/eino-ext/components/model/ollama v0.1.3
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.11
+	github.com/eino-contrib/ollama v0.1.0
 	github.com/google/uuid v1.6.0
 	github.com/sirupsen/logrus v1.9.3
 	gopkg.in/yaml.v3 v3.0.1

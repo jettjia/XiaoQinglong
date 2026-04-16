@@ -29,3 +29,18 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Chat History Sidebar Custom Scrollbar */
+.chat-history-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.chat-history-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chat-history-scrollbar::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+.chat-history-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
