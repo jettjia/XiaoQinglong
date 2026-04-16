@@ -6,6 +6,7 @@ import (
 	claude "github.com/cloudwego/eino-ext/components/model/claude"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/jettjia/XiaoQinglong/runner/llm"
+	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 )
 
 type claudeFactory struct{}
@@ -19,6 +20,8 @@ func (f *claudeFactory) CreateChatModel(ctx context.Context, cfg *llm.ModelConfi
 		APIKey: cfg.APIKey,
 		Model:  cfg.Name,
 	}
+
+	logger.GetRunnerLogger().Infof("Creating Claude model with config: %+v", claudeCfg)
 
 	if cfg.APIBase != "" {
 		baseURL := cfg.APIBase
