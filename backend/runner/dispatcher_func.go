@@ -2,9 +2,23 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 
 	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 )
+
+// a2uiWriter implements io.Writer to adapter a2ui.StreamToWriter to eventsChan
+type a2uiWriter struct {
+	eventsChan chan<- StreamEvent
+}
+
+func (w *a2uiWriter) Write(p []byte) (n int, err error) {
+	w.eventsChan <- StreamEvent{Type: "a2ui", Data: map[string]any{"json": string(p)}}
+	return len(p), nil
+}
+
+// ensure a2uiWriter implements io.Writer
+var _ io.Writer = &a2uiWriter{}
 
 // formatResponse 根据 response_schema 配置格式化响应
 func (d *Dispatcher) formatResponse(content string) (string, []json.RawMessage) {

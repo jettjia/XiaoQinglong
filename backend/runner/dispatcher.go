@@ -28,6 +28,7 @@ import (
 	"github.com/jettjia/XiaoQinglong/runner/prompt"
 	"github.com/jettjia/XiaoQinglong/runner/retriever"
 	"github.com/jettjia/XiaoQinglong/runner/subagent"
+	"github.com/jettjia/XiaoQinglong/runner/a2ui"
 	"github.com/jettjia/XiaoQinglong/runner/tools"
 	"github.com/jettjia/XiaoQinglong/runner/types"
 )
@@ -1699,148 +1700,193 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 			d.checkAndTriggerCompaction(messages)
 		}
 
-		var out strings.Builder
-		var totalPromptTokens int
-		var totalCompletionTokens int
-		var toolCallsCount int
-		// 从 context 获取 toolArgsMap
-		toolArgsMap = getToolArgsMap(ctxWithChan)
-		if toolArgsMap == nil {
-			toolArgsMap = make(toolArgsMapType)
-		}
-		for {
-			event, ok := events.Next()
-			if !ok {
-				break
+		// 10.6 检查是否启用 A2UI 模式
+		useA2UI := d.request.Options != nil &&
+			d.request.Options.ResponseSchema != nil &&
+			d.request.Options.ResponseSchema.Type == "a2ui"
+
+		if useA2UI {
+			// 使用 eino a2ui 进行流式渲染
+			sessionID := checkpointID
+			if sid, ok := d.request.Context["session_id"].(string); ok && sid != "" {
+				sessionID = sid
 			}
 
-			if event.Err != nil {
-				eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": event.Err.Error()}}
-				break
-			}
-
-			// 处理输出消息
-			if event.Output != nil && event.Output.MessageOutput != nil {
-				mo := event.Output.MessageOutput
-
-				// 累计 token 使用量
-				if mo.Message != nil && mo.Message.ResponseMeta != nil && mo.Message.ResponseMeta.Usage != nil {
-					totalPromptTokens += mo.Message.ResponseMeta.Usage.PromptTokens
-					totalCompletionTokens += mo.Message.ResponseMeta.Usage.CompletionTokens
-				}
-
-				// 处理 tool calls
-				if mo.Message != nil && len(mo.Message.ToolCalls) > 0 {
-					toolCallsCount += len(mo.Message.ToolCalls)
-					for _, tc := range mo.Message.ToolCalls {
-						// 保存 arguments 到 map
-						toolArgsMap[tc.ID] = tc.Function.Arguments
-						eventsChan <- StreamEvent{
-							Type: "tool_call",
-							Data: map[string]any{
-								"agent":     event.AgentName,
-								"tool":      tc.Function.Name,
-								"arguments": tc.Function.Arguments,
-							},
-						}
-					}
-				}
-
-				// 处理 assistant 消息内容
-				if mo.Message != nil && mo.Message.Role == schema.Assistant && len(mo.Message.ToolCalls) == 0 {
-					content := mo.Message.Content
-					out.WriteString(content)
-					eventsChan <- StreamEvent{Type: "delta", Data: map[string]any{"text": content}}
-				}
-
-				// 处理 tool 返回
-				if mo.Message != nil && mo.Message.Role == schema.Tool {
-					content := mo.Message.Content
-					if strings.TrimSpace(content) == "" {
-						content = "(无输出)"
-					}
-					// 获取对应的 arguments
-					args := toolArgsMap[mo.Message.ToolCallID]
-					eventsChan <- StreamEvent{
-						Type: "tool",
-						Data: map[string]any{
-							"agent":        event.AgentName,
-							"tool":         mo.Message.ToolName,
-							"tool_call_id": mo.Message.ToolCallID,
-							"arguments":    args,
-							"output":       content,
-						},
-					}
-				}
-
-				// 处理流式 chunk
-				if mo.MessageStream != nil {
-					for {
-						chunk, err := mo.MessageStream.Recv()
-						if errors.Is(err, io.EOF) {
-							break
-						}
-						if err != nil {
-							eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": err.Error()}}
-							break
-						}
-						if chunk != nil {
-							if chunk.Role == schema.Assistant && len(chunk.ToolCalls) == 0 && strings.TrimSpace(chunk.Content) != "" {
-								out.WriteString(chunk.Content)
-								eventsChan <- StreamEvent{Type: "delta", Data: map[string]any{"text": chunk.Content}}
-							}
-							if chunk.Role == schema.Tool {
-								content := chunk.Content
-								if strings.TrimSpace(content) == "" {
-									content = "(无输出)"
-								}
-								// 获取对应的 arguments
-								args := toolArgsMap[chunk.ToolCallID]
-								eventsChan <- StreamEvent{
-									Type: "tool",
-									Data: map[string]any{
-										"agent":        event.AgentName,
-										"tool":         chunk.ToolName,
-										"tool_call_id": chunk.ToolCallID,
-										"arguments":    args,
-										"output":       content,
-									},
-								}
-							}
-						}
-					}
+			// 构建 history (用于渲染历史消息)
+			var history []*schema.Message
+			for _, msg := range messages {
+				if msg != nil {
+					history = append(history, msg)
 				}
 			}
 
-			// 处理中断事件
-			if event.Action != nil && event.Action.Interrupted != nil {
+			// 使用 a2ui.StreamToWriter 进行流式渲染
+			writer := &a2uiWriter{eventsChan: eventsChan}
+			lastContent, interruptID, finalMsgIdx, a2uiErr := a2ui.StreamToWriter(writer, sessionID, history, events)
+
+			// 处理中断
+			if interruptID != "" {
 				eventsChan <- StreamEvent{
 					Type: "interrupted",
 					Data: map[string]any{
 						"checkpoint_id": checkpointID,
-						"data":          event.Action.Interrupted.Data,
+						"interrupt_id":   interruptID,
+						"msg_idx":       finalMsgIdx,
 					},
 				}
 			}
-		}
 
-		// Fallback: 如果流式未获取到 usage，通过非流式调用获取（只取 usage，不使用响应内容）
-		if totalPromptTokens == 0 && totalCompletionTokens == 0 && len(messages) > 0 {
-			if nonStreamResult, err := d.defaultModel.Generate(ctx, messages); err == nil {
-				if nonStreamResult != nil && nonStreamResult.ResponseMeta != nil && nonStreamResult.ResponseMeta.Usage != nil {
-					totalPromptTokens = nonStreamResult.ResponseMeta.Usage.PromptTokens
-					totalCompletionTokens = nonStreamResult.ResponseMeta.Usage.CompletionTokens
+			// 发送 done 事件
+			eventsChan <- StreamEvent{Type: "done", Data: map[string]any{
+				"content":      lastContent,
+				"interrupt_id":  interruptID,
+				"msg_idx":      finalMsgIdx,
+				"a2ui_error":   a2uiErr,
+			}}
+		} else {
+			var out strings.Builder
+			var totalPromptTokens int
+			var totalCompletionTokens int
+			var toolCallsCount int
+			// 从 context 获取 toolArgsMap
+			toolArgsMap = getToolArgsMap(ctxWithChan)
+			if toolArgsMap == nil {
+				toolArgsMap = make(toolArgsMapType)
+			}
+			for {
+				event, ok := events.Next()
+				if !ok {
+					break
+				}
+
+				if event.Err != nil {
+					eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": event.Err.Error()}}
+					break
+				}
+
+				// 处理输出消息
+				if event.Output != nil && event.Output.MessageOutput != nil {
+					mo := event.Output.MessageOutput
+
+					// 累计 token 使用量
+					if mo.Message != nil && mo.Message.ResponseMeta != nil && mo.Message.ResponseMeta.Usage != nil {
+						totalPromptTokens += mo.Message.ResponseMeta.Usage.PromptTokens
+						totalCompletionTokens += mo.Message.ResponseMeta.Usage.CompletionTokens
+					}
+
+					// 处理 tool calls
+					if mo.Message != nil && len(mo.Message.ToolCalls) > 0 {
+						toolCallsCount += len(mo.Message.ToolCalls)
+						for _, tc := range mo.Message.ToolCalls {
+							// 保存 arguments 到 map
+							toolArgsMap[tc.ID] = tc.Function.Arguments
+							eventsChan <- StreamEvent{
+								Type: "tool_call",
+								Data: map[string]any{
+									"agent":     event.AgentName,
+									"tool":      tc.Function.Name,
+									"arguments": tc.Function.Arguments,
+								},
+							}
+						}
+					}
+
+					// 处理 assistant 消息内容
+					if mo.Message != nil && mo.Message.Role == schema.Assistant && len(mo.Message.ToolCalls) == 0 {
+						content := mo.Message.Content
+						out.WriteString(content)
+						eventsChan <- StreamEvent{Type: "delta", Data: map[string]any{"text": content}}
+					}
+
+					// 处理 tool 返回
+					if mo.Message != nil && mo.Message.Role == schema.Tool {
+						content := mo.Message.Content
+						if strings.TrimSpace(content) == "" {
+							content = "(无输出)"
+						}
+						// 获取对应的 arguments
+						args := toolArgsMap[mo.Message.ToolCallID]
+						eventsChan <- StreamEvent{
+							Type: "tool",
+							Data: map[string]any{
+								"agent":        event.AgentName,
+								"tool":         mo.Message.ToolName,
+								"tool_call_id": mo.Message.ToolCallID,
+								"arguments":    args,
+								"output":       content,
+							},
+						}
+					}
+
+					// 处理流式 chunk
+					if mo.MessageStream != nil {
+						for {
+							chunk, err := mo.MessageStream.Recv()
+							if errors.Is(err, io.EOF) {
+								break
+							}
+							if err != nil {
+								eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": err.Error()}}
+								break
+							}
+							if chunk != nil {
+								if chunk.Role == schema.Assistant && len(chunk.ToolCalls) == 0 && strings.TrimSpace(chunk.Content) != "" {
+									out.WriteString(chunk.Content)
+									eventsChan <- StreamEvent{Type: "delta", Data: map[string]any{"text": chunk.Content}}
+								}
+								if chunk.Role == schema.Tool {
+									content := chunk.Content
+									if strings.TrimSpace(content) == "" {
+										content = "(无输出)"
+									}
+									// 获取对应的 arguments
+									args := toolArgsMap[chunk.ToolCallID]
+									eventsChan <- StreamEvent{
+										Type: "tool",
+										Data: map[string]any{
+											"agent":        event.AgentName,
+											"tool":         chunk.ToolName,
+											"tool_call_id": chunk.ToolCallID,
+											"arguments":    args,
+											"output":       content,
+										},
+									}
+								}
+							}
+						}
+					}
+				}
+
+				// 处理中断事件
+				if event.Action != nil && event.Action.Interrupted != nil {
+					eventsChan <- StreamEvent{
+						Type: "interrupted",
+						Data: map[string]any{
+							"checkpoint_id": checkpointID,
+							"data":          event.Action.Interrupted.Data,
+						},
+					}
 				}
 			}
-		}
 
-		eventsChan <- StreamEvent{Type: "done", Data: map[string]any{
-			"content":           out.String(),
-			"prompt_tokens":     totalPromptTokens,
-			"completion_tokens": totalCompletionTokens,
-			"total_tokens":      totalPromptTokens + totalCompletionTokens,
-			"tool_calls_count":  toolCallsCount,
-		}}
+			// Fallback: 如果流式未获取到 usage，通过非流式调用获取（只取 usage，不使用响应内容）
+			if totalPromptTokens == 0 && totalCompletionTokens == 0 && len(messages) > 0 {
+				if nonStreamResult, err := d.defaultModel.Generate(ctx, messages); err == nil {
+					if nonStreamResult != nil && nonStreamResult.ResponseMeta != nil && nonStreamResult.ResponseMeta.Usage != nil {
+						totalPromptTokens = nonStreamResult.ResponseMeta.Usage.PromptTokens
+						totalCompletionTokens = nonStreamResult.ResponseMeta.Usage.CompletionTokens
+					}
+				}
+			}
+
+			eventsChan <- StreamEvent{Type: "done", Data: map[string]any{
+				"content":           out.String(),
+				"prompt_tokens":     totalPromptTokens,
+				"completion_tokens": totalCompletionTokens,
+				"total_tokens":      totalPromptTokens + totalCompletionTokens,
+				"tool_calls_count":  toolCallsCount,
+			}}
+		}
 	}()
 
 	return eventsChan, nil
