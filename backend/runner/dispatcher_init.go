@@ -778,6 +778,16 @@ func (d *Dispatcher) initSkills(ctx context.Context) error {
 	d.tools = append(d.tools, createSkillTool)
 	logger.Infof("[Dispatcher] initSkills: create_skill tool registered")
 
+	// 创建 eino skill middleware（从 ~/.xiaoqinglong/skills/ 加载 SKILL.md）
+	// 这让 agent 可以通过 skill("xxx") 获取 skill 的完整内容
+	skillMw, err := plugins.NewSkillMiddleware(ctx, skillsDir)
+	if err != nil {
+		logger.Infof("[Dispatcher] initSkills: warning - failed to create skill middleware: %v", err)
+	} else {
+		d.skillMiddleware = skillMw
+		logger.Infof("[Dispatcher] initSkills: eino skill middleware created for dir: %s", skillsDir)
+	}
+
 	return nil
 }
 

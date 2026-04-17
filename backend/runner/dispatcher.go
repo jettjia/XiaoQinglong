@@ -350,6 +350,7 @@ type Dispatcher struct {
 	a2aRunners       map[string]*adk.Runner
 	internalAgents   map[string]adk.Agent
 	skillRunner      *plugins.SkillRunner
+	skillMiddleware  adk.ChatModelAgentMiddleware // eino skill middleware
 	skillPlanner     *plugins.SkillPlanner     // LLM 驱动的技能规划器
 	subAgentManager  *subagent.SubAgentManager // Sub-Agent 管理器
 	a2aCallCount     int
@@ -866,6 +867,18 @@ func (d *Dispatcher) buildModelRetryConfig() *adk.ModelRetryConfig {
 			return time.Duration(jitter) * time.Millisecond
 		},
 	}
+}
+
+// buildAgentHandlers 构建 agent middleware handlers
+func (d *Dispatcher) buildAgentHandlers() []adk.ChatModelAgentMiddleware {
+	var handlers []adk.ChatModelAgentMiddleware
+
+	// 添加 eino skill middleware
+	if d.skillMiddleware != nil {
+		handlers = append(handlers, d.skillMiddleware)
+	}
+
+	return handlers
 }
 
 // compactionWorker 异步压缩 worker
@@ -1585,6 +1598,7 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 					ToolCallMiddlewares: []compose.ToolMiddleware{*toolCallEventsMiddleware()},
 				},
 			},
+			Handlers: d.buildAgentHandlers(),
 		}
 
 		// 将 eventsChan 和 toolArgsMap 添加到 context 中，供中间件使用
