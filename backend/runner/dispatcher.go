@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/rand"
 	"strings"
 	"sync"
 	"time"
@@ -846,8 +847,13 @@ func (d *Dispatcher) buildModelRetryConfig() *adk.ModelRetryConfig {
 	return &adk.ModelRetryConfig{
 		MaxRetries: retry.MaxAttempts,
 		IsRetryAble: func(ctx context.Context, err error) bool {
+			// Phase 1: HTTP 状态码始终可重试，不管 retryable_errors 配置如何
+			if isHTTPRetryableError(err) {
+				return true
+			}
+			// 用户配置的 retryable_errors
 			if len(retry.RetryableErrors) == 0 {
-				return true // 默认全部可重试
+				return true
 			}
 			errStr := err.Error()
 			for _, e := range retry.RetryableErrors {
@@ -858,15 +864,46 @@ func (d *Dispatcher) buildModelRetryConfig() *adk.ModelRetryConfig {
 			return false
 		},
 		BackoffFunc: func(ctx context.Context, attempt int) time.Duration {
+			// 指数退避 + 固定 25% jitter
 			base := float64(retry.InitialDelayMs) * math.Pow(retry.BackoffMultiplier, float64(attempt-1))
 			if base > float64(retry.MaxDelayMs) {
 				base = float64(retry.MaxDelayMs)
 			}
-			// 添加 jitter: base * (0.5 + rand * 0.5) 防止雷鸣 herd
-			jitter := base * (0.5 + float64(time.Now().UnixNano()%100)/200.0)
-			return time.Duration(jitter) * time.Millisecond
+			jitter := base * 0.25 * rand.Float64()
+			return time.Duration(base+jitter) * time.Millisecond
 		},
 	}
+}
+
+// isHTTPRetryableError 检查 HTTP 状态码是否应始终重试
+// 参考 Claude Code withRetry.ts: 5xx/429/529/408/409 始终可重试
+func isHTTPRetryableError(err error) bool {
+	errStr := err.Error()
+	httpCodes := []string{
+		"429", "rate limit", "too many requests",
+		"500", "internal server error",
+		"502", "bad gateway",
+		"503", "service unavailable",
+		"504", "gateway timeout",
+		"529", "overloaded", "service overloaded",
+		"408", "request timeout",
+		"409", "conflict",
+	}
+	for _, code := range httpCodes {
+		if strings.Contains(errStr, code) {
+			return true
+		}
+	}
+	return false
+}
+
+// is529Error 检查错误是否为 529 (overloaded) 错误
+// 参考 Claude Code withRetry.ts: 检查状态码和消息中的 overloaded_error
+func is529Error(err error) bool {
+	errStr := err.Error()
+	return strings.Contains(errStr, "529") ||
+		strings.Contains(errStr, "overloaded") ||
+		strings.Contains(errStr, "service overloaded")
 }
 
 // buildAgentHandlers 构建 agent middleware handlers
@@ -1041,6 +1078,21 @@ func (d *Dispatcher) runDeepAgent(ctx context.Context, messages []adk.Message) (
 	var interrupted bool
 	toolCallCount := 0
 
+	// 连续 529 错误追踪 + fallback
+	fallbackModel := ""
+	maxConsecutive529 := 3
+	consecutive529 := 0
+	if d.request.Options != nil && d.request.Options.Retry != nil {
+		fallbackModel = d.request.Options.Retry.FallbackModel
+	}
+	// 如果未配置 fallback model，使用配置中的 max_attempts 作为阈值
+	if maxConsecutive529 <= 0 {
+		maxConsecutive529 = d.request.Options.Retry.MaxAttempts
+		if maxConsecutive529 <= 0 {
+			maxConsecutive529 = 3
+		}
+	}
+
 	events := runner.Run(ctx, messages, adk.WithCheckPointID(checkpointID))
 
 	for {
@@ -1050,6 +1102,21 @@ func (d *Dispatcher) runDeepAgent(ctx context.Context, messages []adk.Message) (
 		}
 
 		if event.Err != nil {
+			// 检查是否是 529 错误
+			if is529Error(event.Err) {
+				consecutive529++
+				logger.Warnf("[Dispatcher] runDeepAgent: 529 error (consecutive %d/%d)", consecutive529, maxConsecutive529)
+				if consecutive529 >= maxConsecutive529 && fallbackModel != "" {
+					logger.Warnf("[Dispatcher] runDeepAgent: consecutive 529 threshold reached (%d), fallback model=%s not implemented - would restart with fallback", maxConsecutive529, fallbackModel)
+					// TODO: 实现 fallback - 需要重新创建 agent 和 runner
+					// 1. 查找 fallback model: d.models[fallbackModel] 或 d.modelsByRole[ModelRole(fallbackModel)]
+					// 2. 重新创建 deepAgent with fallback model
+					// 3. 重新调用 runner.Run with original messages
+				}
+			} else {
+				// 非 529 错误，重置计数器
+				consecutive529 = 0
+			}
 			logger.Infof("[Dispatcher] runDeepAgent error: %v", event.Err)
 			return nil, fmt.Errorf("deep agent error: %w", event.Err)
 		}
