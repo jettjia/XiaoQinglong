@@ -1,14 +1,15 @@
 package plugins
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
-	"time"
+
+	"github.com/cloudwego/eino-ext/a2a/client"
+	"github.com/cloudwego/eino-ext/a2a/models"
+	"github.com/cloudwego/eino-ext/a2a/transport/jsonrpc"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/model"
@@ -20,19 +21,18 @@ import (
 
 // ========== A2A Client ==========
 
-// A2AClient represents an A2A agent client
+// A2AClient represents an A2A agent client using eino-ext a2a library
 type A2AClient struct {
-	name       string
-	endpoint   string
-	headers    map[string]string
-	httpClient *http.Client
+	name     string
+	endpoint string
+	headers  map[string]string
+	cli      *client.A2AClient
 }
 
-// NewA2AClient creates a new A2A client
+// NewA2AClient creates a new A2A client using eino-ext a2a library
 func NewA2AClient(ctx context.Context, config types.A2AAgentConfig) (*A2AClient, error) {
-	// Validate endpoint
 	if config.Endpoint == "" {
-		return nil, fmt.Errorf("empty endpoint")
+		return nil, errors.New("empty endpoint")
 	}
 
 	// Clean headers
@@ -56,102 +56,85 @@ func NewA2AClient(ctx context.Context, config types.A2AAgentConfig) (*A2AClient,
 		}
 	}
 
-	logger.GetRunnerLogger().Infof("[A2A] Created client for agent: %s, endpoint: %s", config.Name, endpoint)
+	// Create transport using eino-ext a2a jsonrpc transport
+	transport, err := jsonrpc.NewTransport(ctx, &jsonrpc.ClientConfig{
+		BaseURL:     endpoint,
+		HandlerPath: "",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create a2a transport failed: %w", err)
+	}
+
+	// Create A2A client
+	cli, err := client.NewA2AClient(ctx, &client.Config{Transport: transport})
+	if err != nil {
+		return nil, fmt.Errorf("create a2a client failed: %w", err)
+	}
+
+	logger.GetRunnerLogger().Infof("[A2A] Created eino-ext client for agent: %s, endpoint: %s", config.Name, endpoint)
 
 	return &A2AClient{
-		name:       config.Name,
-		endpoint:   endpoint,
-		headers:    headers,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		name:     config.Name,
+		endpoint: endpoint,
+		headers:  headers,
+		cli:      cli,
 	}, nil
 }
 
-// Run executes the A2A agent with a query using JSON-RPC over HTTP
+// Run executes the A2A agent with a query using eino-ext a2a client
 func (a *A2AClient) Run(ctx context.Context, query string, traceCtx map[string]string) (string, error) {
 	logger.GetRunnerLogger().Infof("[A2A] Calling agent %s with query: %s", a.name, query)
 
-	// 构建 JSON-RPC 请求
-	reqBody := map[string]any{
-		"jsonrpc": "2.0",
-		"method":  "agents/call",
-		"params": map[string]any{
-			"message": map[string]string{
-				"role":    "user",
-				"content": query,
-			},
-			"context": traceCtx, // 传递 trace context
-		},
-		"id": time.Now().UnixNano(),
-	}
-
-	reqBytes, err := json.Marshal(reqBody)
-	if err != nil {
-		return "", fmt.Errorf("marshal request failed: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", a.endpoint, bytes.NewReader(reqBytes))
-	if err != nil {
-		return "", fmt.Errorf("create request failed: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	for k, v := range a.headers {
-		req.Header.Set(k, v)
-	}
-
-	// 传递 trace headers (W3C Trace Context 标准)
+	// Build metadata from trace context
+	metadata := make(map[string]any)
 	if traceCtx != nil {
 		if traceID, ok := traceCtx["trace_id"]; ok {
-			req.Header.Set("trace-id", traceID)
+			metadata["trace_id"] = traceID
 		}
 		if parentSpanID, ok := traceCtx["parent_span_id"]; ok {
-			req.Header.Set("parent-span-id", parentSpanID)
+			metadata["parent_span_id"] = parentSpanID
 		}
 	}
 
-	resp, err := a.httpClient.Do(req)
+	// Send message using eino-ext a2a client
+	result, err := a.cli.SendMessage(ctx, &models.MessageSendParams{
+		Message: models.Message{
+			Role: models.RoleUser,
+			Parts: []models.Part{
+				{Kind: models.PartKindText, Text: &query},
+			},
+		},
+		Metadata: metadata,
+	})
 	if err != nil {
-		return "", fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("agent returned status %d: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("a2a send message failed: %w", err)
 	}
 
-	// 解析 JSON-RPC 响应
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("read response failed: %w", err)
+	// Extract content from response
+	if result != nil && result.Task != nil && result.Task.Status.Message != nil {
+		return extractContent(result.Task.Status.Message)
 	}
 
-	type JSONRPCResponse struct {
-		JSONRPC string `json:"jsonrpc"`
-		ID      any    `json:"id"`
-		Result  struct {
-			Message struct {
-				Role    string `json:"role"`
-				Content string `json:"content"`
-			} `json:"message"`
-			Status string `json:"status"`
-		} `json:"result"`
-		Error *struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-		} `json:"error,omitempty"`
+	if result != nil && result.Message != nil {
+		return extractContent(result.Message)
 	}
 
-	var rpcResp JSONRPCResponse
-	if err := json.Unmarshal(body, &rpcResp); err != nil {
-		return "", fmt.Errorf("parse response failed: %w", err)
+	return "", nil
+}
+
+// extractContent extracts text content from A2A message parts
+func extractContent(msg *models.Message) (string, error) {
+	if msg == nil || msg.Parts == nil {
+		return "", nil
 	}
 
-	if rpcResp.Error != nil {
-		return "", fmt.Errorf("agent error: %s", rpcResp.Error.Message)
+	var sb strings.Builder
+	for _, part := range msg.Parts {
+		if part.Kind == models.PartKindText && part.Text != nil {
+			sb.WriteString(*part.Text)
+		}
 	}
-
-	return rpcResp.Result.Message.Content, nil
+	return sb.String(), nil
 }
 
 // CreateA2ARunner creates an ADK runner for the A2A agent
@@ -162,7 +145,7 @@ func (a *A2AClient) CreateA2ARunner(ctx context.Context, model model.ToolCalling
 		return nil, fmt.Errorf("model is required for A2A agent")
 	}
 
-	// 创建 A2A agent（使用简单的方式：HTTP + JSON-RPC）
+	// Create A2A agent using HTTP + JSON-RPC
 	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:        a.name,
 		Description: fmt.Sprintf("A2A Agent: %s", a.name),
