@@ -350,9 +350,7 @@ type Dispatcher struct {
 	toolConfigs      map[string]types.ToolConfig // tool name -> config for interrupt handling
 	a2aRunners       map[string]*adk.Runner
 	internalAgents   map[string]adk.Agent
-	skillRunner      *plugins.SkillRunner
 	skillMiddleware  adk.ChatModelAgentMiddleware // eino skill middleware
-	skillPlanner     *plugins.SkillPlanner     // LLM 驱动的技能规划器
 	subAgentManager  *subagent.SubAgentManager // Sub-Agent 管理器
 	a2aCallCount     int
 	cliExt           interface{} // CLI 扩展（cliext.CLIExtension）
