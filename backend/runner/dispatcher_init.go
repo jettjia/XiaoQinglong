@@ -23,6 +23,9 @@ import (
 	"github.com/jettjia/XiaoQinglong/runner/subagent"
 	"github.com/jettjia/XiaoQinglong/runner/tools"
 	"github.com/jettjia/XiaoQinglong/runner/types"
+	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 func (d *Dispatcher) initModels(ctx context.Context) error {
@@ -474,63 +477,101 @@ func (d *Dispatcher) initMCPs(ctx context.Context) error {
 	for _, mcpCfg := range d.request.MCPs {
 		logger.Infof("[Dispatcher] initMCP: name=%s, transport=%s", mcpCfg.Name, mcpCfg.Transport)
 
+		var cli *client.Client
+		var err error
+
 		switch mcpCfg.Transport {
-		case "http", "sse":
-			// HTTP/SSE 模式：通过 HTTP API 或 SSE 端点加载 tools
+		case "sse":
+			// SSE 模式：使用 mark3labs/mcp-go 库
 			if mcpCfg.Endpoint == "" {
 				logger.Infof("[Dispatcher] initMCP: %s has empty endpoint, skipping", mcpCfg.Name)
 				continue
 			}
-			loader := plugins.NewMCPToolLoader(mcpCfg.Endpoint, mcpCfg.Headers)
-			tools, err := loader.LoadTools(ctx)
+			cli, err = client.NewSSEMCPClient(mcpCfg.Endpoint, client.WithHeaders(mcpCfg.Headers))
 			if err != nil {
-				logger.Infof("[Dispatcher] initMCP: failed to load tools for %s: %v", mcpCfg.Name, err)
+				logger.Infof("[Dispatcher] initMCP: failed to create SSE client for %s: %v", mcpCfg.Name, err)
 				continue
 			}
-			for _, t := range tools {
-				// HTTP/SSE MCP tools 需要包装审批
-				if invokableTool, ok := t.(tool.InvokableTool); ok {
-					wrapped := WrapToolWithApproval(invokableTool, mcpCfg.Name, "mcp", mcpCfg.RiskLevel, d.request.Options.ApprovalPolicy)
-					d.tools = append(d.tools, wrapped)
-				} else {
-					d.tools = append(d.tools, t)
-				}
+
+			// Start the client connection
+			if err = cli.Start(ctx); err != nil {
+				logger.Infof("[Dispatcher] initMCP: failed to start SSE client for %s: %v", mcpCfg.Name, err)
+				continue
 			}
-			logger.Infof("[Dispatcher] initMCP: %s loaded %d tools (transport=%s)", mcpCfg.Name, len(tools), mcpCfg.Transport)
+
+			// Initialize with protocol version
+			_, err = cli.Initialize(ctx, mcp.InitializeRequest{
+				Params: mcp.InitializeParams{
+					ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
+					ClientInfo: mcp.Implementation{
+						Name:    "xiaoqinglong-runner",
+						Version: "1.0.0",
+					},
+				},
+			})
+			if err != nil {
+				logger.Infof("[Dispatcher] initMCP: failed to initialize %s: %v", mcpCfg.Name, err)
+				continue
+			}
 
 		case "stdio":
-			// stdio 模式：启动本地进程
+			// stdio 模式：使用 mark3labs/mcp-go 库的 stdio transport
 			if mcpCfg.Command == "" {
 				logger.Infof("[Dispatcher] initMCP: %s has empty command, skipping", mcpCfg.Name)
 				continue
 			}
-			client, err := plugins.NewMCPStdioClient(mcpCfg.Command, mcpCfg.Args, mcpCfg.Env)
-			if err != nil {
-				logger.Infof("[Dispatcher] initMCP: failed to create stdio client for %s: %v", mcpCfg.Name, err)
+			// Convert env map to slice
+			envSlice := make([]string, 0, len(mcpCfg.Env))
+			for k, v := range mcpCfg.Env {
+				envSlice = append(envSlice, k+"="+v)
+			}
+			stdioTransport := transport.NewStdio(mcpCfg.Command, envSlice, mcpCfg.Args...)
+			cli = client.NewClient(stdioTransport)
+
+			// Start the client connection
+			if err = cli.Start(ctx); err != nil {
+				logger.Infof("[Dispatcher] initMCP: failed to start stdio client for %s: %v", mcpCfg.Name, err)
 				continue
 			}
 
-			// 先获取工具列表
-			tools, err := client.ListTools(ctx)
+			// Initialize with protocol version
+			_, err = cli.Initialize(ctx, mcp.InitializeRequest{
+				Params: mcp.InitializeParams{
+					ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
+					ClientInfo: mcp.Implementation{
+						Name:    "xiaoqinglong-runner",
+						Version: "1.0.0",
+					},
+				},
+			})
 			if err != nil {
-				logger.Infof("[Dispatcher] initMCP: failed to list tools for %s: %v", mcpCfg.Name, err)
+				logger.Infof("[Dispatcher] initMCP: failed to initialize %s: %v", mcpCfg.Name, err)
 				continue
 			}
-
-			// 为每个 MCP 工具创建单独的 tool
-			for _, t := range tools {
-				mcpTool := &mcpStdioTool{
-					name:   t.Name,
-					client: client,
-				}
-				wrapped := WrapToolWithApproval(mcpTool, t.Name, "mcp", mcpCfg.RiskLevel, d.request.Options.ApprovalPolicy)
-				d.tools = append(d.tools, wrapped)
-			}
-			logger.Infof("[Dispatcher] initMCP: %s (stdio) initialized with %d tools", mcpCfg.Name, len(tools))
 
 		default:
 			logger.Infof("[Dispatcher] initMCP: unknown transport %s for %s, skipping", mcpCfg.Transport, mcpCfg.Name)
+			continue
 		}
+
+		// Load tools using the new MCPLoader
+		loader := plugins.NewMCPLoader(cli, nil, mcpCfg.Headers, nil)
+		tools, err := loader.GetTools(ctx)
+		if err != nil {
+			logger.Infof("[Dispatcher] initMCP: failed to load tools for %s: %v", mcpCfg.Name, err)
+			continue
+		}
+
+		for _, t := range tools {
+			// MCP tools 需要包装审批
+			if invokableTool, ok := t.(tool.InvokableTool); ok {
+				wrapped := WrapToolWithApproval(invokableTool, mcpCfg.Name, "mcp", mcpCfg.RiskLevel, d.request.Options.ApprovalPolicy)
+				d.tools = append(d.tools, wrapped)
+			} else {
+				d.tools = append(d.tools, t)
+			}
+		}
+		logger.Infof("[Dispatcher] initMCP: %s loaded %d tools (transport=%s)", mcpCfg.Name, len(tools), mcpCfg.Transport)
 	}
 
 	return nil

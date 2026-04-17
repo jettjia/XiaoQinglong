@@ -25,7 +25,6 @@ import (
 	"github.com/jettjia/XiaoQinglong/runner/memory"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/xqldir"
-	"github.com/jettjia/XiaoQinglong/runner/plugins"
 	"github.com/jettjia/XiaoQinglong/runner/prompt"
 	"github.com/jettjia/XiaoQinglong/runner/retriever"
 	"github.com/jettjia/XiaoQinglong/runner/subagent"
@@ -548,36 +547,6 @@ func (d *Dispatcher) initCompactService(ctx context.Context) {
 	d.compactService = contextcompressor.NewIntegrationService(compactor)
 
 	logger.Infof("[Dispatcher] initCompactService: enabled with model=%s", d.defaultModelName)
-}
-
-// mcpStdioTool stdio 模式的 MCP tool
-type mcpStdioTool struct {
-	name   string
-	client *plugins.MCPStdioClient
-}
-
-func (t *mcpStdioTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
-	return &schema.ToolInfo{
-		Name: t.name,
-		Desc: fmt.Sprintf("MCP tool via stdio: %s", t.name),
-		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-			"args": {Type: schema.Object, Desc: "Tool arguments", Required: false},
-		}),
-	}, nil
-}
-
-func (t *mcpStdioTool) InvokableRun(ctx context.Context, argumentsInJSON string, opt ...tool.Option) (string, error) {
-	logger.Infof("[MCP Stdio] InvokableRun: tool=%s, argumentsInJSON=%s", t.name, argumentsInJSON)
-
-	var args map[string]any
-	if err := json.Unmarshal([]byte(argumentsInJSON), &args); err != nil {
-		return "", fmt.Errorf("failed to parse arguments: %w", err)
-	}
-
-	logger.Infof("[MCP Stdio] CallTool: tool=%s, args=%+v", t.name, args)
-
-	// 工具名在 t.name，参数在 args 中
-	return t.client.CallTool(ctx, t.name, args)
 }
 
 // createInternalAgent 创建内部 agent
