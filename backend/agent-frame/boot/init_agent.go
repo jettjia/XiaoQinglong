@@ -91,6 +91,42 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 
 	return []agentConfig{
 		{
+			name:        "快速问答",
+			description: "通用对话助手，可以调用任意技能和工具处理用户问题，灵活应对各种需求",
+			icon:        "MessageCircle",
+			model:       "default",
+			configJson: `{
+				"endpoint": "` + getRunnerEndpoint() + `",
+				"models": ` + modelJSON + `,
+				"system_prompt": "你是一个通用的智能助手。你可以根据用户的问题，灵活调用任何可用的技能（skills）和工具（tools）来解决问题。\n\n能力范围：\n- 知识问答和信息检索\n- 文档处理和分析\n- 代码编写和调试\n- 数据处理和可视化\n- 文件生成（PPT、Excel、Word等）\n- 翻译和语言处理\n- 复杂的多步骤任务\n\n当用户提出问题时，你应该：\n1. 理解用户意图\n2. 决定是否需要调用技能或工具\n3. 按需调用并整合结果\n4. 提供清晰完整的回答\n\n如果遇到不确定的问题，可以主动询问用户以获取更多信息。",
+				"options": {
+					"temperature": 0.7,
+					"max_tokens": 8000,
+					"max_iterations": 20,
+					"stream": true,
+					"approval_policy": {
+						"enabled": false
+					},
+					"retry": {
+						"max_attempts": 3,
+						"initial_delay_ms": 1000,
+						"backoff_multiplier": 2.0,
+						"max_delay_ms": 30000
+					}
+				},
+				"context_window": {
+					"max_rounds": 20,
+					"max_tokens": 64000,
+					"strategy": "sliding_window"
+				},
+				"long_term_memory": {
+					"enabled": true,
+					"max_count": 10
+				}
+			}`,
+			isSystem: true,
+		},
+		{
 			name:        "翻译",
 			description: "多语言实时翻译，支持中英日韩等常用语言互译",
 			icon:        "Languages",
