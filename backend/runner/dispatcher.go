@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"math/rand"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -472,6 +473,29 @@ func (d *Dispatcher) setUploadsBaseDir() {
 
 	// 使用统一的 uploads 目录
 	d.uploadsBaseDir = xqldir.GetUploadsDir()
+}
+
+// setSessionContext 设置会话上下文环境变量，供内置工具使用
+// 从 context 中提取 session_id, user_id 等信息并设置到进程环境变量
+func (d *Dispatcher) setSessionContext() {
+	if d.request.Context == nil {
+		return
+	}
+
+	// 设置 session_id 到环境变量
+	if sessionID, ok := d.request.Context["session_id"].(string); ok && sessionID != "" {
+		os.Setenv("XQL_SESSION_ID", sessionID)
+		logger.Infof("[Dispatcher] setSessionContext: XQL_SESSION_ID=%s", sessionID)
+	}
+
+	// 设置 uploads_base_dir 到环境变量（供 html_interpreter 等工具使用）
+	if uploadsDir, ok := d.request.Context["uploads_dir"].(string); ok && uploadsDir != "" {
+		os.Setenv("XQL_UPLOADS_DIR", uploadsDir)
+	}
+
+	// 设置 reports_base_dir 到环境变量
+	reportsBaseDir := xqldir.GetReportsDir()
+	os.Setenv("XQL_REPORTS_DIR", reportsBaseDir)
 }
 
 // initCompactService 初始化上下文压缩服务
@@ -1591,13 +1615,22 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 		// 1.5 初始化压缩服务
 		d.initCompactService(ctx)
 
-		// 2. 初始化工具
+		// 2. 初始化工具（HTTP 工具）
 		if err := d.initTools(ctx); err != nil {
 			eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": fmt.Sprintf("init tools failed: %v", err)}}
 			return
 		}
 
-		// 2.1 初始化知识检索器
+		// 2.0 设置会话上下文环境变量（供内置工具使用）
+		d.setSessionContext()
+
+		// 2.1 初始化内置工具（Glob, Grep, Read, Edit, Write, Bash, execute_skill_script_file, html_interpreter 等）
+		if err := d.initBuiltinTools(ctx); err != nil {
+			eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": fmt.Sprintf("init builtin tools failed: %v", err)}}
+			return
+		}
+
+		// 2.2 初始化知识检索器
 		if err := d.initKnowledgeRetriever(ctx); err != nil {
 			logger.Infof("[Dispatcher] RunStream: warning - init knowledge retriever failed: %v", err)
 		}

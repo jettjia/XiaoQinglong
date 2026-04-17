@@ -72,6 +72,15 @@ func main() {
 	// 初始化统一目录
 	xqldir.Init()
 
+	// 静态文件服务：/reports/ 映射到 ~/.xiaoqinglong/data/reports/
+	reportsDir := filepath.Join(xqldir.GetReportsDir())
+	if err := os.MkdirAll(reportsDir, 0755); err != nil {
+		log.Printf("Warning: failed to create reports dir: %v", err)
+	} else {
+		http.Handle("/reports/", http.StripPrefix("/reports/", http.FileServer(http.Dir(reportsDir))))
+		log.Printf("Reports static server enabled: /reports/ -> %s", reportsDir)
+	}
+
 	http.HandleFunc("/run", handleRun)
 	http.HandleFunc("/agent", handleAgent)
 	http.HandleFunc("/resume", handleResume)

@@ -106,6 +106,12 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 					"stream": true,
 					"approval_policy": {
 						"enabled": false
+					},
+					"retry": {
+						"max_attempts": 3,
+						"initial_delay_ms": 1000,
+						"backoff_multiplier": 2.0,
+						"max_delay_ms": 30000
 					}
 				},
 				"context_window": {
@@ -141,6 +147,12 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 						"default_model": "default",
 						"rewrite_prompt": "请优化以下用户Query，使其更加清晰、准确，便于理解。只返回优化后的Query，不要其他内容。",
 						"summarize_prompt": "请总结以下内容，提取关键信息，保持简洁。只返回总结内容，不要其他内容。"
+					},
+					"retry": {
+						"max_attempts": 3,
+						"initial_delay_ms": 1000,
+						"backoff_multiplier": 2.0,
+						"max_delay_ms": 30000
 					}
 				},
 				"context_window": {
@@ -181,6 +193,12 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 					"stream": true,
 					"approval_policy": {
 						"enabled": false
+					},
+					"retry": {
+						"max_attempts": 3,
+						"initial_delay_ms": 1000,
+						"backoff_multiplier": 2.0,
+						"max_delay_ms": 30000
 					}
 				},
 				"sandbox": {
@@ -235,6 +253,12 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 					"stream": true,
 					"approval_policy": {
 						"enabled": false
+					},
+					"retry": {
+						"max_attempts": 3,
+						"initial_delay_ms": 1000,
+						"backoff_multiplier": 2.0,
+						"max_delay_ms": 30000
 					}
 				},
 				"sandbox": {

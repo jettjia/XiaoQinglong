@@ -45,7 +45,11 @@ import {
   UserCheck,
   XCircle,
   Clock,
-  Presentation
+  Presentation,
+  Maximize2,
+  Minimize2,
+  PanelRightClose,
+  PanelRightOpen
 } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'motion/react';
@@ -97,8 +101,64 @@ function extractHtmlFromMarkdown(content: string): { html: string | null; markdo
   return { html: fullHtml, markdown, reportUrl, pptUrl };
 }
 
+// 辅助函数：解析 tool result 中的 rich content
+interface RichContent {
+  type: 'html_report' | 'pptx_file' | 'video_file' | 'other';
+  url?: string;
+  title?: string;
+  html?: string;
+  saved?: boolean;
+  message?: string;
+}
+
+function parseToolResultRichContent(result: any): RichContent | null {
+  if (!result) return null;
+
+  // If already an object
+  if (typeof result === 'object') {
+    if (result.type && typeof result.type === 'string') {
+      return {
+        type: result.type,
+        url: result.url,
+        title: result.title,
+        html: result.html,
+        saved: result.saved,
+        message: result.message
+      };
+    }
+    return null;
+  }
+
+  // If it's a string, try to parse as JSON
+  if (typeof result === 'string') {
+    try {
+      const parsed = JSON.parse(result);
+      if (parsed.type && typeof parsed.type === 'string') {
+        return {
+          type: parsed.type,
+          url: parsed.url,
+          title: parsed.title,
+          html: parsed.html,
+          saved: parsed.saved,
+          message: parsed.message
+        };
+      }
+    } catch {
+      // Not JSON, ignore
+    }
+  }
+
+  return null;
+}
+
 // 渲染消息内容组件
-function MessageContent({ content, htmlContent, reportUrl, pptUrl }: { content: string; htmlContent?: string; reportUrl?: string; pptUrl?: string }) {
+function MessageContent({ content, htmlContent, reportUrl, pptUrl, onReportClick }: {
+  content: string;
+  htmlContent?: string;
+  reportUrl?: string;
+  pptUrl?: string;
+  onReportClick?: (url: string, title?: string) => void;
+}) {
   const [iframeKey, setIframeKey] = React.useState(0);
 
   // 构建报告的完整访问 URL
@@ -125,6 +185,12 @@ function MessageContent({ content, htmlContent, reportUrl, pptUrl }: { content: 
     return `${API_BASE}/runner/reports/${sessionID}/${filename}`;
   };
 
+  // 提取报告标题
+  const extractReportTitle = (content: string): string => {
+    const match = content.match(/\[([^\]]+报告[^\]]*)\]/);
+    return match ? match[1] : '报告预览';
+  };
+
   // 如果有 PPT URL，显示下载链接
   if (pptUrl) {
     return (
@@ -146,7 +212,7 @@ function MessageContent({ content, htmlContent, reportUrl, pptUrl }: { content: 
     );
   }
 
-  // 如果有报告 URL，通过 iframe 加载报告
+  // 如果有报告 URL，显示预览按钮（点击后在右侧面板打开）
   if (reportUrl) {
     return (
       <div className="w-full">
@@ -155,28 +221,19 @@ function MessageContent({ content, htmlContent, reportUrl, pptUrl }: { content: 
             <BarChart3 size={12} className="text-green-500" />
             数据分析报告
           </span>
-          <a
-            href={getReportFullUrl(reportUrl)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-500 hover:text-blue-600 font-medium"
+          <button
+            onClick={() => onReportClick?.(reportUrl, extractReportTitle(content))}
+            className="flex items-center gap-1 px-2 py-1 bg-green-500 hover:bg-green-600 text-white text-[10px] rounded-lg transition-colors"
           >
-            在新窗口打开
-          </a>
+            <Eye size={12} />
+            预览
+          </button>
         </div>
-        <iframe
-          key={iframeKey}
-          src={getReportFullUrl(reportUrl)}
-          className="w-full border border-slate-200 rounded-xl"
-          style={{ height: '600px' }}
-          sandbox="allow-scripts allow-same-origin"
-          title="数据分析报告"
-        />
       </div>
     );
   }
 
-  // 如果有 HTML 内容，通过 iframe srcDoc 渲染
+  // 如果有 HTML 内容，显示预览按钮
   if (htmlContent) {
     return (
       <div className="w-full">
@@ -186,28 +243,43 @@ function MessageContent({ content, htmlContent, reportUrl, pptUrl }: { content: 
             数据分析报告
           </span>
           <button
-            onClick={() => setIframeKey(k => k + 1)}
-            className="text-blue-500 hover:text-blue-600 font-medium"
+            onClick={() => onReportClick?.(`/reports/preview_${Date.now()}.html`, '报告预览')}
+            className="flex items-center gap-1 px-2 py-1 bg-green-500 hover:bg-green-600 text-white text-[10px] rounded-lg transition-colors"
           >
-            刷新图表
+            <Eye size={12} />
+            预览
           </button>
         </div>
-        <iframe
-          key={iframeKey}
-          srcDoc={htmlContent}
-          className="w-full border border-slate-200 rounded-xl"
-          style={{ height: '600px' }}
-          sandbox="allow-scripts allow-same-origin"
-          title="数据分析报告"
-        />
       </div>
     );
   }
 
   // 否则渲染 Markdown
+  // 提取报告链接用于显示预览按钮
+  const reportLinkMatch = content.match(/\[([^\]]+)\]\(\/reports\/([^)]+)\)/);
+  const reportTitle = reportLinkMatch ? reportLinkMatch[1] : null;
+  const reportLink = reportLinkMatch ? reportLinkMatch[2] : null;
+
   return (
-    <div className="markdown-body prose prose-slate prose-sm max-w-none">
-      <ReactMarkdown>{content}</ReactMarkdown>
+    <div className="w-full">
+      {/* 报告预览按钮 */}
+      {reportLink && (
+        <div className="mb-3 flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+          <BarChart3 size={16} className="text-green-600" />
+          <span className="text-xs text-green-700 font-medium flex-1 truncate">{reportTitle || '报告'}</span>
+          <button
+            onClick={() => onReportClick?.(`/reports/${reportLink}`, reportTitle || '报告预览')}
+            className="flex items-center gap-1 px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white text-xs rounded-lg transition-colors"
+          >
+            <Eye size={14} />
+            预览
+          </button>
+        </div>
+      )}
+      {/* Markdown 内容 */}
+      <div className="markdown-body prose prose-slate prose-sm max-w-none">
+        <ReactMarkdown>{content}</ReactMarkdown>
+      </div>
     </div>
   );
 }
@@ -233,6 +305,9 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
   const [isMoreAgentsOpen, setIsMoreAgentsOpen] = React.useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
   const [isTraceOpen, setIsTraceOpen] = React.useState(false);
+  const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
+  const [previewTitle, setPreviewTitle] = React.useState<string>('');
+  const [isPreviewFullscreen, setIsPreviewFullscreen] = React.useState(false);
   const [selectedMessageId, setSelectedMessageId] = React.useState<string | null>(null);
   const [showThinking, setShowThinking] = React.useState<Record<string, boolean>>({});
   const [collapsedTools, setCollapsedTools] = React.useState<Record<string, boolean>>({});
@@ -241,6 +316,34 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
   const abortControllerRef = React.useRef<AbortController | null>(null);
   const checkpointIdRef = React.useRef<string | null>(null);
   const userInitiatedStopRef = React.useRef(false);
+
+  // Helper to convert report URL to full API URL
+  const getReportFullUrl = (url: string) => {
+    if (!url) return '';
+    if (url.startsWith('/reports/')) {
+      const path = url.replace(/^\/reports\//, '');
+      return `${API_BASE}/runner/reports/${path}`;
+    }
+    if (url.match(/\/uploads\/([^\/]+)\/reports\/([^/]+\.html)$/)) {
+      const match = url.match(/\/uploads\/([^\/]+)\/reports\/([^/]+\.html)$/);
+      if (match) {
+        return `${API_BASE}/runner/reports/${match[1]}/${match[2]}`;
+      }
+    }
+    return url;
+  };
+
+  // Open report in preview panel
+  const openPreview = (url: string, title?: string) => {
+    setPreviewUrl(getReportFullUrl(url));
+    setPreviewTitle(title || '报告预览');
+  };
+
+  // Close preview panel
+  const closePreview = () => {
+    setPreviewUrl(null);
+    setPreviewTitle('');
+  };
 
   // Load agents from backend
   React.useEffect(() => {
@@ -1184,9 +1287,36 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                                     )}
                                     {t('chat.output')}
                                   </div>
-                                  <code className="block text-[10px] text-slate-600 bg-white px-2 py-1.5 rounded border border-slate-100 font-mono max-h-32 overflow-auto">
-                                    {typeof tool.result === 'string' ? tool.result : JSON.stringify(tool.result, null, 2)}
-                                  </code>
+                                  {/* 解析 rich content */}
+                                  {(() => {
+                                    const rich = parseToolResultRichContent(tool.result);
+                                    if (rich && rich.url && rich.type === 'html_report') {
+                                      // 将 /reports/{sessionID}/{filename} 转换为 /runner/reports/{sessionID}/{filename}
+                                      const reportPath = rich.url.replace(/^\/reports\//, '/runner/reports/');
+                                      const fullUrl = API_BASE + reportPath;
+                                      return (
+                                        <div className="flex items-center gap-2 p-2 bg-green-50 border border-green-200 rounded-lg">
+                                          <BarChart3 size={16} className="text-green-600" />
+                                          <span className="text-xs text-green-700 font-medium">
+                                            {rich.title || '报告'} 已生成
+                                          </span>
+                                          <button
+                                            onClick={() => window.open(fullUrl, '_blank')}
+                                            className="flex items-center gap-1 px-2 py-1 bg-green-600 hover:bg-green-700 text-white text-[10px] rounded transition-colors"
+                                          >
+                                            <ExternalLink size={10} />
+                                            新窗口打开
+                                          </button>
+                                        </div>
+                                      );
+                                    }
+                                    // 默认显示原始结果
+                                    return (
+                                      <code className="block text-[10px] text-slate-600 bg-white px-2 py-1.5 rounded border border-slate-100 font-mono max-h-32 overflow-auto">
+                                        {typeof tool.result === 'string' ? tool.result : JSON.stringify(tool.result, null, 2)}
+                                      </code>
+                                    );
+                                  })()}
                                 </div>
                               )}
                             </div>
@@ -1207,7 +1337,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                     msg.status === 'streaming' ? (
                       <div className="text-slate-800 whitespace-pre-wrap">{msg.content || t('chat.solving')}</div>
                     ) : (
-                      <MessageContent content={msg.content} htmlContent={msg.htmlContent} reportUrl={msg.reportUrl} pptUrl={msg.pptUrl} />
+                      <MessageContent content={msg.content} htmlContent={msg.htmlContent} reportUrl={msg.reportUrl} pptUrl={msg.pptUrl} onReportClick={openPreview} />
                     )
                   ) : (
                     msg.content
@@ -1623,6 +1753,53 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Report Preview Panel */}
+      {previewUrl && (
+        <motion.div
+          initial={{ width: 0, opacity: 0 }}
+          animate={{
+            width: isPreviewFullscreen ? '100%' : '50%',
+            opacity: 1
+          }}
+          exit={{ width: 0, opacity: 0 }}
+          transition={{ duration: 0.3, ease: 'easeInOut' }}
+          className={cn(
+            "border-l border-slate-200 bg-white flex flex-col overflow-hidden",
+            isPreviewFullscreen && "fixed inset-0 z-50",
+            !isPreviewFullscreen && "relative"
+          )}
+        >
+          {/* Preview Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50 shrink-0">
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={() => setIsPreviewFullscreen(!isPreviewFullscreen)}
+                className="p-1.5 hover:bg-slate-200 rounded-md transition-colors text-slate-500"
+                title={isPreviewFullscreen ? '退出全屏' : '全屏'}
+              >
+                {isPreviewFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              </button>
+              <button
+                onClick={closePreview}
+                className="p-1.5 hover:bg-slate-200 rounded-md transition-colors text-slate-500"
+                title="关闭"
+              >
+                <XCircle size={18} />
+              </button>
+            </div>
+          </div>
+          {/* Preview Content */}
+          <div className="flex-1 overflow-hidden">
+            <iframe
+              src={previewUrl}
+              className="w-full h-full border-0"
+              title={previewTitle}
+              sandbox="allow-scripts allow-same-origin allow-forms"
+            />
+          </div>
+        </motion.div>
+      )}
     </div>
   );
 }
