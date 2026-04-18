@@ -220,6 +220,7 @@ export function AgentOrchestrator({ editingAgent, onSaved }: AgentOrchestratorPr
         maxIterations: parsedConfig.maxIterations ?? prev.maxIterations,
         stream: parsedConfig.stream ?? prev.stream,
         sandbox: parsedConfig.sandbox || prev.sandbox,
+        responseSchema: parsedConfig.responseSchema || prev.responseSchema,
       };
       });
     }
@@ -358,6 +359,7 @@ export function AgentOrchestrator({ editingAgent, onSaved }: AgentOrchestratorPr
             max_tool_calls: 20,
             max_a2a_calls: 5,
             stream: agentConfig.stream,
+            response_schema: agentConfig.responseSchema,
             retry: {
               max_attempts: agentConfig.retryCount,
               initial_delay_ms: agentConfig.retryInterval * 1000,

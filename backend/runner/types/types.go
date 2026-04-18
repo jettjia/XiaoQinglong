@@ -163,7 +163,7 @@ type ResponseSchemaConfig struct {
 	Type     string         `json:"type"`
 	Version  string         `json:"version"`
 	Strict   bool           `json:"strict"`
-	Schema   map[string]any `json:"schema"`
+	Schema   string `json:"schema"`
 	Fallback string         `json:"fallback"`
 }
 

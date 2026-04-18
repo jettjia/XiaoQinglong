@@ -303,6 +303,10 @@ func handleAgentStream(w http.ResponseWriter, r *http.Request, req *types.RunReq
 				data["total_tokens"] = v
 			}
 			_ = write("done", data)
+		case "a2ui":
+			_ = write("a2ui", event.Data)
+		case "meta":
+			// meta 事件已在上方处理，这里忽略
 		}
 	}
 }
@@ -467,6 +471,8 @@ func handleRunStream(w http.ResponseWriter, r *http.Request, req *types.RunReque
 				data["tool_calls_count"] = v
 			}
 			_ = write("done", data)
+		case "a2ui":
+			_ = write("a2ui", event.Data)
 		case "meta":
 			// meta 事件已在上方处理，这里忽略
 		}
@@ -693,6 +699,8 @@ func handleRunLoop(w http.ResponseWriter, r *http.Request, req *types.RunRequest
 			data, _ := json.Marshal(event.Data)
 			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, string(data))
 			flusher.Flush()
+			// Debug: log all events being sent
+			logger.GetRunnerLogger().Infof("[SSE] sent event: type=%s, data_len=%d", event.Type, len(data))
 		}
 
 		// 流结束后，后台提取记忆（非阻塞）

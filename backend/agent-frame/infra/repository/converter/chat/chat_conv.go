@@ -78,6 +78,11 @@ func P2EChatMessage(p *po.ChatMessage) *entity.ChatMessage {
 	if err := copier.Copy(&en, &p); err != nil {
 		panic(any(err))
 	}
+	// 显式复制 Metadata 字段，因为 StringJSON 和 string 类型不匹配
+	en.Metadata = p.Metadata.Val
+	if en.Metadata != "" {
+		println("[DEBUG] P2EChatMessage po.Metadata.Val =", p.Metadata.Val, "-> en.Metadata =", en.Metadata)
+	}
 	return &en
 }
 

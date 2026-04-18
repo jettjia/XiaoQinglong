@@ -489,13 +489,17 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
         const decodedContent = decodeJsonEscapedContent(m.content);
         // Reconstruct htmlContent and reportUrl from content (same as streaming done message)
         const { html, markdown, reportUrl, pptUrl } = extractHtmlFromMarkdown(decodedContent);
-        // Parse files from metadata if present
+        // Parse files and a2ui from metadata if present
         let files: FileInfo[] | undefined;
+        let a2ui: any = undefined;
         if (m.metadata) {
           try {
             const meta = JSON.parse(m.metadata);
             if (meta.files && Array.isArray(meta.files)) {
               files = meta.files;
+            }
+            if (meta.a2ui) {
+              a2ui = meta.a2ui;
             }
           } catch (e) {
             // Ignore parse errors
@@ -509,6 +513,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
           reportUrl: reportUrl || undefined,
           pptUrl: pptUrl || undefined,
           files,
+          a2ui,
           timestamp: new Date(m.created_at),
           status: m.status as 'pending_approval' | 'completed' | 'failed' | undefined,
           thinking: m.trace ? JSON.parse(m.trace)?.thinking : undefined,
@@ -728,6 +733,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
         let toolCalls: Message['toolCalls'] = [];
         let pendingToolCall: { name: string; args: any } | null = null;
         let recallInfo: Message['recallInfo'] = { status: 'running' };
+        let a2uiData: any = null;
 
         // 先创建一条空消息用于流式更新
         const assistantMessage: Message = {
@@ -820,6 +826,52 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                     updateMessage({ toolCalls: [...toolCalls] });
                   }
 
+                  // 处理 a2ui 事件 - A2UI 渲染事件
+                  if (currentEventType === 'a2ui' && data.json) {
+                    console.log('[SSE] a2ui event received:', data.json);
+                    try {
+                      const a2uiMsg = JSON.parse(data.json);
+                      if (a2uiMsg.dataModelUpdate) {
+                        // 提取 card 数据用于渲染
+                        const update = a2uiMsg.dataModelUpdate;
+                        if (update.contents && update.contents.length > 0) {
+                          for (const item of update.contents) {
+                            if (item.valueString) {
+                              // valueString 可能是 ```json ... ``` 包裹的，需要先去除
+                              let jsonStr = item.valueString.trim();
+                              console.log('[SSE] valueString after trim:', jsonStr.substring(0, 100));
+                              if (jsonStr.startsWith('```json')) {
+                                jsonStr = jsonStr.slice(7);
+                              }
+                              if (jsonStr.endsWith('```')) {
+                                jsonStr = jsonStr.slice(0, -3);
+                              }
+                              jsonStr = jsonStr.trim();
+                              console.log('[SSE] jsonStr for parsing:', jsonStr.substring(0, 100));
+                              try {
+                                const cardData = JSON.parse(jsonStr);
+                                console.log('[SSE] cardData parsed:', cardData);
+                                if (cardData.card) {
+                                  // 这是 card 格式的响应
+                                  a2uiData = {
+                                    type: 'card',
+                                    data: cardData
+                                  };
+                                  console.log('[SSE] Setting a2uiData:', a2uiData);
+                                  updateMessage({ a2ui: a2uiData });
+                                }
+                              } catch (e) {
+                                console.error('[SSE] Failed to parse cardData:', e);
+                              }
+                            }
+                          }
+                        }
+                      }
+                    } catch (e) {
+                      console.error('[SSE] Failed to parse a2ui event:', e);
+                    }
+                  }
+
                   if (currentEventType === 'done') {
                     streamTokenUsage = {
                       prompt_tokens: data.prompt_tokens,
@@ -828,13 +880,15 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                     };
                     const finalContent = data.content || accumulatedContent;
                     const { html, markdown, reportUrl, pptUrl } = extractHtmlFromMarkdown(finalContent);
+                    console.log('[SSE] done event:', { html, markdown: markdown?.substring(0, 50), a2uiData });
                     updateMessage({
                       content: markdown || finalContent,
                       htmlContent: html || undefined,
                       reportUrl: reportUrl || undefined,
                       pptUrl: pptUrl || undefined,
                       status: 'completed',
-                      toolCalls: [...toolCalls]
+                      toolCalls: [...toolCalls],
+                      a2ui: a2uiData
                     });
                   }
 
@@ -899,6 +953,52 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                     updateMessage({ toolCalls: [...toolCalls] });
                   }
 
+                  // 处理 a2ui 事件 - A2UI 渲染事件
+                  if (currentEventType === 'a2ui' && data.json) {
+                    console.log('[SSE] a2ui event received:', data.json);
+                    try {
+                      const a2uiMsg = JSON.parse(data.json);
+                      if (a2uiMsg.dataModelUpdate) {
+                        // 提取 card 数据用于渲染
+                        const update = a2uiMsg.dataModelUpdate;
+                        if (update.contents && update.contents.length > 0) {
+                          for (const item of update.contents) {
+                            if (item.valueString) {
+                              // valueString 可能是 ```json ... ``` 包裹的，需要先去除
+                              let jsonStr = item.valueString.trim();
+                              console.log('[SSE] valueString after trim:', jsonStr.substring(0, 100));
+                              if (jsonStr.startsWith('```json')) {
+                                jsonStr = jsonStr.slice(7);
+                              }
+                              if (jsonStr.endsWith('```')) {
+                                jsonStr = jsonStr.slice(0, -3);
+                              }
+                              jsonStr = jsonStr.trim();
+                              console.log('[SSE] jsonStr for parsing:', jsonStr.substring(0, 100));
+                              try {
+                                const cardData = JSON.parse(jsonStr);
+                                console.log('[SSE] cardData parsed:', cardData);
+                                if (cardData.card) {
+                                  // 这是 card 格式的响应
+                                  a2uiData = {
+                                    type: 'card',
+                                    data: cardData
+                                  };
+                                  console.log('[SSE] Setting a2uiData:', a2uiData);
+                                  updateMessage({ a2ui: a2uiData });
+                                }
+                              } catch (e) {
+                                console.error('[SSE] Failed to parse cardData:', e);
+                              }
+                            }
+                          }
+                        }
+                      }
+                    } catch (e) {
+                      console.error('[SSE] Failed to parse a2ui event:', e);
+                    }
+                  }
+
                   if (currentEventType === 'done') {
                     streamTokenUsage = {
                       prompt_tokens: data.prompt_tokens,
@@ -907,13 +1007,15 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                     };
                     const finalContent = data.content || accumulatedContent;
                     const { html, markdown, reportUrl, pptUrl } = extractHtmlFromMarkdown(finalContent);
+                    console.log('[SSE] done event:', { html, markdown: markdown?.substring(0, 50), a2uiData });
                     updateMessage({
                       content: markdown || finalContent,
                       htmlContent: html || undefined,
                       reportUrl: reportUrl || undefined,
                       pptUrl: pptUrl || undefined,
                       status: 'completed',
-                      toolCalls: [...toolCalls]
+                      toolCalls: [...toolCalls],
+                      a2ui: a2uiData
                     });
                   }
 
@@ -949,7 +1051,8 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
             input_tokens: streamTokenUsage.prompt_tokens || 0,
             output_tokens: streamTokenUsage.completion_tokens || 0,
             total_tokens: streamTokenUsage.total_tokens || 0,
-            status: 'completed'
+            status: 'completed',
+            a2ui: a2uiData
           });
         } catch (err) {
           console.error('Failed to save assistant message:', err);
@@ -1496,6 +1599,33 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                           </div>
                         ))}
                       </div>
+                    </div>
+                  )}
+
+                  {/* a2ui Card 渲染 - 用于订单/数据卡片 */}
+                  {msg.a2ui?.type === 'card' && msg.a2ui.data?.card && (
+                    <div className="mt-4 p-4 bg-white rounded-xl border border-slate-200 shadow-sm">
+                      {msg.a2ui.data.card.title && (
+                        <h4 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+                          <BarChart3 size={14} className="text-brand-500" />
+                          {msg.a2ui.data.card.title}
+                        </h4>
+                      )}
+                      {msg.a2ui.data.card.sections?.map((section: any, i: number) => (
+                        <div key={i} className="mb-3">
+                          {section.title && (
+                            <h5 className="text-xs font-semibold text-slate-600 mb-2 border-b border-slate-100 pb-1">
+                              {section.title}
+                            </h5>
+                          )}
+                          {section.fields?.map((field: any, j: number) => (
+                            <div key={j} className="flex justify-between py-1 text-xs">
+                              <span className="text-slate-500">{field.label}</span>
+                              <span className="text-slate-800 font-medium">{field.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
                     </div>
                   )}
 

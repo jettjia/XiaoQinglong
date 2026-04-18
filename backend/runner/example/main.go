@@ -433,6 +433,7 @@ func main() {
 				// 解析 SSE 事件格式
 				if strings.HasPrefix(line, "event:") {
 					eventType := strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+					log.Printf("[DEBUG] Received event: %s", eventType)
 					// 读取下一行 data
 					dataLine, err := respReader.ReadString('\n')
 					if err != nil {
@@ -445,6 +446,7 @@ func main() {
 
 					var data map[string]any
 					if err := json.Unmarshal([]byte(dataLine), &data); err != nil {
+						log.Printf("[DEBUG] Failed to parse data: %s", dataLine)
 						continue
 					}
 
@@ -514,6 +516,11 @@ func main() {
 						}
 						// 中断后不结束，继续等待下一轮输入
 						break
+					case "a2ui":
+						// A2UI 模式的渲染事件
+						if jsonStr, ok := data["json"].(string); ok {
+							fmt.Printf("\n[A2UI] %s\n", truncateString(jsonStr, 200))
+						}
 					case "done":
 						fmt.Println("\n========== 流式响应结束 ==========")
 					case "error":
@@ -536,6 +543,8 @@ func main() {
 							break
 						}
 					}
+				} else if line != "" {
+					log.Printf("[DEBUG] Unknown line format: %s", truncateString(line, 100))
 				}
 			}
 		} else {

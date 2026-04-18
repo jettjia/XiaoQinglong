@@ -227,7 +227,7 @@ func (r *ChatMessage) Create(ctx context.Context, message *entity.ChatMessage) (
 		values["trace"] = nil
 	}
 	if message.Metadata != "" {
-		values["metadata"] = message.Metadata
+		values["metadata"] = []byte(message.Metadata)
 	} else {
 		values["metadata"] = nil
 	}
@@ -262,6 +262,10 @@ func (r *ChatMessage) FindBySessionId(ctx context.Context, sessionId string) ([]
 	var msgPos []*po.ChatMessage
 	if err := r.data.DB(ctx).Where("session_id = ?", sessionId).Order("created_at ASC").Find(&msgPos).Error; err != nil {
 		return nil, err
+	}
+	// DEBUG: 打印 po.Metadata.Val 的值
+	for i, po := range msgPos {
+		println("[DEBUG] FindBySessionId msg[", i, "] po.Metadata.Val =", po.Metadata.Val)
 	}
 	return converter.P2EChatMessages(msgPos), nil
 }

@@ -709,11 +709,20 @@ export const chatApi = {
     error_msg?: string;
     metadata?: string;
     files?: string; // JSON array of file info
+    a2ui?: any; // A2UI rendering data
   }): Promise<{ ulid: string }> {
+    // 如果有 a2ui 数据，存储在 metadata 中
+    const payload = { ...data };
+    if (data.a2ui) {
+      const existingMeta = data.metadata ? JSON.parse(data.metadata) : {};
+      existingMeta.a2ui = data.a2ui;
+      payload.metadata = JSON.stringify(existingMeta);
+    }
+    delete payload.a2ui;
     const res = await fetch(`${API_BASE}/chat/message`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify(payload),
     });
     const json = await res.json();
     if (!res.ok) {

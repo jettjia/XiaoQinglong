@@ -13,6 +13,7 @@ type a2uiWriter struct {
 }
 
 func (w *a2uiWriter) Write(p []byte) (n int, err error) {
+	logger.GetRunnerLogger().Infof("[a2uiWriter] Write called, len=%d", len(p))
 	w.eventsChan <- StreamEvent{Type: "a2ui", Data: map[string]any{"json": string(p)}}
 	return len(p), nil
 }
@@ -32,7 +33,15 @@ func (d *Dispatcher) formatResponse(content string) (string, []json.RawMessage) 
 	switch rs.Type {
 	case "a2ui":
 		// 使用 schema 构建 A2UI 格式
-		msgs := d.buildA2UIMessagesFromSchema(content, rs.Schema)
+		// schema 可能是 string 或 map[string]any
+		var schemaMap map[string]any
+		if rs.Schema != "" {
+			if err := json.Unmarshal([]byte(rs.Schema), &schemaMap); err != nil {
+				logger.Infof("[Dispatcher] formatResponse: failed to parse schema: %v", err)
+				return content, nil
+			}
+		}
+		msgs := d.buildA2UIMessagesFromSchema(content, schemaMap)
 		logger.Infof("[Dispatcher] formatResponse: built %d a2ui messages", len(msgs))
 		return "", msgs
 

@@ -148,6 +148,7 @@ func streamEvents(w io.Writer, surfaceID string, rootChildren *[]string, msgIdx 
 		log.Printf("[a2ui] message output: role=%q isStreaming=%v hasStream=%v hasMessage=%v",
 			role, mo.IsStreaming, mo.MessageStream != nil, mo.Message != nil)
 
+		log.Printf("[a2ui] BEFORE SWITCH: role=%q, schema.Tool=%q", role, schema.Tool)
 		switch role {
 		case schema.Tool:
 			// Drain the stream if needed, then show a compact tool-result chip.
@@ -157,7 +158,9 @@ func streamEvents(w io.Writer, surfaceID string, rootChildren *[]string, msgIdx 
 
 		default:
 			// Assistant (or unknown role) — may carry text content and/or tool calls.
+			log.Printf("[a2ui] REACHED DEFAULT CASE: role=%q, IsStreaming=%v, MessageStream=%v", role, mo.IsStreaming, mo.MessageStream != nil)
 			if mo.IsStreaming && mo.MessageStream != nil {
+				log.Printf("[a2ui] ENTERING STREAMING PATH")
 				// Stream text tokens to the UI as they arrive.
 				// Tool call chunks are accumulated and emitted as chips after the stream ends.
 
@@ -209,7 +212,9 @@ func streamEvents(w io.Writer, surfaceID string, rootChildren *[]string, msgIdx 
 					}
 
 					// Emit text tokens to the UI immediately.
+					log.Printf("[a2ui] DEBUG: chunk.Content=%q, shellEmitted=%v", chunk.Content, shellEmitted)
 					if chunk.Content != "" {
+						log.Printf("[a2ui] DEBUG: entering content emit logic")
 						if !shellEmitted {
 							// Commit this message slot and send the card scaffold with a data binding.
 							*rootChildren = append(*rootChildren, cardID)
@@ -218,11 +223,14 @@ func streamEvents(w io.Writer, surfaceID string, rootChildren *[]string, msgIdx 
 								return lastContent.String(), "", shellErr
 							}
 							shellEmitted = true
+							log.Printf("[a2ui] DEBUG: shellEmitted set to true")
 						}
 						accContent.WriteString(chunk.Content)
+						log.Printf("[a2ui] DEBUG: calling emitDataUpdate, accContent.Len=%d", accContent.Len())
 						if dataErr := emitDataUpdate(w, surfaceID, dataKey, accContent.String()); dataErr != nil {
 							return lastContent.String(), "", dataErr
 						}
+						log.Printf("[a2ui] DEBUG: emitDataUpdate returned")
 					}
 				}
 
@@ -240,6 +248,13 @@ func streamEvents(w io.Writer, surfaceID string, rootChildren *[]string, msgIdx 
 					toolCalls = append(toolCalls, toolCallInfo{Name: name, Args: args})
 				}
 				log.Printf("[a2ui] assistant stream: content=%d chars toolCalls=%d", accContent.Len(), len(toolCalls))
+
+				// Debug: check if emitDataUpdate would be called
+				if accContent.Len() > 0 && !shellEmitted {
+					log.Printf("[a2ui] DEBUG: should emit text card, shellEmitted=false")
+				} else if accContent.Len() > 0 && shellEmitted {
+					log.Printf("[a2ui] DEBUG: should emit data update, shellEmitted=true")
+				}
 
 				for _, tc := range toolCalls {
 					log.Printf("[a2ui] tool call: %s args=%s", tc.Name, tc.Args)

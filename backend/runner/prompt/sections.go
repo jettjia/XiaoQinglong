@@ -426,7 +426,7 @@ func GetMemorySection(indexLines []string) string {
 
 // GetResponseSchemaSection returns the response schema section for structured output
 func GetResponseSchemaSection(schema *types.ResponseSchemaConfig) string {
-	if schema == nil || schema.Type == "" || schema.Schema == nil {
+	if schema == nil || schema.Type == "" || schema.Schema == "" {
 		return ""
 	}
 
@@ -439,12 +439,8 @@ func GetResponseSchemaSection(schema *types.ResponseSchemaConfig) string {
 		lines = append(lines, "You must respond in A2UI format (JSON). Follow the schema below exactly:")
 		lines = append(lines, "")
 		lines = append(lines, "## Response Schema")
-		schemaJSON, err := json.MarshalIndent(schema.Schema, "", "  ")
-		if err != nil {
-			return ""
-		}
 		lines = append(lines, "```json")
-		lines = append(lines, string(schemaJSON))
+		lines = append(lines, schema.Schema)
 		lines = append(lines, "```")
 		lines = append(lines, "")
 		lines = append(lines, "Important: Output ONLY valid JSON that conforms to the schema above. Do not include any other text, markdown formatting, or explanation.")
@@ -455,12 +451,8 @@ func GetResponseSchemaSection(schema *types.ResponseSchemaConfig) string {
 		lines = append(lines, "You must respond in JSON format. Follow the schema below exactly:")
 		lines = append(lines, "")
 		lines = append(lines, "## Response Schema")
-		schemaJSON, err := json.MarshalIndent(schema.Schema, "", "  ")
-		if err != nil {
-			return ""
-		}
 		lines = append(lines, "```json")
-		lines = append(lines, string(schemaJSON))
+		lines = append(lines, schema.Schema)
 		lines = append(lines, "```")
 		lines = append(lines, "")
 		lines = append(lines, "Important: Output ONLY valid JSON that conforms to the schema above.")

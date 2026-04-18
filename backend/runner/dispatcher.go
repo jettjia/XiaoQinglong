@@ -1704,6 +1704,10 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 		useA2UI := d.request.Options != nil &&
 			d.request.Options.ResponseSchema != nil &&
 			d.request.Options.ResponseSchema.Type == "a2ui"
+		logger.GetRunnerLogger().Infof("[Dispatcher] useA2UI=%v, Options=%v, ResponseSchema=%v", useA2UI, d.request.Options != nil, d.request.Options != nil && d.request.Options.ResponseSchema != nil)
+		if d.request.Options != nil && d.request.Options.ResponseSchema != nil {
+			logger.GetRunnerLogger().Infof("[Dispatcher] ResponseSchema.Type=%s", d.request.Options.ResponseSchema.Type)
+		}
 
 		if useA2UI {
 			// 使用 eino a2ui 进行流式渲染
