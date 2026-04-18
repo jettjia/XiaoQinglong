@@ -4,7 +4,7 @@
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-  
+
   --color-brand-50: #f0f9ff;
   --color-brand-100: #e0f2fe;
   --color-brand-500: #0ea5e9;
@@ -44,3 +44,63 @@
 .chat-history-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+/* Enhanced Markdown Rendering */
+.markdown-body {
+  @apply text-slate-800 text-sm leading-relaxed;
+}
+
+.markdown-body table {
+  @apply w-full border-collapse my-3;
+}
+
+.markdown-body table th,
+.markdown-body table td {
+  @apply border border-slate-200 px-3 py-2 text-left;
+}
+
+.markdown-body table th {
+  @apply bg-slate-50 font-semibold text-slate-700 text-xs;
+}
+
+.markdown-body table tr:nth-child(even) td {
+  @apply bg-slate-50/50;
+}
+
+.markdown-body pre {
+  @apply bg-slate-900 rounded-lg p-3 my-2 overflow-x-auto text-xs font-mono leading-relaxed border border-slate-700;
+}
+
+.markdown-body code {
+  @apply font-mono text-xs;
+}
+
+.markdown-body :not(pre) > code {
+  @apply bg-slate-100 px-1.5 py-0.5 rounded text-slate-800;
+}
+
+.markdown-body blockquote {
+  @apply border-l-2 border-slate-300 pl-3 my-2 text-slate-600 italic;
+}
+
+.markdown-body hr {
+  @apply my-4 border-slate-200;
+}
+
+/* Code syntax highlighting - hljs */
+.markdown-body pre .hljs-keyword { @apply text-purple-400; }
+.markdown-body pre .hljs-string { @apply text-green-400; }
+.markdown-body pre .hljs-number { @apply text-orange-400; }
+.markdown-body pre .hljs-comment { @apply text-slate-500; }
+.markdown-body pre .hljs-function { @apply text-blue-400; }
+.markdown-body pre .hljs-title { @apply text-blue-400; }
+.markdown-body pre .hljs-params { @apply text-orange-300; }
+.markdown-body pre .hljs-built_in { @apply text-cyan-400; }
+.markdown-body pre .hljs-literal { @apply text-orange-400; }
+.markdown-body pre .hljs-type { @apply text-yellow-300; }
+.markdown-body pre .hljs-attr { @apply text-blue-300; }
+.markdown-body pre .hljs-selector-tag { @apply text-red-400; }
+.markdown-body pre .hljs-selector-class { @apply text-green-300; }
+.markdown-body pre .hljs-selector-id { @apply text-blue-300; }
+.markdown-body pre .hljs-variable { @apply text-orange-300; }
+.markdown-body pre .hljs-template-variable { @apply text-orange-300; }

@@ -54,6 +54,9 @@ import {
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
+import 'highlight.js/styles/github.css';
 import { cn } from '../lib/utils';
 import { Message, FileInfo, Agent, Conversation, PendingApproval, ChatSession } from '../types';
 import { INITIAL_AGENTS } from '../constants';
@@ -62,6 +65,35 @@ import { useTranslation } from 'react-i18next';
 
 const API_BASE = import.meta.env.VITE_AGENT_FRAME_API_URL || 'http://localhost:9292/api/xiaoqinglong/agent-frame/v1';
 const CURRENT_USER_ID = 'user-1'; // TODO: Get from auth context
+
+// 辅助函数：解码 JSON 转义的内容（处理双编码问题）
+function decodeJsonEscapedContent(content: string): string {
+  if (!content) return content;
+  try {
+    // 检测是否包含 JSON 转义序列
+    if (content.includes('\\n') || content.includes('\\u') || content.includes('\\"') || content.includes('\\\\')) {
+      // 尝试解析为 JSON 再转为字符串，以正确解码
+      const parsed = JSON.parse(`"${content}"`);
+      return parsed;
+    }
+  } catch (e) {
+    // 解析失败，尝试直接替换常见转义序列
+    let decoded = content
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\r')
+      .replace(/\\t/g, '\t')
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, '\\');
+    // 解码 HTML 实体
+    decoded = decoded
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"');
+    return decoded;
+  }
+  return content;
+}
 
 // 辅助函数：检测并提取 Markdown 中的 HTML 代码块
 function extractHtmlFromMarkdown(content: string): { html: string | null; markdown: string; reportUrl: string | null; pptUrl: string | null } {
@@ -276,9 +308,64 @@ function MessageContent({ content, htmlContent, reportUrl, pptUrl, onReportClick
           </button>
         </div>
       )}
-      {/* Markdown 内容 */}
-      <div className="markdown-body prose prose-slate prose-sm max-w-none">
-        <ReactMarkdown>{content}</ReactMarkdown>
+      {/* Markdown 内容 - 样式参考 Claude Code */}
+      <div
+        className={cn(
+          "markdown-body text-sm leading-relaxed",
+          // Headings - make them visually distinct
+          "[&_h1]:text-xl [&_h1]:font-bold [&_h1]:mb-3 [&_h1]:mt-4 [&_h1]:text-slate-900 [&_h1]:border-b [&_h1]:border-slate-200 [&_h1]:pb-1",
+          "[&_h2]:text-lg [&_h2]:font-bold [&_h2]:mb-2 [&_h2]:mt-3 [&_h2]:text-slate-800",
+          "[&_h3]:text-base [&_h3]:font-semibold [&_h3]:mb-1.5 [&_h3]:mt-2.5 [&_h3]:text-slate-700",
+          "[&_h4]:text-sm [&_h4]:font-semibold [&_h4]:mb-1 [&_h4]:mt-2 [&_h4]:text-slate-600",
+          "[&_h5]:text-xs [&_h5]:font-semibold [&_h5]:mb-1 [&_h5]:mt-2 [&_h5]:text-slate-500",
+          "[&_h6]:text-xs [&_h6]:font-medium [&_h6]:mb-1 [&_h6]:mt-2 [&_h6]:text-slate-400",
+          // Paragraphs
+          "[&_p]:my-2 [&_p]:leading-relaxed",
+          // Lists
+          "[&_ul]:my-1 [&_ul]:pl-5 [&_ul]:list-disc",
+          "[&_ol]:my-1 [&_ol]:pl-5 [&_ol]:list-decimal",
+          "[&_li]:my-0.5",
+          // Blockquote
+          "[&_blockquote]:border-l-3 [&_blockquote]:border-slate-300 [&_blockquote]:pl-3 [&_blockquote]:ml-0",
+          "[&_blockquote]:my-2 [&_blockquote]:text-slate-600 [&_blockquote]:italic",
+          // Horizontal rule
+          "[&_hr]:border-slate-200 [&_hr]:my-4",
+          // Tables (GFM)
+          "[&_table]:w-full [&_table]:text-xs [&_table]:border-collapse [&_table]:my-3",
+          "[&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:border [&_th]:border-slate-200 [&_th]:bg-slate-100 [&_th]:font-semibold [&_th]:text-slate-700",
+          "[&_td]:px-3 [&_td]:py-1.5 [&_td]:border [&_td]:border-slate-200",
+          "[&_tr:nth-child(even)_td]:bg-slate-50/70",
+          // Links
+          "[&_a]:text-sky-600 [&_a]:no-underline hover:[&_a]:underline",
+          // Strong / em
+          "[&_strong]:font-semibold [&_strong]:text-slate-800",
+          "[&_em]:italic",
+          // Inline code
+          "[&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:bg-slate-100 [&_code]:text-slate-800 [&_code]:text-xs [&_code]:font-mono",
+        )}
+      >
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          rehypePlugins={[rehypeHighlight]}
+          components={{
+            code({ className: cls, children, ...rest }) {
+              const isBlock = /language-/.test(cls ?? "");
+              if (isBlock) {
+                return (
+                  <code className={cn("block overflow-x-auto rounded-lg bg-slate-900 text-slate-100 p-3 my-2 text-xs font-mono leading-relaxed border border-slate-700", cls)} {...rest}>
+                    {children}
+                  </code>
+                );
+              }
+              return <code className={cn("px-1.5 py-0.5 rounded bg-slate-100 text-slate-800 text-xs font-mono")} {...rest}>{children}</code>;
+            },
+            pre({ children }) {
+              return <pre className="overflow-x-auto rounded-lg bg-slate-900 border border-slate-700 p-3 my-2 text-xs font-mono leading-relaxed">{children}</pre>;
+            },
+          }}
+        >
+          {content}
+        </ReactMarkdown>
       </div>
     </div>
   );
@@ -398,8 +485,10 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
     try {
       const msgs = await chatApi.getMessagesBySessionId(sessionId);
       const mapped: Message[] = msgs.map(m => {
+        // Decode JSON-escaped content (handles double-encoding issue)
+        const decodedContent = decodeJsonEscapedContent(m.content);
         // Reconstruct htmlContent and reportUrl from content (same as streaming done message)
-        const { html, markdown, reportUrl, pptUrl } = extractHtmlFromMarkdown(m.content);
+        const { html, markdown, reportUrl, pptUrl } = extractHtmlFromMarkdown(decodedContent);
         // Parse files from metadata if present
         let files: FileInfo[] | undefined;
         if (m.metadata) {

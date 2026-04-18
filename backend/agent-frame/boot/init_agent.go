@@ -98,7 +98,7 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 			configJson: `{
 				"endpoint": "` + getRunnerEndpoint() + `",
 				"models": ` + modelJSON + `,
-				"system_prompt": "你是一个通用的智能助手。你可以根据用户的问题，灵活调用任何可用的技能（skills）和工具（tools）来解决问题。\n\n能力范围：\n- 知识问答和信息检索\n- 文档处理和分析\n- 代码编写和调试\n- 数据处理和可视化\n- 文件生成（PPT、Excel、Word等）\n- 翻译和语言处理\n- 复杂的多步骤任务\n\n当用户提出问题时，你应该：\n1. 理解用户意图\n2. 决定是否需要调用技能或工具\n3. 按需调用并整合结果\n4. 提供清晰完整的回答\n\n如果遇到不确定的问题，可以主动询问用户以获取更多信息。",
+				"system_prompt": "你是一个通用的智能助手，名称叫小青龙(Dragon Agent OS)。你可以根据用户的问题，灵活调用任何可用的技能（skills）和工具（tools）来解决问题。\n\n【输出格式要求】\n1. 直接输出 Markdown 格式，不要用代码块包裹整个回答\n2. 表格使用标准 Markdown 语法，示例：\n   | 列1 | 列2 | 列3 |\n   |-----|-----|-----|\n   | 内容 | 内容 | 内容 |\n3. 代码块必须指定语言，如：\n   code python\n   print('hello')\n   code\n4. 列表、引用等使用标准 Markdown 语法\n\n【能力范围】\n- 知识问答和信息检索\n- 文档处理和分析\n- 代码编写和调试\n- 数据处理和可视化\n- 文件生成（PPT、Excel、Word等）\n- 翻译和语言处理\n- 复杂的多步骤任务\n\n【回答原则】\n1. 理解用户意图\n2. 决定是否需要调用技能或工具\n3. 按需调用并整合结果\n4. 提供清晰完整的回答，使用 Markdown 格式化输出\n\n如果遇到不确定的问题，可以主动询问用户以获取更多信息。",
 				"options": {
 					"temperature": 0.7,
 					"max_tokens": 8000,
@@ -326,6 +326,11 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 	}
 }
 
+// shouldResetAgents 检查是否需要重置智能体（环境变量 INIT_AGENT=true）
+func shouldResetAgents() bool {
+	return os.Getenv("INIT_AGENT") == "true"
+}
+
 // initDefaultAgents 初始化默认智能体
 func initDefaultAgents() error {
 	log.Println("[Init] Initializing default agents")
@@ -339,6 +344,12 @@ func initDefaultAgents() error {
 	// 获取内置智能体配置
 	defaultAgents := getBuiltInAgents(modelCfg)
 
+	// 检查是否需要重置
+	resetAgents := shouldResetAgents()
+	if resetAgents {
+		log.Println("[Init] INIT_AGENT=true, will reset existing agents")
+	}
+
 	for _, ag := range defaultAgents {
 		// 检查是否已存在同名智能体
 		existing, err := agentSvc.FindSysAgentAll(ctx, &dtoAgent.FindSysAgentAllReq{Name: ag.name})
@@ -347,9 +358,19 @@ func initDefaultAgents() error {
 			continue
 		}
 		if len(existing) > 0 {
-			// 已存在，跳过
-			log.Printf("[Init] Agent already exists: %s", ag.name)
-			continue
+			if resetAgents {
+				// 删除已存在的智能体
+				oldAgent := existing[0]
+				if err := agentSvc.DeleteSysAgent(ctx, &dtoAgent.DelSysAgentReq{Ulid: oldAgent.Ulid}); err != nil {
+					log.Printf("[Init] Failed to delete agent %s (ulid=%s): %v", ag.name, oldAgent.Ulid, err)
+					continue
+				}
+				log.Printf("[Init] Deleted existing agent: %s (ulid=%s)", ag.name, oldAgent.Ulid)
+			} else {
+				// 已存在，跳过
+				log.Printf("[Init] Agent already exists: %s", ag.name)
+				continue
+			}
 		}
 
 		// 创建智能体
