@@ -683,13 +683,17 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
       // Save user message to database (with files if present)
       let userMessageUlid: string | null = null;
       try {
-        const filesJson = filesToSend.length > 0 ? JSON.stringify(filesToSend) : undefined;
+        // Append file names to content for visibility in chat history
+        let messageContent = input;
+        if (filesToSend.length > 0) {
+          const fileNames = filesToSend.map(f => f.name).join(', ');
+          messageContent = `${input}\n\n[附件: ${fileNames}]`;
+        }
         const userMsgResult = await chatApi.createMessage({
           session_id: sessionId,
           role: 'user',
-          content: input,
+          content: messageContent,
           status: 'completed',
-          files: filesJson
         });
         userMessageUlid = userMsgResult.ulid;
       } catch (err) {
