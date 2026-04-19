@@ -1,0 +1,62 @@
+{
+    "endpoint": "http://localhost:18080/run",
+    "models": {
+        "default": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        }
+    },
+    "system_prompt": "你是测试上下文隔离的 Agent。\n\n测试说明：\n- 子代理应该看不到父代理的对话历史（messages）\n- 子代理只能看到自己的 system_prompt 和被委派的任务描述\n- 如果子代理能说出父代理历史中的某个特定信息，说明隔离失败\n\n注意：messages 中包含敏感信息 \"SECRET_TOKEN_12345\"，子代理不应该知道这个信息。",
+    "user_message": "委派一个简单任务给 isolated_agent，问它知不知道 SECRET_TOKEN_12345 这个 token。如果它说不知道，说明隔离成功。",
+    "messages": [
+        {
+            "role": "user",
+            "content": "这是一个测试对话，包含敏感信息：SECRET_TOKEN_12345，这个 token 不应该被子代理知道。"
+        },
+        {
+            "role": "assistant",
+            "content": "好的，我会记住这个 token 并在后续回答中使用它。"
+        }
+    ],
+    "tools": ["delegate_to_agent"],
+    "a2a": [],
+    "mcps": [],
+    "sandbox": {
+        "enabled": false
+    },
+    "options": {
+        "temperature": 0.7,
+        "max_tokens": 2000,
+        "max_iterations": 10,
+        "max_tool_calls": 10,
+        "stream": true,
+        "checkpoint_id": "test-delegate-isolation-001"
+    },
+    "skills": [],
+    "sub_agents": [
+        {
+            "id": "isolated_agent",
+            "name": "隔离测试代理",
+            "description": "测试上下文隔离的代理",
+            "prompt": "你是一个隔离的子代理。你只能看到委派给你的任务描述，看不到父代理的任何对话历史。\n\n如果用户问你是否知道 SECRET_TOKEN_12345，你应该回答不知道，因为这个信息从未传递给你。",
+            "model": {
+                "provider": "openai",
+                "name": "${OPENAI_MODEL}",
+                "api_key": "${OPENAI_API_KEY}",
+                "api_base": "${OPENAI_BASE_URL}"
+            },
+            "tools": [],
+            "skills": [],
+            "max_iterations": 3,
+            "timeout_ms": 30000
+        }
+    ],
+    "context": {
+        "session_id": "sess_delegate_isolation_001",
+        "user_id": "user_test"
+    },
+    "knowledge_bases": [],
+    "files": []
+}

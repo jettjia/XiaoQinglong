@@ -1,0 +1,68 @@
+{
+    "endpoint": "http://localhost:18080/run",
+    "models": {
+        "default": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        }
+    },
+    "system_prompt": "你是测试工具限制的 Agent。\n\n测试说明：\n- 子代理被禁止使用以下工具：delegate_to_agent, clarify, memory, send_message\n- 如果子代理尝试使用这些工具，应该被阻止或返回错误\n\n任务：委派一个任务给 restricted_agent，该任务本来需要使用 delegate_to_agent，但由于工具限制应该失败。",
+    "user_message": "委派一个任务给 restricted_agent，让它再委派给 another_agent。如果委派失败（因为 delegate_to_agent 被禁用），说明工具限制生效。",
+    "tools": ["delegate_to_agent"],
+    "a2a": [],
+    "mcps": [],
+    "sandbox": {
+        "enabled": false
+    },
+    "options": {
+        "temperature": 0.7,
+        "max_tokens": 2000,
+        "max_iterations": 15,
+        "max_tool_calls": 15,
+        "stream": true,
+        "checkpoint_id": "test-delegate-blocked-001"
+    },
+    "skills": [],
+    "sub_agents": [
+        {
+            "id": "restricted_agent",
+            "name": "受限代理",
+            "description": "被限制使用某些工具的代理",
+            "prompt": "你是受限代理。你可以使用 basic_tool，但不能使用 delegate_to_agent（被禁用）。\n\n如果被要求委派任务给 another_agent，你应该因为没有 delegate_to_agent 工具而无法做到。",
+            "model": {
+                "provider": "openai",
+                "name": "${OPENAI_MODEL}",
+                "api_key": "${OPENAI_API_KEY}",
+                "api_base": "${OPENAI_BASE_URL}"
+            },
+            "tools": ["delegate_to_agent", "bash"],
+            "skills": [],
+            "max_iterations": 3,
+            "timeout_ms": 30000
+        },
+        {
+            "id": "another_agent",
+            "name": "另一个代理",
+            "description": "正常代理",
+            "prompt": "你是另一个代理。",
+            "model": {
+                "provider": "openai",
+                "name": "${OPENAI_MODEL}",
+                "api_key": "${OPENAI_API_KEY}",
+                "api_base": "${OPENAI_BASE_URL}"
+            },
+            "tools": [],
+            "skills": [],
+            "max_iterations": 2,
+            "timeout_ms": 30000
+        }
+    ],
+    "context": {
+        "session_id": "sess_delegate_blocked_001",
+        "user_id": "user_test"
+    },
+    "knowledge_bases": [],
+    "files": []
+}

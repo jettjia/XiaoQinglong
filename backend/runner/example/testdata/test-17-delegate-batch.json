@@ -1,0 +1,52 @@
+{
+    "endpoint": "http://localhost:18080/run",
+    "models": {
+        "default": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        }
+    },
+    "system_prompt": "你是任务协调者。当用户要求同时完成多个独立任务时，使用 delegate_to_agent 的 batch 模式（tasks 数组）并行委派给子代理。\n\nbatch 模式示例：\n{\n  \"agent_id\": \"researcher\",\n  \"tasks\": [\n    {\"task\": \"搜索 AI 最新新闻\"},\n    {\"task\": \"搜索 Python 最新新闻\"},\n    {\"task\": \"搜索 Go 最新新闻\"}\n  ]\n}\n\n返回结果会自动汇总。",
+    "user_message": "请帮我同时搜索三个领域的最新动态：1）AI/机器学习 2）Python 3）Go 语言。汇总每个领域的重点新闻。",
+    "tools": [],
+    "a2a": [],
+    "mcps": [],
+    "sandbox": {
+        "enabled": false
+    },
+    "options": {
+        "temperature": 0.7,
+        "max_tokens": 4000,
+        "max_iterations": 30,
+        "max_tool_calls": 20,
+        "stream": true,
+        "checkpoint_id": "test-delegate-batch-001"
+    },
+    "skills": [],
+    "sub_agents": [
+        {
+            "id": "researcher",
+            "name": "研究助手",
+            "description": "网络搜索研究助手，可以搜索各领域最新资讯",
+            "prompt": "你是一个研究助手，负责搜索指定领域的最新资讯。完成任务后返回简洁摘要（100字以内）。",
+            "model": {
+                "provider": "openai",
+                "name": "${OPENAI_MODEL}",
+                "api_key": "${OPENAI_API_KEY}",
+                "api_base": "${OPENAI_BASE_URL}"
+            },
+            "tools": ["web_search"],
+            "skills": [],
+            "max_iterations": 5,
+            "timeout_ms": 60000
+        }
+    ],
+    "context": {
+        "session_id": "sess_delegate_batch_001",
+        "user_id": "user_test"
+    },
+    "knowledge_bases": [],
+    "files": []
+}
