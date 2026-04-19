@@ -15,7 +15,7 @@
 | 分类         | 功能                                                |
 | ------------ | --------------------------------------------------- |
 | **模型能力** | 多模型路由 · 上下文压缩 · Prompt 缓存 · deep-agents |
-| **工具生态** | Skills · MCP (SSE/stdio/HTTP) · Tools · A2A         |
+| **工具生态** | Skills · MCP (SSE/stdio/HTTP) · Tools · A2A · Skill 自动创建 |
 | **执行保障** | 沙箱执行 · 审批策略 · 重试熔断 · Checkpoint         |
 | **记忆系统** | user · feedback · project · reference               |
 | **工程化**   | 定时任务 · Sub-Agent 并行 · 知识检索                |
@@ -152,7 +152,8 @@ curl -X POST http://localhost:18080/run \
 - **deep-agents**：深度推理模式，复杂问题拆解
 
 ### 工具生态
-- **Skills**：技能中心，支持 agent-skills、自我创建 Skill
+- **Skills**：技能中心，支持 agent-skills，渐进式加载 + Skill 自动创建
+- **Skill 管理**：skill_manage (创建/修改/删除) + load_skill (按需加载)
 - **MCP**：支持 SSE / stdio / HTTP 三种传输模式
 - **Tools**：内置 bash / file / glob / grep / web-fetch 等工具
 - **A2A**：Agent-to-Agent 协议，构建分布式智能体网络
@@ -171,7 +172,7 @@ curl -X POST http://localhost:18080/run \
 
 ### 工程化
 - **定时任务**：Cron 表达式，支持循环执行
-- **Sub-Agent**：并行任务执行，提升吞吐量
+- **Sub-Agent**：hermes-agent 风格委派（batch 并行 + 深度限制 + 工具过滤 + 上下文隔离）
 - **知识检索**：多知识库配置，RAG 支持
 
 ### 响应格式
