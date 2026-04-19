@@ -49,7 +49,7 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
     title: string;
     message: string;
     onConfirm: () => void;
-  }>({ open: false, title: '', message: '', onConfirm: () => {} });
+  }>({ open: false, title: '', message: '', onConfirm: () => { } });
 
   // 从后端加载 skills
   const loadSkills = useCallback(async () => {
@@ -347,7 +347,7 @@ export function SkillManager({ initialTab = 'skills' }: SkillManagerProps) {
               )}
 
               <div className="flex items-center justify-between pt-4 border-t border-slate-50">
-                <span className="text-xs font-medium text-slate-400">{t('skills.usedBy', { count: 12 })}</span>
+                <span className="text-xs font-medium text-slate-400"></span>
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => viewSkill(skill)}
