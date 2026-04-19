@@ -437,12 +437,20 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
     const loadAgents = async () => {
       try {
         const backendAgents = await agentApi.findAll();
-        // 系统 Agent 排在前面，用户 Agent 排在后面
+        // 系统 Agent 排在前面，用户 Agent 排在后面；同类型按 sort 字段排序
         const sortedAgents = backendAgents.sort((a, b) => {
-          if (a.is_system === b.is_system) return 0;
+          if (a.is_system === b.is_system) {
+            const sortA = a.sort ?? 0;
+            const sortB = b.sort ?? 0;
+            return sortA - sortB;
+          }
           return a.is_system ? -1 : 1;
         });
         setAgents(sortedAgents);
+        // 默认选中第一个 Agent（系统 Agent 按 sort 排序后的第一个）
+        if (!preselectedAgent && sortedAgents.length > 0) {
+          setActiveAgent(sortedAgents[0]);
+        }
       } catch (err) {
         console.error('Failed to load agents:', err);
       }
