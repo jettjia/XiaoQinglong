@@ -57,6 +57,11 @@ func (a *SysAgentAssembler) D2EUpdateSysAgent(dto *dto.UpdateSysAgentReq) *entit
 		rspEn.IsPeriodic = *dto.IsPeriodic
 	}
 
+	// 手动处理 Sort 字段，因为 DTO 是 *int 而 Entity 是 int
+	if dto.Sort != nil {
+		rspEn.Sort = *dto.Sort
+	}
+
 	return &rspEn
 }
 

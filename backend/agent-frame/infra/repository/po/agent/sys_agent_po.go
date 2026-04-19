@@ -23,6 +23,7 @@ type SysAgent struct {
 	Channels     string `gorm:"column:channels;type:varchar(500);comment:渠道;" json:"channels"`
 	IsPeriodic   bool   `gorm:"column:is_periodic;type:boolean;default:false;comment:是否周期任务;" json:"is_periodic"`
 	CronRule     string `gorm:"column:cron_rule;type:varchar(100);comment:Cron规则;" json:"cron_rule"`
+	Sort         int    `gorm:"column:sort;type:int;default:0;comment:排序;" json:"sort"`
 }
 
 func (po *SysAgent) BeforeCreate(tx *gorm.DB) (err error) {

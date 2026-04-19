@@ -82,6 +82,7 @@ type agentConfig struct {
 	model       string
 	configJson  string
 	isSystem    bool
+	sort        int
 }
 
 // getBuiltInAgents 获取内置智能体配置列表
@@ -125,6 +126,7 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 				}
 			}`,
 			isSystem: true,
+			sort:     1,
 		},
 		{
 			name:        "翻译",
@@ -161,6 +163,7 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 				}
 			}`,
 			isSystem: true,
+			sort:     2,
 		},
 		{
 			name:        "文档问答",
@@ -202,6 +205,7 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 				}
 			}`,
 			isSystem: true,
+			sort:     3,
 		},
 		{
 			name:        "数据分析",
@@ -262,6 +266,7 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 				}
 			}`,
 			isSystem: true,
+			sort:     4,
 		},
 		{
 			name:        "生成PPT",
@@ -322,6 +327,7 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 				}
 			}`,
 			isSystem: true,
+			sort:     5,
 		},
 	}
 }
@@ -383,6 +389,7 @@ func initDefaultAgents() error {
 			Enabled:     true,
 			IsSystem:    ag.isSystem,
 			CreatedBy:   "system",
+			Sort:        ag.sort,
 		}
 
 		_, err = agentSvc.CreateSysAgent(ctx, createReq)
