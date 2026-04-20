@@ -1,0 +1,84 @@
+{
+    "endpoint": "http://localhost:18080/run",
+    "models": {
+        "default": {
+            "provider": "openai",
+            "name": "${OPENAI_MODEL}",
+            "api_key": "${OPENAI_API_KEY}",
+            "api_base": "${OPENAI_BASE_URL}"
+        }
+    },
+    "system_prompt": "你是测试委派深度限制的 Agent。\n\n测试说明：\n- 委派深度限制为 2（父->子->孙）\n- 当 depth >= 2 时，应该返回错误 \"max delegate depth exceeded\"\n\n任务：\n1. 首先委派给 level1_agent（depth=0）\n2. level1_agent 尝试再委派给 level2_agent（depth=1）\n3. level2_agent 尝试再委派给 level3_agent（depth=2，应该失败）",
+    "user_message": "开始测试委派深度限制。先委派一个简单任务给 level1_agent。",
+    "tools": ["delegate_to_agent"],
+    "a2a": [],
+    "mcps": [],
+    "sandbox": {
+        "enabled": false
+    },
+    "options": {
+        "temperature": 0.7,
+        "max_tokens": 2000,
+        "max_iterations": 20,
+        "max_tool_calls": 30,
+        "stream": true,
+        "checkpoint_id": "test-delegate-depth-001"
+    },
+    "skills": [],
+    "sub_agents": [
+        {
+            "id": "level1_agent",
+            "name": "第一层代理",
+            "description": "第一层委派，可以继续委派给下一层",
+            "prompt": "你是第一层代理。请尝试委派任务给 level2_agent，测试深度限制。",
+            "model": {
+                "provider": "openai",
+                "name": "${OPENAI_MODEL}",
+                "api_key": "${OPENAI_API_KEY}",
+                "api_base": "${OPENAI_BASE_URL}"
+            },
+            "tools": ["delegate_to_agent"],
+            "skills": [],
+            "max_iterations": 5,
+            "timeout_ms": 30000
+        },
+        {
+            "id": "level2_agent",
+            "name": "第二层代理",
+            "description": "第二层委派，可以继续委派",
+            "prompt": "你是第二层代理。请尝试委派任务给 level3_agent，测试深度限制。",
+            "model": {
+                "provider": "openai",
+                "name": "${OPENAI_MODEL}",
+                "api_key": "${OPENAI_API_KEY}",
+                "api_base": "${OPENAI_BASE_URL}"
+            },
+            "tools": ["delegate_to_agent"],
+            "skills": [],
+            "max_iterations": 5,
+            "timeout_ms": 30000
+        },
+        {
+            "id": "level3_agent",
+            "name": "第三层代理",
+            "description": "第三层代理，不应该能再委派",
+            "prompt": "你是第三层代理。如果收到委派任务，应该返回错误说超过了最大深度。",
+            "model": {
+                "provider": "openai",
+                "name": "${OPENAI_MODEL}",
+                "api_key": "${OPENAI_API_KEY}",
+                "api_base": "${OPENAI_BASE_URL}"
+            },
+            "tools": [],
+            "skills": [],
+            "max_iterations": 3,
+            "timeout_ms": 30000
+        }
+    ],
+    "context": {
+        "session_id": "sess_delegate_depth_001",
+        "user_id": "user_test"
+    },
+    "knowledge_bases": [],
+    "files": []
+}

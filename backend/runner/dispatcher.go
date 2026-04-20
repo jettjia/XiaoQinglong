@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/rand"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -23,10 +25,10 @@ import (
 	"github.com/jettjia/XiaoQinglong/runner/memory"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/logger"
 	"github.com/jettjia/XiaoQinglong/runner/pkg/xqldir"
-	"github.com/jettjia/XiaoQinglong/runner/plugins"
 	"github.com/jettjia/XiaoQinglong/runner/prompt"
 	"github.com/jettjia/XiaoQinglong/runner/retriever"
 	"github.com/jettjia/XiaoQinglong/runner/subagent"
+	"github.com/jettjia/XiaoQinglong/runner/a2ui"
 	"github.com/jettjia/XiaoQinglong/runner/tools"
 	"github.com/jettjia/XiaoQinglong/runner/types"
 )
@@ -349,8 +351,7 @@ type Dispatcher struct {
 	toolConfigs      map[string]types.ToolConfig // tool name -> config for interrupt handling
 	a2aRunners       map[string]*adk.Runner
 	internalAgents   map[string]adk.Agent
-	skillRunner      *plugins.SkillRunner
-	skillPlanner     *plugins.SkillPlanner     // LLM 驱动的技能规划器
+	skillMiddleware  adk.ChatModelAgentMiddleware // eino skill middleware
 	subAgentManager  *subagent.SubAgentManager // Sub-Agent 管理器
 	a2aCallCount     int
 	cliExt           interface{} // CLI 扩展（cliext.CLIExtension）
@@ -474,6 +475,29 @@ func (d *Dispatcher) setUploadsBaseDir() {
 	d.uploadsBaseDir = xqldir.GetUploadsDir()
 }
 
+// setSessionContext 设置会话上下文环境变量，供内置工具使用
+// 从 context 中提取 session_id, user_id 等信息并设置到进程环境变量
+func (d *Dispatcher) setSessionContext() {
+	if d.request.Context == nil {
+		return
+	}
+
+	// 设置 session_id 到环境变量
+	if sessionID, ok := d.request.Context["session_id"].(string); ok && sessionID != "" {
+		os.Setenv("XQL_SESSION_ID", sessionID)
+		logger.Infof("[Dispatcher] setSessionContext: XQL_SESSION_ID=%s", sessionID)
+	}
+
+	// 设置 uploads_base_dir 到环境变量（供 html_interpreter 等工具使用）
+	if uploadsDir, ok := d.request.Context["uploads_dir"].(string); ok && uploadsDir != "" {
+		os.Setenv("XQL_UPLOADS_DIR", uploadsDir)
+	}
+
+	// 设置 reports_base_dir 到环境变量
+	reportsBaseDir := xqldir.GetReportsDir()
+	os.Setenv("XQL_REPORTS_DIR", reportsBaseDir)
+}
+
 // initCompactService 初始化上下文压缩服务
 func (d *Dispatcher) initCompactService(ctx context.Context) {
 	// 检查是否启用上下文压缩
@@ -524,36 +548,6 @@ func (d *Dispatcher) initCompactService(ctx context.Context) {
 	d.compactService = contextcompressor.NewIntegrationService(compactor)
 
 	logger.Infof("[Dispatcher] initCompactService: enabled with model=%s", d.defaultModelName)
-}
-
-// mcpStdioTool stdio 模式的 MCP tool
-type mcpStdioTool struct {
-	name   string
-	client *plugins.MCPStdioClient
-}
-
-func (t *mcpStdioTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
-	return &schema.ToolInfo{
-		Name: t.name,
-		Desc: fmt.Sprintf("MCP tool via stdio: %s", t.name),
-		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
-			"args": {Type: schema.Object, Desc: "Tool arguments", Required: false},
-		}),
-	}, nil
-}
-
-func (t *mcpStdioTool) InvokableRun(ctx context.Context, argumentsInJSON string, opt ...tool.Option) (string, error) {
-	logger.Infof("[MCP Stdio] InvokableRun: tool=%s, argumentsInJSON=%s", t.name, argumentsInJSON)
-
-	var args map[string]any
-	if err := json.Unmarshal([]byte(argumentsInJSON), &args); err != nil {
-		return "", fmt.Errorf("failed to parse arguments: %w", err)
-	}
-
-	logger.Infof("[MCP Stdio] CallTool: tool=%s, args=%+v", t.name, args)
-
-	// 工具名在 t.name，参数在 args 中
-	return t.client.CallTool(ctx, t.name, args)
 }
 
 // createInternalAgent 创建内部 agent
@@ -845,8 +839,13 @@ func (d *Dispatcher) buildModelRetryConfig() *adk.ModelRetryConfig {
 	return &adk.ModelRetryConfig{
 		MaxRetries: retry.MaxAttempts,
 		IsRetryAble: func(ctx context.Context, err error) bool {
+			// Phase 1: HTTP 状态码始终可重试，不管 retryable_errors 配置如何
+			if isHTTPRetryableError(err) {
+				return true
+			}
+			// 用户配置的 retryable_errors
 			if len(retry.RetryableErrors) == 0 {
-				return true // 默认全部可重试
+				return true
 			}
 			errStr := err.Error()
 			for _, e := range retry.RetryableErrors {
@@ -857,15 +856,58 @@ func (d *Dispatcher) buildModelRetryConfig() *adk.ModelRetryConfig {
 			return false
 		},
 		BackoffFunc: func(ctx context.Context, attempt int) time.Duration {
+			// 指数退避 + 固定 25% jitter
 			base := float64(retry.InitialDelayMs) * math.Pow(retry.BackoffMultiplier, float64(attempt-1))
 			if base > float64(retry.MaxDelayMs) {
 				base = float64(retry.MaxDelayMs)
 			}
-			// 添加 jitter: base * (0.5 + rand * 0.5) 防止雷鸣 herd
-			jitter := base * (0.5 + float64(time.Now().UnixNano()%100)/200.0)
-			return time.Duration(jitter) * time.Millisecond
+			jitter := base * 0.25 * rand.Float64()
+			return time.Duration(base+jitter) * time.Millisecond
 		},
 	}
+}
+
+// isHTTPRetryableError 检查 HTTP 状态码是否应始终重试
+// 参考 Claude Code withRetry.ts: 5xx/429/529/408/409 始终可重试
+func isHTTPRetryableError(err error) bool {
+	errStr := err.Error()
+	httpCodes := []string{
+		"429", "rate limit", "too many requests",
+		"500", "internal server error",
+		"502", "bad gateway",
+		"503", "service unavailable",
+		"504", "gateway timeout",
+		"529", "overloaded", "service overloaded",
+		"408", "request timeout",
+		"409", "conflict",
+	}
+	for _, code := range httpCodes {
+		if strings.Contains(errStr, code) {
+			return true
+		}
+	}
+	return false
+}
+
+// is529Error 检查错误是否为 529 (overloaded) 错误
+// 参考 Claude Code withRetry.ts: 检查状态码和消息中的 overloaded_error
+func is529Error(err error) bool {
+	errStr := err.Error()
+	return strings.Contains(errStr, "529") ||
+		strings.Contains(errStr, "overloaded") ||
+		strings.Contains(errStr, "service overloaded")
+}
+
+// buildAgentHandlers 构建 agent middleware handlers
+func (d *Dispatcher) buildAgentHandlers() []adk.ChatModelAgentMiddleware {
+	var handlers []adk.ChatModelAgentMiddleware
+
+	// 添加 eino skill middleware
+	if d.skillMiddleware != nil {
+		handlers = append(handlers, d.skillMiddleware)
+	}
+
+	return handlers
 }
 
 // compactionWorker 异步压缩 worker
@@ -1028,6 +1070,21 @@ func (d *Dispatcher) runDeepAgent(ctx context.Context, messages []adk.Message) (
 	var interrupted bool
 	toolCallCount := 0
 
+	// 连续 529 错误追踪 + fallback
+	fallbackModel := ""
+	maxConsecutive529 := 3
+	consecutive529 := 0
+	if d.request.Options != nil && d.request.Options.Retry != nil {
+		fallbackModel = d.request.Options.Retry.FallbackModel
+	}
+	// 如果未配置 fallback model，使用配置中的 max_attempts 作为阈值
+	if maxConsecutive529 <= 0 {
+		maxConsecutive529 = d.request.Options.Retry.MaxAttempts
+		if maxConsecutive529 <= 0 {
+			maxConsecutive529 = 3
+		}
+	}
+
 	events := runner.Run(ctx, messages, adk.WithCheckPointID(checkpointID))
 
 	for {
@@ -1037,6 +1094,21 @@ func (d *Dispatcher) runDeepAgent(ctx context.Context, messages []adk.Message) (
 		}
 
 		if event.Err != nil {
+			// 检查是否是 529 错误
+			if is529Error(event.Err) {
+				consecutive529++
+				logger.Warnf("[Dispatcher] runDeepAgent: 529 error (consecutive %d/%d)", consecutive529, maxConsecutive529)
+				if consecutive529 >= maxConsecutive529 && fallbackModel != "" {
+					logger.Warnf("[Dispatcher] runDeepAgent: consecutive 529 threshold reached (%d), fallback model=%s not implemented - would restart with fallback", maxConsecutive529, fallbackModel)
+					// TODO: 实现 fallback - 需要重新创建 agent 和 runner
+					// 1. 查找 fallback model: d.models[fallbackModel] 或 d.modelsByRole[ModelRole(fallbackModel)]
+					// 2. 重新创建 deepAgent with fallback model
+					// 3. 重新调用 runner.Run with original messages
+				}
+			} else {
+				// 非 529 错误，重置计数器
+				consecutive529 = 0
+			}
 			logger.Infof("[Dispatcher] runDeepAgent error: %v", event.Err)
 			return nil, fmt.Errorf("deep agent error: %w", event.Err)
 		}
@@ -1513,13 +1585,22 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 		// 1.5 初始化压缩服务
 		d.initCompactService(ctx)
 
-		// 2. 初始化工具
+		// 2. 初始化工具（HTTP 工具）
 		if err := d.initTools(ctx); err != nil {
 			eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": fmt.Sprintf("init tools failed: %v", err)}}
 			return
 		}
 
-		// 2.1 初始化知识检索器
+		// 2.0 设置会话上下文环境变量（供内置工具使用）
+		d.setSessionContext()
+
+		// 2.1 初始化内置工具（Glob, Grep, Read, Edit, Write, Bash, execute_skill_script_file, html_interpreter 等）
+		if err := d.initBuiltinTools(ctx); err != nil {
+			eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": fmt.Sprintf("init builtin tools failed: %v", err)}}
+			return
+		}
+
+		// 2.2 初始化知识检索器
 		if err := d.initKnowledgeRetriever(ctx); err != nil {
 			logger.Infof("[Dispatcher] RunStream: warning - init knowledge retriever failed: %v", err)
 		}
@@ -1585,6 +1666,7 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 					ToolCallMiddlewares: []compose.ToolMiddleware{*toolCallEventsMiddleware()},
 				},
 			},
+			Handlers: d.buildAgentHandlers(),
 		}
 
 		// 将 eventsChan 和 toolArgsMap 添加到 context 中，供中间件使用
@@ -1618,148 +1700,197 @@ func (d *Dispatcher) RunStream(ctx context.Context) (<-chan StreamEvent, error) 
 			d.checkAndTriggerCompaction(messages)
 		}
 
-		var out strings.Builder
-		var totalPromptTokens int
-		var totalCompletionTokens int
-		var toolCallsCount int
-		// 从 context 获取 toolArgsMap
-		toolArgsMap = getToolArgsMap(ctxWithChan)
-		if toolArgsMap == nil {
-			toolArgsMap = make(toolArgsMapType)
+		// 10.6 检查是否启用 A2UI 模式
+		useA2UI := d.request.Options != nil &&
+			d.request.Options.ResponseSchema != nil &&
+			d.request.Options.ResponseSchema.Type == "a2ui"
+		logger.GetRunnerLogger().Infof("[Dispatcher] useA2UI=%v, Options=%v, ResponseSchema=%v", useA2UI, d.request.Options != nil, d.request.Options != nil && d.request.Options.ResponseSchema != nil)
+		if d.request.Options != nil && d.request.Options.ResponseSchema != nil {
+			logger.GetRunnerLogger().Infof("[Dispatcher] ResponseSchema.Type=%s", d.request.Options.ResponseSchema.Type)
 		}
-		for {
-			event, ok := events.Next()
-			if !ok {
-				break
+
+		if useA2UI {
+			// 使用 eino a2ui 进行流式渲染
+			sessionID := checkpointID
+			if sid, ok := d.request.Context["session_id"].(string); ok && sid != "" {
+				sessionID = sid
 			}
 
-			if event.Err != nil {
-				eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": event.Err.Error()}}
-				break
-			}
-
-			// 处理输出消息
-			if event.Output != nil && event.Output.MessageOutput != nil {
-				mo := event.Output.MessageOutput
-
-				// 累计 token 使用量
-				if mo.Message != nil && mo.Message.ResponseMeta != nil && mo.Message.ResponseMeta.Usage != nil {
-					totalPromptTokens += mo.Message.ResponseMeta.Usage.PromptTokens
-					totalCompletionTokens += mo.Message.ResponseMeta.Usage.CompletionTokens
-				}
-
-				// 处理 tool calls
-				if mo.Message != nil && len(mo.Message.ToolCalls) > 0 {
-					toolCallsCount += len(mo.Message.ToolCalls)
-					for _, tc := range mo.Message.ToolCalls {
-						// 保存 arguments 到 map
-						toolArgsMap[tc.ID] = tc.Function.Arguments
-						eventsChan <- StreamEvent{
-							Type: "tool_call",
-							Data: map[string]any{
-								"agent":     event.AgentName,
-								"tool":      tc.Function.Name,
-								"arguments": tc.Function.Arguments,
-							},
-						}
-					}
-				}
-
-				// 处理 assistant 消息内容
-				if mo.Message != nil && mo.Message.Role == schema.Assistant && len(mo.Message.ToolCalls) == 0 {
-					content := mo.Message.Content
-					out.WriteString(content)
-					eventsChan <- StreamEvent{Type: "delta", Data: map[string]any{"text": content}}
-				}
-
-				// 处理 tool 返回
-				if mo.Message != nil && mo.Message.Role == schema.Tool {
-					content := mo.Message.Content
-					if strings.TrimSpace(content) == "" {
-						content = "(无输出)"
-					}
-					// 获取对应的 arguments
-					args := toolArgsMap[mo.Message.ToolCallID]
-					eventsChan <- StreamEvent{
-						Type: "tool",
-						Data: map[string]any{
-							"agent":        event.AgentName,
-							"tool":         mo.Message.ToolName,
-							"tool_call_id": mo.Message.ToolCallID,
-							"arguments":    args,
-							"output":       content,
-						},
-					}
-				}
-
-				// 处理流式 chunk
-				if mo.MessageStream != nil {
-					for {
-						chunk, err := mo.MessageStream.Recv()
-						if errors.Is(err, io.EOF) {
-							break
-						}
-						if err != nil {
-							eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": err.Error()}}
-							break
-						}
-						if chunk != nil {
-							if chunk.Role == schema.Assistant && len(chunk.ToolCalls) == 0 && strings.TrimSpace(chunk.Content) != "" {
-								out.WriteString(chunk.Content)
-								eventsChan <- StreamEvent{Type: "delta", Data: map[string]any{"text": chunk.Content}}
-							}
-							if chunk.Role == schema.Tool {
-								content := chunk.Content
-								if strings.TrimSpace(content) == "" {
-									content = "(无输出)"
-								}
-								// 获取对应的 arguments
-								args := toolArgsMap[chunk.ToolCallID]
-								eventsChan <- StreamEvent{
-									Type: "tool",
-									Data: map[string]any{
-										"agent":        event.AgentName,
-										"tool":         chunk.ToolName,
-										"tool_call_id": chunk.ToolCallID,
-										"arguments":    args,
-										"output":       content,
-									},
-								}
-							}
-						}
-					}
+			// 构建 history (用于渲染历史消息)
+			var history []*schema.Message
+			for _, msg := range messages {
+				if msg != nil {
+					history = append(history, msg)
 				}
 			}
 
-			// 处理中断事件
-			if event.Action != nil && event.Action.Interrupted != nil {
+			// 使用 a2ui.StreamToWriter 进行流式渲染
+			writer := &a2uiWriter{eventsChan: eventsChan}
+			lastContent, interruptID, finalMsgIdx, a2uiErr := a2ui.StreamToWriter(writer, sessionID, history, events)
+
+			// 处理中断
+			if interruptID != "" {
 				eventsChan <- StreamEvent{
 					Type: "interrupted",
 					Data: map[string]any{
 						"checkpoint_id": checkpointID,
-						"data":          event.Action.Interrupted.Data,
+						"interrupt_id":   interruptID,
+						"msg_idx":       finalMsgIdx,
 					},
 				}
 			}
-		}
 
-		// Fallback: 如果流式未获取到 usage，通过非流式调用获取（只取 usage，不使用响应内容）
-		if totalPromptTokens == 0 && totalCompletionTokens == 0 && len(messages) > 0 {
-			if nonStreamResult, err := d.defaultModel.Generate(ctx, messages); err == nil {
-				if nonStreamResult != nil && nonStreamResult.ResponseMeta != nil && nonStreamResult.ResponseMeta.Usage != nil {
-					totalPromptTokens = nonStreamResult.ResponseMeta.Usage.PromptTokens
-					totalCompletionTokens = nonStreamResult.ResponseMeta.Usage.CompletionTokens
+			// 发送 done 事件
+			eventsChan <- StreamEvent{Type: "done", Data: map[string]any{
+				"content":      lastContent,
+				"interrupt_id":  interruptID,
+				"msg_idx":      finalMsgIdx,
+				"a2ui_error":   a2uiErr,
+			}}
+		} else {
+			var out strings.Builder
+			var totalPromptTokens int
+			var totalCompletionTokens int
+			var toolCallsCount int
+			// 从 context 获取 toolArgsMap
+			toolArgsMap = getToolArgsMap(ctxWithChan)
+			if toolArgsMap == nil {
+				toolArgsMap = make(toolArgsMapType)
+			}
+			for {
+				event, ok := events.Next()
+				if !ok {
+					break
+				}
+
+				if event.Err != nil {
+					eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": event.Err.Error()}}
+					break
+				}
+
+				// 处理输出消息
+				if event.Output != nil && event.Output.MessageOutput != nil {
+					mo := event.Output.MessageOutput
+
+					// 累计 token 使用量
+					if mo.Message != nil && mo.Message.ResponseMeta != nil && mo.Message.ResponseMeta.Usage != nil {
+						totalPromptTokens += mo.Message.ResponseMeta.Usage.PromptTokens
+						totalCompletionTokens += mo.Message.ResponseMeta.Usage.CompletionTokens
+					}
+
+					// 处理 tool calls
+					if mo.Message != nil && len(mo.Message.ToolCalls) > 0 {
+						toolCallsCount += len(mo.Message.ToolCalls)
+						for _, tc := range mo.Message.ToolCalls {
+							// 保存 arguments 到 map
+							toolArgsMap[tc.ID] = tc.Function.Arguments
+							eventsChan <- StreamEvent{
+								Type: "tool_call",
+								Data: map[string]any{
+									"agent":     event.AgentName,
+									"tool":      tc.Function.Name,
+									"arguments": tc.Function.Arguments,
+								},
+							}
+						}
+					}
+
+					// 处理 assistant 消息内容
+					if mo.Message != nil && mo.Message.Role == schema.Assistant && len(mo.Message.ToolCalls) == 0 {
+						content := mo.Message.Content
+						out.WriteString(content)
+						eventsChan <- StreamEvent{Type: "delta", Data: map[string]any{"text": content}}
+					}
+
+					// 处理 tool 返回
+					if mo.Message != nil && mo.Message.Role == schema.Tool {
+						content := mo.Message.Content
+						if strings.TrimSpace(content) == "" {
+							content = "(无输出)"
+						}
+						// 获取对应的 arguments
+						args := toolArgsMap[mo.Message.ToolCallID]
+						eventsChan <- StreamEvent{
+							Type: "tool",
+							Data: map[string]any{
+								"agent":        event.AgentName,
+								"tool":         mo.Message.ToolName,
+								"tool_call_id": mo.Message.ToolCallID,
+								"arguments":    args,
+								"output":       content,
+							},
+						}
+					}
+
+					// 处理流式 chunk
+					if mo.MessageStream != nil {
+						for {
+							chunk, err := mo.MessageStream.Recv()
+							if errors.Is(err, io.EOF) {
+								break
+							}
+							if err != nil {
+								eventsChan <- StreamEvent{Type: "error", Data: map[string]any{"error": err.Error()}}
+								break
+							}
+							if chunk != nil {
+								if chunk.Role == schema.Assistant && len(chunk.ToolCalls) == 0 && strings.TrimSpace(chunk.Content) != "" {
+									out.WriteString(chunk.Content)
+									eventsChan <- StreamEvent{Type: "delta", Data: map[string]any{"text": chunk.Content}}
+								}
+								if chunk.Role == schema.Tool {
+									content := chunk.Content
+									if strings.TrimSpace(content) == "" {
+										content = "(无输出)"
+									}
+									// 获取对应的 arguments
+									args := toolArgsMap[chunk.ToolCallID]
+									eventsChan <- StreamEvent{
+										Type: "tool",
+										Data: map[string]any{
+											"agent":        event.AgentName,
+											"tool":         chunk.ToolName,
+											"tool_call_id": chunk.ToolCallID,
+											"arguments":    args,
+											"output":       content,
+										},
+									}
+								}
+							}
+						}
+					}
+				}
+
+				// 处理中断事件
+				if event.Action != nil && event.Action.Interrupted != nil {
+					eventsChan <- StreamEvent{
+						Type: "interrupted",
+						Data: map[string]any{
+							"checkpoint_id": checkpointID,
+							"data":          event.Action.Interrupted.Data,
+						},
+					}
 				}
 			}
-		}
 
-		eventsChan <- StreamEvent{Type: "done", Data: map[string]any{
-			"content":           out.String(),
-			"prompt_tokens":     totalPromptTokens,
-			"completion_tokens": totalCompletionTokens,
-			"total_tokens":      totalPromptTokens + totalCompletionTokens,
-			"tool_calls_count":  toolCallsCount,
-		}}
+			// Fallback: 如果流式未获取到 usage，通过非流式调用获取（只取 usage，不使用响应内容）
+			if totalPromptTokens == 0 && totalCompletionTokens == 0 && len(messages) > 0 {
+				if nonStreamResult, err := d.defaultModel.Generate(ctx, messages); err == nil {
+					if nonStreamResult != nil && nonStreamResult.ResponseMeta != nil && nonStreamResult.ResponseMeta.Usage != nil {
+						totalPromptTokens = nonStreamResult.ResponseMeta.Usage.PromptTokens
+						totalCompletionTokens = nonStreamResult.ResponseMeta.Usage.CompletionTokens
+					}
+				}
+			}
+
+			eventsChan <- StreamEvent{Type: "done", Data: map[string]any{
+				"content":           out.String(),
+				"prompt_tokens":     totalPromptTokens,
+				"completion_tokens": totalCompletionTokens,
+				"total_tokens":      totalPromptTokens + totalCompletionTokens,
+				"tool_calls_count":  toolCallsCount,
+			}}
+		}
 	}()
 
 	return eventsChan, nil

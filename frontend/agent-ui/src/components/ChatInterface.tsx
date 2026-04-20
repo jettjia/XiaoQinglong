@@ -45,11 +45,18 @@ import {
   UserCheck,
   XCircle,
   Clock,
-  Presentation
+  Presentation,
+  Maximize2,
+  Minimize2,
+  PanelRightClose,
+  PanelRightOpen
 } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
+import 'highlight.js/styles/github.css';
 import { cn } from '../lib/utils';
 import { Message, FileInfo, Agent, Conversation, PendingApproval, ChatSession } from '../types';
 import { INITIAL_AGENTS } from '../constants';
@@ -58,6 +65,35 @@ import { useTranslation } from 'react-i18next';
 
 const API_BASE = import.meta.env.VITE_AGENT_FRAME_API_URL || 'http://localhost:9292/api/xiaoqinglong/agent-frame/v1';
 const CURRENT_USER_ID = 'user-1'; // TODO: Get from auth context
+
+// 辅助函数：解码 JSON 转义的内容（处理双编码问题）
+function decodeJsonEscapedContent(content: string): string {
+  if (!content) return content;
+  try {
+    // 检测是否包含 JSON 转义序列
+    if (content.includes('\\n') || content.includes('\\u') || content.includes('\\"') || content.includes('\\\\')) {
+      // 尝试解析为 JSON 再转为字符串，以正确解码
+      const parsed = JSON.parse(`"${content}"`);
+      return parsed;
+    }
+  } catch (e) {
+    // 解析失败，尝试直接替换常见转义序列
+    let decoded = content
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\r')
+      .replace(/\\t/g, '\t')
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, '\\');
+    // 解码 HTML 实体
+    decoded = decoded
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"');
+    return decoded;
+  }
+  return content;
+}
 
 // 辅助函数：检测并提取 Markdown 中的 HTML 代码块
 function extractHtmlFromMarkdown(content: string): { html: string | null; markdown: string; reportUrl: string | null; pptUrl: string | null } {
@@ -97,8 +133,64 @@ function extractHtmlFromMarkdown(content: string): { html: string | null; markdo
   return { html: fullHtml, markdown, reportUrl, pptUrl };
 }
 
+// 辅助函数：解析 tool result 中的 rich content
+interface RichContent {
+  type: 'html_report' | 'pptx_file' | 'video_file' | 'other';
+  url?: string;
+  title?: string;
+  html?: string;
+  saved?: boolean;
+  message?: string;
+}
+
+function parseToolResultRichContent(result: any): RichContent | null {
+  if (!result) return null;
+
+  // If already an object
+  if (typeof result === 'object') {
+    if (result.type && typeof result.type === 'string') {
+      return {
+        type: result.type,
+        url: result.url,
+        title: result.title,
+        html: result.html,
+        saved: result.saved,
+        message: result.message
+      };
+    }
+    return null;
+  }
+
+  // If it's a string, try to parse as JSON
+  if (typeof result === 'string') {
+    try {
+      const parsed = JSON.parse(result);
+      if (parsed.type && typeof parsed.type === 'string') {
+        return {
+          type: parsed.type,
+          url: parsed.url,
+          title: parsed.title,
+          html: parsed.html,
+          saved: parsed.saved,
+          message: parsed.message
+        };
+      }
+    } catch {
+      // Not JSON, ignore
+    }
+  }
+
+  return null;
+}
+
 // 渲染消息内容组件
-function MessageContent({ content, htmlContent, reportUrl, pptUrl }: { content: string; htmlContent?: string; reportUrl?: string; pptUrl?: string }) {
+function MessageContent({ content, htmlContent, reportUrl, pptUrl, onReportClick }: {
+  content: string;
+  htmlContent?: string;
+  reportUrl?: string;
+  pptUrl?: string;
+  onReportClick?: (url: string, title?: string) => void;
+}) {
   const [iframeKey, setIframeKey] = React.useState(0);
 
   // 构建报告的完整访问 URL
@@ -125,6 +217,12 @@ function MessageContent({ content, htmlContent, reportUrl, pptUrl }: { content: 
     return `${API_BASE}/runner/reports/${sessionID}/${filename}`;
   };
 
+  // 提取报告标题
+  const extractReportTitle = (content: string): string => {
+    const match = content.match(/\[([^\]]+报告[^\]]*)\]/);
+    return match ? match[1] : '报告预览';
+  };
+
   // 如果有 PPT URL，显示下载链接
   if (pptUrl) {
     return (
@@ -146,7 +244,7 @@ function MessageContent({ content, htmlContent, reportUrl, pptUrl }: { content: 
     );
   }
 
-  // 如果有报告 URL，通过 iframe 加载报告
+  // 如果有报告 URL，显示预览按钮（点击后在右侧面板打开）
   if (reportUrl) {
     return (
       <div className="w-full">
@@ -155,28 +253,19 @@ function MessageContent({ content, htmlContent, reportUrl, pptUrl }: { content: 
             <BarChart3 size={12} className="text-green-500" />
             数据分析报告
           </span>
-          <a
-            href={getReportFullUrl(reportUrl)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-500 hover:text-blue-600 font-medium"
+          <button
+            onClick={() => onReportClick?.(reportUrl, extractReportTitle(content))}
+            className="flex items-center gap-1 px-2 py-1 bg-green-500 hover:bg-green-600 text-white text-[10px] rounded-lg transition-colors"
           >
-            在新窗口打开
-          </a>
+            <Eye size={12} />
+            预览
+          </button>
         </div>
-        <iframe
-          key={iframeKey}
-          src={getReportFullUrl(reportUrl)}
-          className="w-full border border-slate-200 rounded-xl"
-          style={{ height: '600px' }}
-          sandbox="allow-scripts allow-same-origin"
-          title="数据分析报告"
-        />
       </div>
     );
   }
 
-  // 如果有 HTML 内容，通过 iframe srcDoc 渲染
+  // 如果有 HTML 内容，显示预览按钮
   if (htmlContent) {
     return (
       <div className="w-full">
@@ -186,28 +275,98 @@ function MessageContent({ content, htmlContent, reportUrl, pptUrl }: { content: 
             数据分析报告
           </span>
           <button
-            onClick={() => setIframeKey(k => k + 1)}
-            className="text-blue-500 hover:text-blue-600 font-medium"
+            onClick={() => onReportClick?.(`/reports/preview_${Date.now()}.html`, '报告预览')}
+            className="flex items-center gap-1 px-2 py-1 bg-green-500 hover:bg-green-600 text-white text-[10px] rounded-lg transition-colors"
           >
-            刷新图表
+            <Eye size={12} />
+            预览
           </button>
         </div>
-        <iframe
-          key={iframeKey}
-          srcDoc={htmlContent}
-          className="w-full border border-slate-200 rounded-xl"
-          style={{ height: '600px' }}
-          sandbox="allow-scripts allow-same-origin"
-          title="数据分析报告"
-        />
       </div>
     );
   }
 
   // 否则渲染 Markdown
+  // 提取报告链接用于显示预览按钮
+  const reportLinkMatch = content.match(/\[([^\]]+)\]\(\/reports\/([^)]+)\)/);
+  const reportTitle = reportLinkMatch ? reportLinkMatch[1] : null;
+  const reportLink = reportLinkMatch ? reportLinkMatch[2] : null;
+
   return (
-    <div className="markdown-body prose prose-slate prose-sm max-w-none">
-      <ReactMarkdown>{content}</ReactMarkdown>
+    <div className="w-full">
+      {/* 报告预览按钮 */}
+      {reportLink && (
+        <div className="mb-3 flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+          <BarChart3 size={16} className="text-green-600" />
+          <span className="text-xs text-green-700 font-medium flex-1 truncate">{reportTitle || '报告'}</span>
+          <button
+            onClick={() => onReportClick?.(`/reports/${reportLink}`, reportTitle || '报告预览')}
+            className="flex items-center gap-1 px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white text-xs rounded-lg transition-colors"
+          >
+            <Eye size={14} />
+            预览
+          </button>
+        </div>
+      )}
+      {/* Markdown 内容 - 样式参考 Claude Code */}
+      <div
+        className={cn(
+          "markdown-body text-sm leading-relaxed",
+          // Headings - make them visually distinct
+          "[&_h1]:text-xl [&_h1]:font-bold [&_h1]:mb-3 [&_h1]:mt-4 [&_h1]:text-slate-900 [&_h1]:border-b [&_h1]:border-slate-200 [&_h1]:pb-1",
+          "[&_h2]:text-lg [&_h2]:font-bold [&_h2]:mb-2 [&_h2]:mt-3 [&_h2]:text-slate-800",
+          "[&_h3]:text-base [&_h3]:font-semibold [&_h3]:mb-1.5 [&_h3]:mt-2.5 [&_h3]:text-slate-700",
+          "[&_h4]:text-sm [&_h4]:font-semibold [&_h4]:mb-1 [&_h4]:mt-2 [&_h4]:text-slate-600",
+          "[&_h5]:text-xs [&_h5]:font-semibold [&_h5]:mb-1 [&_h5]:mt-2 [&_h5]:text-slate-500",
+          "[&_h6]:text-xs [&_h6]:font-medium [&_h6]:mb-1 [&_h6]:mt-2 [&_h6]:text-slate-400",
+          // Paragraphs
+          "[&_p]:my-2 [&_p]:leading-relaxed",
+          // Lists
+          "[&_ul]:my-1 [&_ul]:pl-5 [&_ul]:list-disc",
+          "[&_ol]:my-1 [&_ol]:pl-5 [&_ol]:list-decimal",
+          "[&_li]:my-0.5",
+          // Blockquote
+          "[&_blockquote]:border-l-3 [&_blockquote]:border-slate-300 [&_blockquote]:pl-3 [&_blockquote]:ml-0",
+          "[&_blockquote]:my-2 [&_blockquote]:text-slate-600 [&_blockquote]:italic",
+          // Horizontal rule
+          "[&_hr]:border-slate-200 [&_hr]:my-4",
+          // Tables (GFM)
+          "[&_table]:w-full [&_table]:text-xs [&_table]:border-collapse [&_table]:my-3",
+          "[&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:border [&_th]:border-slate-200 [&_th]:bg-slate-100 [&_th]:font-semibold [&_th]:text-slate-700",
+          "[&_td]:px-3 [&_td]:py-1.5 [&_td]:border [&_td]:border-slate-200",
+          "[&_tr:nth-child(even)_td]:bg-slate-50/70",
+          // Links
+          "[&_a]:text-sky-600 [&_a]:no-underline hover:[&_a]:underline",
+          // Strong / em
+          "[&_strong]:font-semibold [&_strong]:text-slate-800",
+          "[&_em]:italic",
+          // Inline code
+          "[&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:bg-slate-100 [&_code]:text-slate-800 [&_code]:text-xs [&_code]:font-mono",
+        )}
+      >
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          rehypePlugins={[rehypeHighlight]}
+          components={{
+            code({ className: cls, children, ...rest }) {
+              const isBlock = /language-/.test(cls ?? "");
+              if (isBlock) {
+                return (
+                  <code className={cn("block overflow-x-auto rounded-lg bg-slate-900 text-slate-100 p-3 my-2 text-xs font-mono leading-relaxed border border-slate-700", cls)} {...rest}>
+                    {children}
+                  </code>
+                );
+              }
+              return <code className={cn("px-1.5 py-0.5 rounded bg-slate-100 text-slate-800 text-xs font-mono")} {...rest}>{children}</code>;
+            },
+            pre({ children }) {
+              return <pre className="overflow-x-auto rounded-lg bg-slate-900 border border-slate-700 p-3 my-2 text-xs font-mono leading-relaxed">{children}</pre>;
+            },
+          }}
+        >
+          {content}
+        </ReactMarkdown>
+      </div>
     </div>
   );
 }
@@ -233,6 +392,9 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
   const [isMoreAgentsOpen, setIsMoreAgentsOpen] = React.useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = React.useState(false);
   const [isTraceOpen, setIsTraceOpen] = React.useState(false);
+  const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
+  const [previewTitle, setPreviewTitle] = React.useState<string>('');
+  const [isPreviewFullscreen, setIsPreviewFullscreen] = React.useState(false);
   const [selectedMessageId, setSelectedMessageId] = React.useState<string | null>(null);
   const [showThinking, setShowThinking] = React.useState<Record<string, boolean>>({});
   const [collapsedTools, setCollapsedTools] = React.useState<Record<string, boolean>>({});
@@ -242,17 +404,53 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
   const checkpointIdRef = React.useRef<string | null>(null);
   const userInitiatedStopRef = React.useRef(false);
 
+  // Helper to convert report URL to full API URL
+  const getReportFullUrl = (url: string) => {
+    if (!url) return '';
+    if (url.startsWith('/reports/')) {
+      const path = url.replace(/^\/reports\//, '');
+      return `${API_BASE}/runner/reports/${path}`;
+    }
+    if (url.match(/\/uploads\/([^\/]+)\/reports\/([^/]+\.html)$/)) {
+      const match = url.match(/\/uploads\/([^\/]+)\/reports\/([^/]+\.html)$/);
+      if (match) {
+        return `${API_BASE}/runner/reports/${match[1]}/${match[2]}`;
+      }
+    }
+    return url;
+  };
+
+  // Open report in preview panel
+  const openPreview = (url: string, title?: string) => {
+    setPreviewUrl(getReportFullUrl(url));
+    setPreviewTitle(title || '报告预览');
+  };
+
+  // Close preview panel
+  const closePreview = () => {
+    setPreviewUrl(null);
+    setPreviewTitle('');
+  };
+
   // Load agents from backend
   React.useEffect(() => {
     const loadAgents = async () => {
       try {
         const backendAgents = await agentApi.findAll();
-        // 系统 Agent 排在前面，用户 Agent 排在后面
+        // 系统 Agent 排在前面，用户 Agent 排在后面；同类型按 sort 字段排序
         const sortedAgents = backendAgents.sort((a, b) => {
-          if (a.is_system === b.is_system) return 0;
+          if (a.is_system === b.is_system) {
+            const sortA = a.sort ?? 0;
+            const sortB = b.sort ?? 0;
+            return sortA - sortB;
+          }
           return a.is_system ? -1 : 1;
         });
         setAgents(sortedAgents);
+        // 默认选中第一个 Agent（系统 Agent 按 sort 排序后的第一个）
+        if (!preselectedAgent && sortedAgents.length > 0) {
+          setActiveAgent(sortedAgents[0]);
+        }
       } catch (err) {
         console.error('Failed to load agents:', err);
       }
@@ -295,15 +493,21 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
     try {
       const msgs = await chatApi.getMessagesBySessionId(sessionId);
       const mapped: Message[] = msgs.map(m => {
+        // Decode JSON-escaped content (handles double-encoding issue)
+        const decodedContent = decodeJsonEscapedContent(m.content);
         // Reconstruct htmlContent and reportUrl from content (same as streaming done message)
-        const { html, markdown, reportUrl, pptUrl } = extractHtmlFromMarkdown(m.content);
-        // Parse files from metadata if present
+        const { html, markdown, reportUrl, pptUrl } = extractHtmlFromMarkdown(decodedContent);
+        // Parse files and a2ui from metadata if present
         let files: FileInfo[] | undefined;
+        let a2ui: any = undefined;
         if (m.metadata) {
           try {
             const meta = JSON.parse(m.metadata);
             if (meta.files && Array.isArray(meta.files)) {
               files = meta.files;
+            }
+            if (meta.a2ui) {
+              a2ui = meta.a2ui;
             }
           } catch (e) {
             // Ignore parse errors
@@ -317,6 +521,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
           reportUrl: reportUrl || undefined,
           pptUrl: pptUrl || undefined,
           files,
+          a2ui,
           timestamp: new Date(m.created_at),
           status: m.status as 'pending_approval' | 'completed' | 'failed' | undefined,
           thinking: m.trace ? JSON.parse(m.trace)?.thinking : undefined,
@@ -491,13 +696,17 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
       // Save user message to database (with files if present)
       let userMessageUlid: string | null = null;
       try {
-        const filesJson = filesToSend.length > 0 ? JSON.stringify(filesToSend) : undefined;
+        // Append file names to content for visibility in chat history
+        let messageContent = input;
+        if (filesToSend.length > 0) {
+          const fileNames = filesToSend.map(f => f.name).join(', ');
+          messageContent = `${input}\n\n[附件: ${fileNames}]`;
+        }
         const userMsgResult = await chatApi.createMessage({
           session_id: sessionId,
           role: 'user',
-          content: input,
+          content: messageContent,
           status: 'completed',
-          files: filesJson
         });
         userMessageUlid = userMsgResult.ulid;
       } catch (err) {
@@ -532,6 +741,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
         let toolCalls: Message['toolCalls'] = [];
         let pendingToolCall: { name: string; args: any } | null = null;
         let recallInfo: Message['recallInfo'] = { status: 'running' };
+        let a2uiData: any = null;
 
         // 先创建一条空消息用于流式更新
         const assistantMessage: Message = {
@@ -624,6 +834,52 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                     updateMessage({ toolCalls: [...toolCalls] });
                   }
 
+                  // 处理 a2ui 事件 - A2UI 渲染事件
+                  if (currentEventType === 'a2ui' && data.json) {
+                    console.log('[SSE] a2ui event received:', data.json);
+                    try {
+                      const a2uiMsg = JSON.parse(data.json);
+                      if (a2uiMsg.dataModelUpdate) {
+                        // 提取 card 数据用于渲染
+                        const update = a2uiMsg.dataModelUpdate;
+                        if (update.contents && update.contents.length > 0) {
+                          for (const item of update.contents) {
+                            if (item.valueString) {
+                              // valueString 可能是 ```json ... ``` 包裹的，需要先去除
+                              let jsonStr = item.valueString.trim();
+                              console.log('[SSE] valueString after trim:', jsonStr.substring(0, 100));
+                              if (jsonStr.startsWith('```json')) {
+                                jsonStr = jsonStr.slice(7);
+                              }
+                              if (jsonStr.endsWith('```')) {
+                                jsonStr = jsonStr.slice(0, -3);
+                              }
+                              jsonStr = jsonStr.trim();
+                              console.log('[SSE] jsonStr for parsing:', jsonStr.substring(0, 100));
+                              try {
+                                const cardData = JSON.parse(jsonStr);
+                                console.log('[SSE] cardData parsed:', cardData);
+                                if (cardData.card) {
+                                  // 这是 card 格式的响应
+                                  a2uiData = {
+                                    type: 'card',
+                                    data: cardData
+                                  };
+                                  console.log('[SSE] Setting a2uiData:', a2uiData);
+                                  updateMessage({ a2ui: a2uiData });
+                                }
+                              } catch (e) {
+                                console.error('[SSE] Failed to parse cardData:', e);
+                              }
+                            }
+                          }
+                        }
+                      }
+                    } catch (e) {
+                      console.error('[SSE] Failed to parse a2ui event:', e);
+                    }
+                  }
+
                   if (currentEventType === 'done') {
                     streamTokenUsage = {
                       prompt_tokens: data.prompt_tokens,
@@ -632,13 +888,15 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                     };
                     const finalContent = data.content || accumulatedContent;
                     const { html, markdown, reportUrl, pptUrl } = extractHtmlFromMarkdown(finalContent);
+                    console.log('[SSE] done event:', { html, markdown: markdown?.substring(0, 50), a2uiData });
                     updateMessage({
                       content: markdown || finalContent,
                       htmlContent: html || undefined,
                       reportUrl: reportUrl || undefined,
                       pptUrl: pptUrl || undefined,
                       status: 'completed',
-                      toolCalls: [...toolCalls]
+                      toolCalls: [...toolCalls],
+                      a2ui: a2uiData
                     });
                   }
 
@@ -703,6 +961,52 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                     updateMessage({ toolCalls: [...toolCalls] });
                   }
 
+                  // 处理 a2ui 事件 - A2UI 渲染事件
+                  if (currentEventType === 'a2ui' && data.json) {
+                    console.log('[SSE] a2ui event received:', data.json);
+                    try {
+                      const a2uiMsg = JSON.parse(data.json);
+                      if (a2uiMsg.dataModelUpdate) {
+                        // 提取 card 数据用于渲染
+                        const update = a2uiMsg.dataModelUpdate;
+                        if (update.contents && update.contents.length > 0) {
+                          for (const item of update.contents) {
+                            if (item.valueString) {
+                              // valueString 可能是 ```json ... ``` 包裹的，需要先去除
+                              let jsonStr = item.valueString.trim();
+                              console.log('[SSE] valueString after trim:', jsonStr.substring(0, 100));
+                              if (jsonStr.startsWith('```json')) {
+                                jsonStr = jsonStr.slice(7);
+                              }
+                              if (jsonStr.endsWith('```')) {
+                                jsonStr = jsonStr.slice(0, -3);
+                              }
+                              jsonStr = jsonStr.trim();
+                              console.log('[SSE] jsonStr for parsing:', jsonStr.substring(0, 100));
+                              try {
+                                const cardData = JSON.parse(jsonStr);
+                                console.log('[SSE] cardData parsed:', cardData);
+                                if (cardData.card) {
+                                  // 这是 card 格式的响应
+                                  a2uiData = {
+                                    type: 'card',
+                                    data: cardData
+                                  };
+                                  console.log('[SSE] Setting a2uiData:', a2uiData);
+                                  updateMessage({ a2ui: a2uiData });
+                                }
+                              } catch (e) {
+                                console.error('[SSE] Failed to parse cardData:', e);
+                              }
+                            }
+                          }
+                        }
+                      }
+                    } catch (e) {
+                      console.error('[SSE] Failed to parse a2ui event:', e);
+                    }
+                  }
+
                   if (currentEventType === 'done') {
                     streamTokenUsage = {
                       prompt_tokens: data.prompt_tokens,
@@ -711,13 +1015,15 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                     };
                     const finalContent = data.content || accumulatedContent;
                     const { html, markdown, reportUrl, pptUrl } = extractHtmlFromMarkdown(finalContent);
+                    console.log('[SSE] done event:', { html, markdown: markdown?.substring(0, 50), a2uiData });
                     updateMessage({
                       content: markdown || finalContent,
                       htmlContent: html || undefined,
                       reportUrl: reportUrl || undefined,
                       pptUrl: pptUrl || undefined,
                       status: 'completed',
-                      toolCalls: [...toolCalls]
+                      toolCalls: [...toolCalls],
+                      a2ui: a2uiData
                     });
                   }
 
@@ -753,7 +1059,8 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
             input_tokens: streamTokenUsage.prompt_tokens || 0,
             output_tokens: streamTokenUsage.completion_tokens || 0,
             total_tokens: streamTokenUsage.total_tokens || 0,
-            status: 'completed'
+            status: 'completed',
+            a2ui: a2uiData
           });
         } catch (err) {
           console.error('Failed to save assistant message:', err);
@@ -1184,9 +1491,36 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                                     )}
                                     {t('chat.output')}
                                   </div>
-                                  <code className="block text-[10px] text-slate-600 bg-white px-2 py-1.5 rounded border border-slate-100 font-mono max-h-32 overflow-auto">
-                                    {typeof tool.result === 'string' ? tool.result : JSON.stringify(tool.result, null, 2)}
-                                  </code>
+                                  {/* 解析 rich content */}
+                                  {(() => {
+                                    const rich = parseToolResultRichContent(tool.result);
+                                    if (rich && rich.url && rich.type === 'html_report') {
+                                      // 将 /reports/{sessionID}/{filename} 转换为 /runner/reports/{sessionID}/{filename}
+                                      const reportPath = rich.url.replace(/^\/reports\//, '/runner/reports/');
+                                      const fullUrl = API_BASE + reportPath;
+                                      return (
+                                        <div className="flex items-center gap-2 p-2 bg-green-50 border border-green-200 rounded-lg">
+                                          <BarChart3 size={16} className="text-green-600" />
+                                          <span className="text-xs text-green-700 font-medium">
+                                            {rich.title || '报告'} 已生成
+                                          </span>
+                                          <button
+                                            onClick={() => window.open(fullUrl, '_blank')}
+                                            className="flex items-center gap-1 px-2 py-1 bg-green-600 hover:bg-green-700 text-white text-[10px] rounded transition-colors"
+                                          >
+                                            <ExternalLink size={10} />
+                                            新窗口打开
+                                          </button>
+                                        </div>
+                                      );
+                                    }
+                                    // 默认显示原始结果
+                                    return (
+                                      <code className="block text-[10px] text-slate-600 bg-white px-2 py-1.5 rounded border border-slate-100 font-mono max-h-32 overflow-auto">
+                                        {typeof tool.result === 'string' ? tool.result : JSON.stringify(tool.result, null, 2)}
+                                      </code>
+                                    );
+                                  })()}
                                 </div>
                               )}
                             </div>
@@ -1207,7 +1541,7 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                     msg.status === 'streaming' ? (
                       <div className="text-slate-800 whitespace-pre-wrap">{msg.content || t('chat.solving')}</div>
                     ) : (
-                      <MessageContent content={msg.content} htmlContent={msg.htmlContent} reportUrl={msg.reportUrl} pptUrl={msg.pptUrl} />
+                      <MessageContent content={msg.content} htmlContent={msg.htmlContent} reportUrl={msg.reportUrl} pptUrl={msg.pptUrl} onReportClick={openPreview} />
                     )
                   ) : (
                     msg.content
@@ -1273,6 +1607,33 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
                           </div>
                         ))}
                       </div>
+                    </div>
+                  )}
+
+                  {/* a2ui Card 渲染 - 用于订单/数据卡片 */}
+                  {msg.a2ui?.type === 'card' && msg.a2ui.data?.card && (
+                    <div className="mt-4 p-4 bg-white rounded-xl border border-slate-200 shadow-sm">
+                      {msg.a2ui.data.card.title && (
+                        <h4 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+                          <BarChart3 size={14} className="text-brand-500" />
+                          {msg.a2ui.data.card.title}
+                        </h4>
+                      )}
+                      {msg.a2ui.data.card.sections?.map((section: any, i: number) => (
+                        <div key={i} className="mb-3">
+                          {section.title && (
+                            <h5 className="text-xs font-semibold text-slate-600 mb-2 border-b border-slate-100 pb-1">
+                              {section.title}
+                            </h5>
+                          )}
+                          {section.fields?.map((field: any, j: number) => (
+                            <div key={j} className="flex justify-between py-1 text-xs">
+                              <span className="text-slate-500">{field.label}</span>
+                              <span className="text-slate-800 font-medium">{field.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
                     </div>
                   )}
 
@@ -1623,6 +1984,53 @@ export function ChatInterface({ preselectedAgent, onAgentUsed }: ChatInterfacePr
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Report Preview Panel */}
+      {previewUrl && (
+        <motion.div
+          initial={{ width: 0, opacity: 0 }}
+          animate={{
+            width: isPreviewFullscreen ? '100%' : '50%',
+            opacity: 1
+          }}
+          exit={{ width: 0, opacity: 0 }}
+          transition={{ duration: 0.3, ease: 'easeInOut' }}
+          className={cn(
+            "border-l border-slate-200 bg-white flex flex-col overflow-hidden",
+            isPreviewFullscreen && "fixed inset-0 z-50",
+            !isPreviewFullscreen && "relative"
+          )}
+        >
+          {/* Preview Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50 shrink-0">
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={() => setIsPreviewFullscreen(!isPreviewFullscreen)}
+                className="p-1.5 hover:bg-slate-200 rounded-md transition-colors text-slate-500"
+                title={isPreviewFullscreen ? '退出全屏' : '全屏'}
+              >
+                {isPreviewFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              </button>
+              <button
+                onClick={closePreview}
+                className="p-1.5 hover:bg-slate-200 rounded-md transition-colors text-slate-500"
+                title="关闭"
+              >
+                <XCircle size={18} />
+              </button>
+            </div>
+          </div>
+          {/* Preview Content */}
+          <div className="flex-1 overflow-hidden">
+            <iframe
+              src={previewUrl}
+              className="w-full h-full border-0"
+              title={previewTitle}
+              sandbox="allow-scripts allow-same-origin allow-forms"
+            />
+          </div>
+        </motion.div>
+      )}
     </div>
   );
 }

@@ -2,6 +2,7 @@ package chat
 
 import (
 	"database/sql/driver"
+	"fmt"
 
 	"github.com/jettjia/igo-pkg/pkg/util"
 	"gorm.io/gorm"
@@ -36,11 +37,18 @@ func (j *StringJSON) Scan(value interface{}) error {
 		j.Val = ""
 		return nil
 	}
-	bytes, ok := value.([]byte)
-	if !ok {
+	// Try []byte first
+	if bytes, ok := value.([]byte); ok {
+		j.Val = string(bytes)
 		return nil
 	}
-	j.Val = string(bytes)
+	// Try string (SQLite returns string for JSON columns)
+	if str, ok := value.(string); ok {
+		j.Val = str
+		return nil
+	}
+	// Fallback: convert to string via fmt
+	j.Val = fmt.Sprintf("%v", value)
 	return nil
 }
 

@@ -132,6 +132,7 @@ type RetryConfig struct {
 	MaxDelayMs        int      `json:"max_delay_ms"`
 	BackoffMultiplier float64  `json:"backoff_multiplier"`
 	RetryableErrors   []string `json:"retryable_errors"`
+	FallbackModel     string   `json:"fallback_model"` // 连续 529 后的备用模型
 	// 熔断器配置
 	CircuitBreakerThreshold int `json:"circuit_breaker_threshold"` // 连续失败次数阈值，达到后熔断
 	CircuitBreakerDurationMs int `json:"circuit_breaker_duration_ms"` // 熔断持续时间
@@ -162,7 +163,7 @@ type ResponseSchemaConfig struct {
 	Type     string         `json:"type"`
 	Version  string         `json:"version"`
 	Strict   bool           `json:"strict"`
-	Schema   map[string]any `json:"schema"`
+	Schema   string `json:"schema"`
 	Fallback string         `json:"fallback"`
 }
 

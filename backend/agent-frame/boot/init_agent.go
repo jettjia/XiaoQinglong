@@ -82,6 +82,7 @@ type agentConfig struct {
 	model       string
 	configJson  string
 	isSystem    bool
+	sort        int
 }
 
 // getBuiltInAgents 获取内置智能体配置列表
@@ -90,6 +91,43 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 	modelJSON := buildModelConfigJson(modelCfg)
 
 	return []agentConfig{
+		{
+			name:        "快速问答",
+			description: "通用对话助手，可以调用任意技能和工具处理用户问题，灵活应对各种需求",
+			icon:        "MessageCircle",
+			model:       "default",
+			configJson: `{
+				"endpoint": "` + getRunnerEndpoint() + `",
+				"models": ` + modelJSON + `,
+				"system_prompt": "你是一个智能助手，名称叫小青龙(Dragon Agent OS)。你可以根据用户的问题，灵活调用任何可用的技能（skills）和工具（tools）来解决问题。\n\n【身份定义】\n你是一个通用智能助手，擅长使用工具和技能来完成各种任务。你应该主动行动而不是仅仅描述你要做什么。\n\n【工具使用准则】\n你必须使用工具来采取行动——不要只描述你会做什么或计划做什么。当你承诺执行某个操作时，必须立即在同一个回复中调用相应的工具。不要用"我会..."来结束回合，必须立即执行。\n持续工作直到任务真正完成。不要在承诺下一步行动后停下来。如果你有可用的工具来完成的任务，就使用它们。\n\n【技能系统 - 渐进式披露】\n技能遵循渐进式披露模式：\n1. 识别技能何时适用：检查用户任务是否匹配技能的描述或触发条件\n2. 加载技能详情：使用 'load_skill' 工具获取完整指令\n3. 执行技能：使用 'run_skill' 工具执行技能\n4. 复杂任务：使用 'orchestrate_skills' 来规划和执行多步骤技能\n\n【技能自动创建】\n完成复杂任务（5+ 工具调用）、解决棘手问题、或发现非平凡工作流程时，使用 'skill_manage' 工具创建新技能来保存这个方法，以便将来复用。\n\n创建技能的时机：\n- 复杂任务成功完成（5+ 工具调用）\n- 解决了棘手的问题\n- 发现了非平凡的工作流程\n- 用户要求记住一个流程\n\n当使用技能发现其过时、不完整或错误时，立即使用 skill_manage(action='patch') 打补丁——不要等待被要求。\n\n良好的技能包括：\n- 清晰的触发条件（何时使用此技能）\n- 带精确命令的编号步骤\n- 陷阱部分（常见错误）\n- 验证步骤（如何确认成功）\n\n【输出格式要求】\n1. 直接输出 Markdown 格式，不要用代码块包裹整个回答\n2. 表格使用标准 Markdown 语法\n3. 代码块必须指定语言\n4. 列表、引用等使用标准 Markdown 语法\n\n【能力范围】\n- 知识问答和信息检索\n- 文档处理和分析\n- 代码编写和调试\n- 数据处理和可视化\n- 文件生成（PPT、Excel、Word等）\n- 翻译和语言处理\n- 复杂的多步骤任务\n\n【回答原则】\n1. 理解用户意图\n2. 决定是否需要调用技能或工具\n3. 按需调用并整合结果\n4. 提供清晰完整的回答，使用 Markdown 格式化输出",
+				"options": {
+					"temperature": 0.7,
+					"max_tokens": 8000,
+					"max_iterations": 20,
+					"stream": true,
+					"approval_policy": {
+						"enabled": false
+					},
+					"retry": {
+						"max_attempts": 3,
+						"initial_delay_ms": 1000,
+						"backoff_multiplier": 2.0,
+						"max_delay_ms": 30000
+					}
+				},
+				"context_window": {
+					"max_rounds": 20,
+					"max_tokens": 64000,
+					"strategy": "sliding_window"
+				},
+				"long_term_memory": {
+					"enabled": true,
+					"max_count": 10
+				}
+			}`,
+			isSystem: true,
+			sort:     1,
+		},
 		{
 			name:        "翻译",
 			description: "多语言实时翻译，支持中英日韩等常用语言互译",
@@ -106,6 +144,12 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 					"stream": true,
 					"approval_policy": {
 						"enabled": false
+					},
+					"retry": {
+						"max_attempts": 3,
+						"initial_delay_ms": 1000,
+						"backoff_multiplier": 2.0,
+						"max_delay_ms": 30000
 					}
 				},
 				"context_window": {
@@ -119,6 +163,7 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 				}
 			}`,
 			isSystem: true,
+			sort:     2,
 		},
 		{
 			name:        "文档问答",
@@ -141,6 +186,12 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 						"default_model": "default",
 						"rewrite_prompt": "请优化以下用户Query，使其更加清晰、准确，便于理解。只返回优化后的Query，不要其他内容。",
 						"summarize_prompt": "请总结以下内容，提取关键信息，保持简洁。只返回总结内容，不要其他内容。"
+					},
+					"retry": {
+						"max_attempts": 3,
+						"initial_delay_ms": 1000,
+						"backoff_multiplier": 2.0,
+						"max_delay_ms": 30000
 					}
 				},
 				"context_window": {
@@ -154,6 +205,7 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 				}
 			}`,
 			isSystem: true,
+			sort:     3,
 		},
 		{
 			name:        "数据分析",
@@ -181,6 +233,12 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 					"stream": true,
 					"approval_policy": {
 						"enabled": false
+					},
+					"retry": {
+						"max_attempts": 3,
+						"initial_delay_ms": 1000,
+						"backoff_multiplier": 2.0,
+						"max_delay_ms": 30000
 					}
 				},
 				"sandbox": {
@@ -208,6 +266,7 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 				}
 			}`,
 			isSystem: true,
+			sort:     4,
 		},
 		{
 			name:        "生成PPT",
@@ -235,6 +294,12 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 					"stream": true,
 					"approval_policy": {
 						"enabled": false
+					},
+					"retry": {
+						"max_attempts": 3,
+						"initial_delay_ms": 1000,
+						"backoff_multiplier": 2.0,
+						"max_delay_ms": 30000
 					}
 				},
 				"sandbox": {
@@ -262,8 +327,14 @@ func getBuiltInAgents(modelCfg *defaultModelConfig) []agentConfig {
 				}
 			}`,
 			isSystem: true,
+			sort:     5,
 		},
 	}
+}
+
+// shouldResetAgents 检查是否需要重置智能体（环境变量 INIT_AGENT=true）
+func shouldResetAgents() bool {
+	return os.Getenv("INIT_AGENT") == "true"
 }
 
 // initDefaultAgents 初始化默认智能体
@@ -279,6 +350,12 @@ func initDefaultAgents() error {
 	// 获取内置智能体配置
 	defaultAgents := getBuiltInAgents(modelCfg)
 
+	// 检查是否需要重置
+	resetAgents := shouldResetAgents()
+	if resetAgents {
+		log.Println("[Init] INIT_AGENT=true, will reset existing agents")
+	}
+
 	for _, ag := range defaultAgents {
 		// 检查是否已存在同名智能体
 		existing, err := agentSvc.FindSysAgentAll(ctx, &dtoAgent.FindSysAgentAllReq{Name: ag.name})
@@ -287,9 +364,19 @@ func initDefaultAgents() error {
 			continue
 		}
 		if len(existing) > 0 {
-			// 已存在，跳过
-			log.Printf("[Init] Agent already exists: %s", ag.name)
-			continue
+			if resetAgents {
+				// 删除已存在的智能体
+				oldAgent := existing[0]
+				if err := agentSvc.DeleteSysAgent(ctx, &dtoAgent.DelSysAgentReq{Ulid: oldAgent.Ulid}); err != nil {
+					log.Printf("[Init] Failed to delete agent %s (ulid=%s): %v", ag.name, oldAgent.Ulid, err)
+					continue
+				}
+				log.Printf("[Init] Deleted existing agent: %s (ulid=%s)", ag.name, oldAgent.Ulid)
+			} else {
+				// 已存在，跳过
+				log.Printf("[Init] Agent already exists: %s", ag.name)
+				continue
+			}
 		}
 
 		// 创建智能体
@@ -302,6 +389,7 @@ func initDefaultAgents() error {
 			Enabled:     true,
 			IsSystem:    ag.isSystem,
 			CreatedBy:   "system",
+			Sort:        ag.sort,
 		}
 
 		_, err = agentSvc.CreateSysAgent(ctx, createReq)

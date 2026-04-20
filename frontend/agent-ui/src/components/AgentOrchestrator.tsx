@@ -110,7 +110,7 @@ export function AgentOrchestrator({ editingAgent, onSaved }: AgentOrchestratorPr
       { name: 'query', type: 'string', required: true },
       { name: 'user_id', type: 'string', required: false }
     ] as Variable[],
-    retryCount: 3,
+    retryCount: 10,
     retryInterval: 5,
     timeout: 60,
     endpoint: 'http://localhost:18080/run',
@@ -220,6 +220,7 @@ export function AgentOrchestrator({ editingAgent, onSaved }: AgentOrchestratorPr
         maxIterations: parsedConfig.maxIterations ?? prev.maxIterations,
         stream: parsedConfig.stream ?? prev.stream,
         sandbox: parsedConfig.sandbox || prev.sandbox,
+        responseSchema: parsedConfig.responseSchema || prev.responseSchema,
       };
       });
     }
@@ -358,12 +359,13 @@ export function AgentOrchestrator({ editingAgent, onSaved }: AgentOrchestratorPr
             max_tool_calls: 20,
             max_a2a_calls: 5,
             stream: agentConfig.stream,
+            response_schema: agentConfig.responseSchema,
             retry: {
               max_attempts: agentConfig.retryCount,
               initial_delay_ms: agentConfig.retryInterval * 1000,
-              max_delay_ms: 10000,
+              max_delay_ms: 60000,
               backoff_multiplier: 2.0,
-              retryable_errors: ['timeout', 'rate_limit', 'server_error'],
+              retryable_errors: ['timeout', 'rate_limit', 'server_error', '529'],
             },
             routing: {
               default_model: 'default',
@@ -1521,7 +1523,7 @@ export function AgentOrchestrator({ editingAgent, onSaved }: AgentOrchestratorPr
                   <input
                     type="range"
                     min="0"
-                    max="10"
+                    max="99"
                     value={agentConfig.retryCount}
                     onChange={(e) => setAgentConfig(prev => ({ ...prev, retryCount: parseInt(e.target.value) }))}
                     className="w-32 accent-brand-500"

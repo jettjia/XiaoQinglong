@@ -18,4 +18,5 @@ type SysAgent struct {
 	Channels    string `json:"channels"`
 	IsPeriodic  bool   `json:"is_periodic"`
 	CronRule    string `json:"cron_rule"`
+	Sort        int    `json:"sort"`
 }

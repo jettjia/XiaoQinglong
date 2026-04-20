@@ -106,9 +106,15 @@ func (h *Handler) ServeReports(c *gin.Context) {
 		return
 	}
 
-	// 构建报告文件路径: {uploadsDir}/{sessionID}/reports/{filename}
+	// 优先从 uploads 目录查找: {uploadsDir}/{sessionID}/reports/{filename}
 	reportsDir := filepath.Join(xqldir.GetUploadsDir(), sessionID, "reports")
 	filePath := filepath.Join(reportsDir, filename)
+
+	// 如果文件不存在，尝试从 reports 目录查找: {reportsDir}/{sessionID}/{filename}
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		reportsDir = xqldir.GetReportsDir()
+		filePath = filepath.Join(reportsDir, sessionID, filename)
+	}
 
 	// 检查文件是否存在
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {

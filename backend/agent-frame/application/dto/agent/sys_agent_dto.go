@@ -20,6 +20,7 @@ type (
 		Channels    string `json:"channels"`
 		IsPeriodic  bool   `json:"is_periodic"`
 		CronRule    string `json:"cron_rule"`
+		Sort        int    `json:"sort"`
 	}
 
 	// DelSysAgentReq 删除请求对象
@@ -41,6 +42,7 @@ type (
 		Channels    string `json:"channels"`
 		IsPeriodic  *bool  `json:"is_periodic"`
 		CronRule    string `json:"cron_rule"`
+		Sort        *int   `json:"sort"`
 	}
 
 	// UpdateSysAgentEnabledReq 修改启用状态请求对象
@@ -102,6 +104,7 @@ type (
 		Channels    string `json:"channels"`
 		IsPeriodic  bool   `json:"is_periodic"`
 		CronRule    string `json:"cron_rule"`
+		Sort        int    `json:"sort"`
 	}
 
 	// FindSysAgentPageRsp 列表查询返回对象

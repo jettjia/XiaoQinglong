@@ -29,6 +29,7 @@ export interface Agent {
   rerank?: boolean;
   variables?: Variable[];
   retryCount?: number;
+  sort?: number;
   retryInterval?: number;
   timeout?: number;
   endpoint?: string;

@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/prebuilt/deep"
@@ -25,6 +23,9 @@ import (
 	"github.com/jettjia/XiaoQinglong/runner/subagent"
 	"github.com/jettjia/XiaoQinglong/runner/tools"
 	"github.com/jettjia/XiaoQinglong/runner/types"
+	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 func (d *Dispatcher) initModels(ctx context.Context) error {
@@ -476,69 +477,108 @@ func (d *Dispatcher) initMCPs(ctx context.Context) error {
 	for _, mcpCfg := range d.request.MCPs {
 		logger.Infof("[Dispatcher] initMCP: name=%s, transport=%s", mcpCfg.Name, mcpCfg.Transport)
 
+		var cli *client.Client
+		var err error
+
 		switch mcpCfg.Transport {
-		case "http", "sse":
-			// HTTP/SSE 模式：通过 HTTP API 或 SSE 端点加载 tools
+		case "sse":
+			// SSE 模式：使用 mark3labs/mcp-go 库
 			if mcpCfg.Endpoint == "" {
 				logger.Infof("[Dispatcher] initMCP: %s has empty endpoint, skipping", mcpCfg.Name)
 				continue
 			}
-			loader := plugins.NewMCPToolLoader(mcpCfg.Endpoint, mcpCfg.Headers)
-			tools, err := loader.LoadTools(ctx)
+			cli, err = client.NewSSEMCPClient(mcpCfg.Endpoint, client.WithHeaders(mcpCfg.Headers))
 			if err != nil {
-				logger.Infof("[Dispatcher] initMCP: failed to load tools for %s: %v", mcpCfg.Name, err)
+				logger.Infof("[Dispatcher] initMCP: failed to create SSE client for %s: %v", mcpCfg.Name, err)
 				continue
 			}
-			for _, t := range tools {
-				// HTTP/SSE MCP tools 需要包装审批
-				if invokableTool, ok := t.(tool.InvokableTool); ok {
-					wrapped := WrapToolWithApproval(invokableTool, mcpCfg.Name, "mcp", mcpCfg.RiskLevel, d.request.Options.ApprovalPolicy)
-					d.tools = append(d.tools, wrapped)
-				} else {
-					d.tools = append(d.tools, t)
-				}
+
+			// Start the client connection
+			if err = cli.Start(ctx); err != nil {
+				logger.Infof("[Dispatcher] initMCP: failed to start SSE client for %s: %v", mcpCfg.Name, err)
+				continue
 			}
-			logger.Infof("[Dispatcher] initMCP: %s loaded %d tools (transport=%s)", mcpCfg.Name, len(tools), mcpCfg.Transport)
+
+			// Initialize with protocol version
+			_, err = cli.Initialize(ctx, mcp.InitializeRequest{
+				Params: mcp.InitializeParams{
+					ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
+					ClientInfo: mcp.Implementation{
+						Name:    "xiaoqinglong-runner",
+						Version: "1.0.0",
+					},
+				},
+			})
+			if err != nil {
+				logger.Infof("[Dispatcher] initMCP: failed to initialize %s: %v", mcpCfg.Name, err)
+				continue
+			}
 
 		case "stdio":
-			// stdio 模式：启动本地进程
+			// stdio 模式：使用 mark3labs/mcp-go 库的 stdio transport
 			if mcpCfg.Command == "" {
 				logger.Infof("[Dispatcher] initMCP: %s has empty command, skipping", mcpCfg.Name)
 				continue
 			}
-			client, err := plugins.NewMCPStdioClient(mcpCfg.Command, mcpCfg.Args, mcpCfg.Env)
-			if err != nil {
-				logger.Infof("[Dispatcher] initMCP: failed to create stdio client for %s: %v", mcpCfg.Name, err)
+			// Convert env map to slice
+			envSlice := make([]string, 0, len(mcpCfg.Env))
+			for k, v := range mcpCfg.Env {
+				envSlice = append(envSlice, k+"="+v)
+			}
+			stdioTransport := transport.NewStdio(mcpCfg.Command, envSlice, mcpCfg.Args...)
+			cli = client.NewClient(stdioTransport)
+
+			// Start the client connection
+			if err = cli.Start(ctx); err != nil {
+				logger.Infof("[Dispatcher] initMCP: failed to start stdio client for %s: %v", mcpCfg.Name, err)
 				continue
 			}
 
-			// 先获取工具列表
-			tools, err := client.ListTools(ctx)
+			// Initialize with protocol version
+			_, err = cli.Initialize(ctx, mcp.InitializeRequest{
+				Params: mcp.InitializeParams{
+					ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
+					ClientInfo: mcp.Implementation{
+						Name:    "xiaoqinglong-runner",
+						Version: "1.0.0",
+					},
+				},
+			})
 			if err != nil {
-				logger.Infof("[Dispatcher] initMCP: failed to list tools for %s: %v", mcpCfg.Name, err)
+				logger.Infof("[Dispatcher] initMCP: failed to initialize %s: %v", mcpCfg.Name, err)
 				continue
 			}
-
-			// 为每个 MCP 工具创建单独的 tool
-			for _, t := range tools {
-				mcpTool := &mcpStdioTool{
-					name:   t.Name,
-					client: client,
-				}
-				wrapped := WrapToolWithApproval(mcpTool, t.Name, "mcp", mcpCfg.RiskLevel, d.request.Options.ApprovalPolicy)
-				d.tools = append(d.tools, wrapped)
-			}
-			logger.Infof("[Dispatcher] initMCP: %s (stdio) initialized with %d tools", mcpCfg.Name, len(tools))
 
 		default:
 			logger.Infof("[Dispatcher] initMCP: unknown transport %s for %s, skipping", mcpCfg.Transport, mcpCfg.Name)
+			continue
 		}
+
+		// Load tools using the new MCPLoader
+		loader := plugins.NewMCPLoader(cli, nil, mcpCfg.Headers, nil)
+		tools, err := loader.GetTools(ctx)
+		if err != nil {
+			logger.Infof("[Dispatcher] initMCP: failed to load tools for %s: %v", mcpCfg.Name, err)
+			continue
+		}
+
+		for _, t := range tools {
+			// MCP tools 需要包装审批
+			if invokableTool, ok := t.(tool.InvokableTool); ok {
+				wrapped := WrapToolWithApproval(invokableTool, mcpCfg.Name, "mcp", mcpCfg.RiskLevel, d.request.Options.ApprovalPolicy)
+				d.tools = append(d.tools, wrapped)
+			} else {
+				d.tools = append(d.tools, t)
+			}
+		}
+		logger.Infof("[Dispatcher] initMCP: %s loaded %d tools (transport=%s)", mcpCfg.Name, len(tools), mcpCfg.Transport)
 	}
 
 	return nil
 }
 
-// initSkills 初始化 skill runner
+// initSkills 初始化 skill middleware
+// 使用 eino 官方 skill middleware，从 skillsDir 加载 SKILL.md
 func (d *Dispatcher) initSkills(ctx context.Context) error {
 	// 构建 skillsDir
 	// 优先级: Context.skills_dir > 环境变量 SKILLS_DIR > xqldir.GetSkillsDir()
@@ -559,224 +599,15 @@ func (d *Dispatcher) initSkills(ctx context.Context) error {
 	}
 	logger.Infof("[Dispatcher] initSkills: using skills_dir: %s", skillsDir)
 
-	// 创建 skill 配置管理器
-	configMgr, err := plugins.NewSkillConfigManager(plugins.DefaultSkillConfigPath())
+	// 创建 eino skill middleware（从 skillsDir 加载 SKILL.md）
+	// 这让 agent 可以通过 skill("xxx") 获取 skill 的完整内容
+	skillMw, err := plugins.NewSkillMiddleware(ctx, skillsDir)
 	if err != nil {
-		logger.Infof("[Dispatcher] initSkills: warning - failed to load config: %v", err)
-		// 配置加载失败不影响 skill 运行，使用空配置
-		configMgr, _ = plugins.NewSkillConfigManager("")
+		logger.Infof("[Dispatcher] initSkills: warning - failed to create skill middleware: %v", err)
+	} else {
+		d.skillMiddleware = skillMw
+		logger.Infof("[Dispatcher] initSkills: eino skill middleware created for dir: %s", skillsDir)
 	}
-
-	// 转换 skills 和 sandbox 到 types 包类型
-	var skills []types.Skill
-	for _, s := range d.request.Skills {
-		skill := types.Skill{
-			ID:          s.ID,
-			Name:        s.Name,
-			Description: s.Description,
-			Instruction: s.Instruction,
-			Scope:       s.Scope,
-			Trigger:     s.Trigger,
-			EntryScript: s.EntryScript,
-			FilePath:    s.FilePath,
-			Inputs:      s.Inputs,
-			Outputs:     s.Outputs,
-			RiskLevel:   s.RiskLevel,
-		}
-
-		// 如果 Instruction 为空，尝试从 SKILL.md 文件加载
-		if skill.Instruction == "" && skillsDir != "" {
-			skillPath := filepath.Join(skillsDir, skill.ID, "SKILL.md")
-			if data, err := os.ReadFile(skillPath); err == nil {
-				skill.Instruction = string(data)
-			}
-		}
-
-		skills = append(skills, skill)
-	}
-
-	// 自动从 GLOBAL_SKILLS_DIR (默认 ~/.agents/skills) 加载额外的 skills
-	globalSkillsDir := os.Getenv("GLOBAL_SKILLS_DIR")
-	if globalSkillsDir == "" {
-		home := os.Getenv("HOME")
-		if home != "" {
-			globalSkillsDir = filepath.Join(home, ".agents", "skills")
-		}
-	}
-	if globalSkillsDir != "" {
-		if _, err := os.Stat(globalSkillsDir); err == nil {
-			logger.Infof("[Dispatcher] initSkills: scanning global skills dir: %s", globalSkillsDir)
-			globalSkills := discoverSkillsFromDir(globalSkillsDir, skillsDir)
-			for _, gs := range globalSkills {
-				// 检查是否已存在（request 中的 skill 优先）
-				exists := false
-				for _, s := range skills {
-					if s.ID == gs.ID {
-						exists = true
-						break
-					}
-				}
-				if !exists {
-					logger.Infof("[Dispatcher] initSkills: added global skill: %s", gs.ID)
-					skills = append(skills, gs)
-				}
-			}
-		}
-	}
-
-	var sandboxCfg *types.SandboxConfig
-	if d.request.Sandbox != nil {
-		var limits *types.SandboxLimits
-		if d.request.Sandbox.Limits != nil {
-			limits = &types.SandboxLimits{
-				CPU:    d.request.Sandbox.Limits.CPU,
-				Memory: d.request.Sandbox.Limits.Memory,
-			}
-		}
-		var volumes []types.VolumeMount
-		for _, v := range d.request.Sandbox.Volumes {
-			volumes = append(volumes, types.VolumeMount{
-				HostPath:      v.HostPath,
-				ContainerPath: v.ContainerPath,
-				ReadOnly:      v.ReadOnly,
-			})
-		}
-		sandboxCfg = &types.SandboxConfig{
-			Enabled:   d.request.Sandbox.Enabled,
-			Mode:      d.request.Sandbox.Mode,
-			Image:     d.request.Sandbox.Image,
-			Workdir:   d.request.Sandbox.Workdir,
-			Network:   d.request.Sandbox.Network,
-			TimeoutMs: d.request.Sandbox.TimeoutMs,
-			Env:       d.request.Sandbox.Env,
-			Limits:    limits,
-			Volumes:   volumes,
-		}
-
-		// 如果沙箱启用且有 uploadsBaseDir，自动添加 /mnt/uploads volume
-		if d.request.Sandbox.Enabled && d.uploadsBaseDir != "" {
-			hasUploadsVolume := false
-			for _, vol := range sandboxCfg.Volumes {
-				if vol.ContainerPath == "/mnt/uploads" {
-					hasUploadsVolume = true
-					break
-				}
-			}
-			if !hasUploadsVolume {
-				sandboxCfg.Volumes = append(sandboxCfg.Volumes, types.VolumeMount{
-					HostPath:      d.uploadsBaseDir,
-					ContainerPath: "/mnt/uploads",
-					ReadOnly:      true,
-				})
-			}
-		}
-	}
-
-	d.skillRunner = plugins.NewSkillRunner(
-		skills,
-		skillsDir,
-		sandboxCfg,
-		d.defaultModel,
-		configMgr,
-		d.uploadsBaseDir,
-	)
-
-	// 设置 session ID（从 context 中获取）
-	if sessionID, ok := d.request.Context["session_id"].(string); ok && sessionID != "" {
-		d.skillRunner.CurrentSessionID = sessionID
-		logger.Infof("[Dispatcher] Using session_id: %s for skill execution", sessionID)
-	}
-
-	// 创建 skill tool 并添加到 tools
-	skillToolBase := d.skillRunner.BuildSkillTool()
-	if skillToolBase != nil {
-		// 检查 skill tool 是否有可用的 skills（Info 返回 nil 表示没有 skills）
-		info, _ := skillToolBase.Info(ctx)
-		if info == nil {
-			logger.Infof("[Dispatcher] initSkills: no skills available, skipping skill tool registration")
-		} else {
-			logger.Infof("[Dispatcher] initSkills: registering skill tool with %d skills", len(d.request.Skills))
-			// 检查是否需要包装审批
-			// 构建 skill name -> risk level 的映射
-			skillRiskLevels := make(map[string]string)
-			for _, s := range d.request.Skills {
-				if s.RiskLevel != "" {
-					skillRiskLevels[s.ID] = s.RiskLevel
-				}
-			}
-
-			// 如果有任何 skill 需要审批，则包装 skill tool
-			needsApproval := false
-			for _, riskLevel := range skillRiskLevels {
-				if ShouldWrapForApproval("skill", riskLevel, d.request.Options.ApprovalPolicy) {
-					needsApproval = true
-					break
-				}
-			}
-
-			if needsApproval {
-				// 类型断言获取 InvokableTool
-				if invokableTool, ok := skillToolBase.(tool.InvokableTool); ok {
-					// 创建动态风险级别获取器
-					getter := func(argumentsInJSON string) string {
-						// 解析 argumentsInJSON 提取 skill name
-						type skillInput struct {
-							Name string `json:"name"`
-						}
-						var input skillInput
-						if err := json.Unmarshal([]byte(argumentsInJSON), &input); err == nil {
-							if riskLevel, ok := skillRiskLevels[input.Name]; ok {
-								return riskLevel
-							}
-						}
-						return "medium" // 默认风险级别
-					}
-					wrappedSkillTool := NewInvokableApprovableToolWithGetter(invokableTool, "skill", "skill", "medium", getter)
-					d.tools = append(d.tools, wrappedSkillTool)
-					logger.Infof("[Dispatcher] Skill tool wrapped with dynamic approval (skill count: %d)", len(skillRiskLevels))
-				} else {
-					d.tools = append(d.tools, skillToolBase)
-				}
-			} else {
-				d.tools = append(d.tools, skillToolBase)
-			}
-		}
-	}
-
-	// 创建 load_skill tool（低风险，通常不需要审批）
-	loadSkillTool := d.skillRunner.BuildLoadSkillTool()
-	if loadSkillTool != nil {
-		// 检查是否有可用的 skills（Info 返回 nil 表示没有 skills）
-		info, _ := loadSkillTool.Info(ctx)
-		if info != nil {
-			d.tools = append(d.tools, loadSkillTool)
-		}
-	}
-
-	logger.Infof("[Dispatcher] initSkills: %d skills registered, config: %s",
-		len(d.request.Skills), plugins.DefaultSkillConfigPath())
-
-	// 创建技能规划器 (SkillPlanner)
-	d.skillPlanner = plugins.NewSkillPlanner(skills, d.skillRunner, d.defaultModel)
-	logger.Infof("[Dispatcher] SkillPlanner created")
-
-	// 创建技能编排工具 (当需要多 skill 协同时使用)
-	skillOrchestratorTool := d.skillRunner.BuildSkillOrchestratorTool(d.skillPlanner)
-	if skillOrchestratorTool != nil {
-		// 检查是否有可用的 skills（Info 返回 nil 表示没有 skills）
-		info, _ := skillOrchestratorTool.Info(ctx)
-		if info == nil {
-			logger.Infof("[Dispatcher] initSkills: no skills available, skipping orchestrate_skills tool registration")
-		} else {
-			d.tools = append(d.tools, skillOrchestratorTool)
-			logger.Infof("[Dispatcher] SkillOrchestrator tool registered")
-		}
-	}
-
-	// 创建主动技能创建工具（允许 Agent 主动创建可复用技能）
-	createSkillTool := plugins.NewCreateSkillTool()
-	d.tools = append(d.tools, createSkillTool)
-	logger.Infof("[Dispatcher] initSkills: create_skill tool registered")
 
 	return nil
 }
@@ -969,140 +800,4 @@ func (h *cronTaskHandler) OnTaskFired(taskID string, prompt string) {
 // OnTaskError 当任务执行出错时记录日志
 func (h *cronTaskHandler) OnTaskError(taskID string, err error) {
 	logger.Errorf("[CronTaskHandler] Task %s error: %v", taskID, err)
-}
-
-// discoverSkillsFromDir 从目录中发现所有 skills
-// 扫描子目录，寻找包含 SKILL.md 的目录，每个目录视为一个 skill
-func discoverSkillsFromDir(globalDir string, fallbackSkillsDir string) []types.Skill {
-	var discovered []types.Skill
-
-	entries, err := os.ReadDir(globalDir)
-	if err != nil {
-		logger.Warnf("[discoverSkillsFromDir] failed to read global skills dir: %v", err)
-		return discovered
-	}
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		skillID := entry.Name()
-		skillDir := filepath.Join(globalDir, skillID)
-		skillMD := filepath.Join(skillDir, "SKILL.md")
-
-		// 检查 SKILL.md 是否存在
-		if _, err := os.Stat(skillMD); err != nil {
-			continue
-		}
-
-		// 读取 SKILL.md
-		data, err := os.ReadFile(skillMD)
-		if err != nil {
-			continue
-		}
-
-		skill := types.Skill{
-			ID:          skillID,
-			Name:        skillID,
-			Instruction: string(data),
-			Scope:       "both",
-		}
-
-		// 尝试从 frontmatter 解析 name 和 description
-		frontmatter := parseSkillFrontmatter(string(data))
-		if frontmatter != nil {
-			if name, ok := frontmatter["name"].(string); ok && name != "" {
-				skill.Name = name
-			}
-			if desc, ok := frontmatter["description"].(string); ok && desc != "" {
-				skill.Description = desc
-			}
-			if scope, ok := frontmatter["scope"].(string); ok && scope != "" {
-				skill.Scope = scope
-			}
-			if trigger, ok := frontmatter["trigger"].(string); ok && trigger != "" {
-				skill.Trigger = trigger
-			}
-		}
-
-		// 设置 FilePath 为 skill 目录
-		skill.FilePath = skillDir
-
-		// 检查 scripts 目录
-		scriptsDir := filepath.Join(skillDir, "scripts")
-		if info, err := os.Stat(scriptsDir); err == nil && info.IsDir() {
-			// 尝试找到入口脚本
-			// 按优先级查找: skillID.sh > main.sh > 第一个 .sh 文件
-			entryScript := ""
-			for _, name := range []string{skillID + ".sh", "main.sh"} {
-				scriptPath := filepath.Join(scriptsDir, name)
-				if _, err := os.Stat(scriptPath); err == nil {
-					entryScript = name
-					break
-				}
-			}
-			if entryScript == "" {
-				// 找第一个 .sh 文件
-				if entries, err := os.ReadDir(scriptsDir); err == nil {
-					for _, e := range entries {
-						if !e.IsDir() && strings.HasSuffix(e.Name(), ".sh") {
-							entryScript = e.Name()
-							break
-						}
-					}
-				}
-			}
-			if entryScript != "" {
-				skill.EntryScript = entryScript
-			}
-		}
-
-		discovered = append(discovered, skill)
-		logger.Infof("[discoverSkillsFromDir] discovered skill: %s (name=%s, entry=%s)", skill.ID, skill.Name, skill.EntryScript)
-	}
-
-	return discovered
-}
-
-// parseSkillFrontmatter 解析 SKILL.md 的 YAML frontmatter
-func parseSkillFrontmatter(content string) map[string]any {
-	// 简单解析 --- ... --- 格式的 frontmatter
-	if !strings.HasPrefix(content, "---") {
-		return nil
-	}
-
-	lines := strings.Split(content, "\n")
-	if len(lines) < 3 {
-		return nil
-	}
-
-	// 找到结束 ---
-	endIdx := -1
-	for i := 1; i < len(lines); i++ {
-		if strings.TrimSpace(lines[i]) == "---" {
-			endIdx = i
-			break
-		}
-	}
-
-	if endIdx < 2 {
-		return nil
-	}
-
-	// 简单解析 key: value 格式
-	result := make(map[string]any)
-	for i := 1; i < endIdx; i++ {
-		line := strings.TrimSpace(lines[i])
-		if idx := strings.Index(line, ":"); idx > 0 {
-			key := strings.TrimSpace(line[:idx])
-			value := strings.TrimSpace(line[idx+1:])
-			// 去掉可能的引号
-			value = strings.Trim(value, "\"")
-			value = strings.Trim(value, "'")
-			result[key] = value
-		}
-	}
-
-	return result
 }

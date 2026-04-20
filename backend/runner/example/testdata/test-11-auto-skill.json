@@ -2,50 +2,19 @@
     "endpoint": "http://localhost:18080/run",
     "models": {
         "default": {
-            "provider": "openai",
+            "provider": "anthropic",
             "name": "${OPENAI_MODEL}",
-            "api_key": "${OPENAI_API_KEY}",
-            "api_base": "${OPENAI_BASE_URL}"
-        },
-        "rewrite": {
-            "provider": "openai",
-            "name": "${OPENAI_MODEL_MINI}",
-            "api_key": "${OPENAI_API_KEY}",
-            "api_base": "${OPENAI_BASE_URL}"
-        },
-        "skill": {
-            "provider": "openai",
-            "name": "${OPENAI_MODEL}",
-            "api_key": "${OPENAI_API_KEY}",
-            "api_base": "${OPENAI_BASE_URL}"
-        },
-        "summarize": {
-            "provider": "openai",
-            "name": "${OPENAI_MODEL_MINI}",
             "api_key": "${OPENAI_API_KEY}",
             "api_base": "${OPENAI_BASE_URL}"
         }
     },
-    "system_prompt": "你是一个助手。当用户需要处理数据时，你应该：1）首先读取文件了解数据结构，2）进行分析处理，3）生成报告。不要跳过任何步骤。",
-    "user_message": "帮我分析一下 /tmp/data.csv 文件，然后生成一个总结报告。",
-    "tools": [
-        {
-            "name": "file_reader",
-            "description": "读取文件内容"
-        },
-        {
-            "name": "data_analyzer",
-            "description": "分析数据"
-        },
-        {
-            "name": "report_generator",
-            "description": "生成报告"
-        }
-    ],
+    "system_prompt": "你是一个智能助手。当你完成一个有价值的工作流程时，应该使用 skill_manage 工具创建一个新的 skill 来保存这个工作流程。\n\n重要：即使是简单的多步骤任务，也应该创建 skill 以便将来复用。\n\n创建 skill 的格式：\n- action: create\n- name: 简洁的技能名称（英文，lowercase with hyphens）\n- category: 可选分类\n- content: SKILL.md 内容，包含 YAML frontmatter（name, description）和 markdown 正文\n\n示例：完成文件处理任务后，你应该立即创建类似这样的 skill：\n{\n  \"action\": \"create\",\n  \"name\": \"hello-world-script\",\n  \"category\": \"examples\",\n  \"content\": \"---\\nname: hello-world-script\\ndescription: 创建并运行 Hello World Python 脚本\\n---\\n# Hello World Script\\n\\n## 何时使用\\n用户要求创建简单的 Python 脚本并运行。\\n\\n## 步骤\\n1. 使用 Write 工具创建 .py 文件\\n2. 使用 Bash 工具运行脚本：python3 文件名.py\\n\\n## 验证\\n确认输出正确显示。\"\n}",
+    "user_message": "帮我创建一个简单的 hello.py 文件，内容是打印 'Hello, World!'，然后运行它。完成后，请使用 skill_manage 工具将这个工作流程保存为一个 skill。",
+    "tools": [],
     "a2a": [],
     "mcps": [],
     "sandbox": {
-        "enabled": true,
+        "enabled": false,
         "mode": "docker",
         "image": "sandbox-code-interpreter:v1.0.3",
         "workdir": "/workspace",
@@ -62,21 +31,48 @@
     "options": {
         "temperature": 0.7,
         "max_tokens": 4000,
-        "max_iterations": 10,
-        "max_tool_calls": 20,
+        "max_iterations": 20,
+        "max_tool_calls": 30,
+        "max_a2a_calls": 5,
+        "max_total_tokens": 50000,
         "stream": true,
-        "routing": {
-            "default_model": "default"
+        "retry": {
+            "max_attempts": 3,
+            "initial_delay_ms": 1000,
+            "max_delay_ms": 10000,
+            "backoff_multiplier": 2.0,
+            "retryable_errors": [
+                "timeout",
+                "rate_limit",
+                "server_error"
+            ]
         },
-        "checkpoint_id": "test-auto-skill-001"
+        "routing": {
+            "default_model": "default",
+            "rewrite_prompt": "请优化以下用户Query，使其更加清晰、准确，便于理解和执行。只返回优化后的Query，不要其他内容。",
+            "summarize_prompt": "请总结以下内容，提取关键信息，保持简洁。只返回总结内容，不要其他内容。"
+        },
+        "approval_policy": {
+            "enabled": false,
+            "risk_threshold": "medium",
+            "auto_approve": []
+        },
+        "checkpoint_id": "test-auto-skill-001",
+        "response_schema": {
+            "type": "text",
+            "version": "1.0",
+            "strict": true
+        }
     },
     "skills": [],
     "sub_agents": [],
     "context": {
-        "session_id": "sess_auto_skill_001",
-        "user_id": "user_auto_skill_001",
-        "channel_id": "feishu",
-        "skills_dir": "skills"
+        "session_id": "sess_auto_skill_test",
+        "user_id": "user_test",
+        "channel_id": "test",
+        "skills_dir": "skills",
+        "variables": {},
+        "trace_id": "trace-auto-skill"
     },
     "knowledge_bases": [],
     "files": []

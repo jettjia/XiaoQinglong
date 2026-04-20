@@ -2,26 +2,8 @@
     "endpoint": "http://localhost:18080/run",
     "models": {
         "default": {
-            "provider": "openai",
+            "provider": "anthropic",
             "name": "${OPENAI_MODEL}",
-            "api_key": "${OPENAI_API_KEY}",
-            "api_base": "${OPENAI_BASE_URL}"
-        },
-        "rewrite": {
-            "provider": "openai",
-            "name": "${OPENAI_MODEL_MINI}",
-            "api_key": "${OPENAI_API_KEY}",
-            "api_base": "${OPENAI_BASE_URL}"
-        },
-        "skill": {
-            "provider": "openai",
-            "name": "${OPENAI_MODEL}",
-            "api_key": "${OPENAI_API_KEY}",
-            "api_base": "${OPENAI_BASE_URL}"
-        },
-        "summarize": {
-            "provider": "openai",
-            "name": "${OPENAI_MODEL_MINI}",
             "api_key": "${OPENAI_API_KEY}",
             "api_base": "${OPENAI_BASE_URL}"
         }
@@ -34,7 +16,7 @@
         {
             "name": "mock_mcp",
             "transport": "stdio",
-            "command": "/home/jett/aishu/XiaoQinglong/mock/mcp/mock_mcp",
+            "command": "/home/jett/self/XiaoQinglong/mock/mcp/mock_mcp",
             "args": [
                 "--stdio"
             ],

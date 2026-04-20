@@ -124,6 +124,12 @@ func (a *ChatAssembler) E2DChatMessage(en *entity.ChatMessage) *dto.ChatMessageR
 		panic(any(err))
 	}
 
+	// 强制覆盖 metadata，确保从 entity 获取正确的值
+	rspDto.Metadata = en.Metadata
+	if rspDto.Metadata == "" && en.Metadata != "" {
+		println("[WARN] E2DChatMessage: copier overwrote Metadata, en.Metadata =", en.Metadata)
+	}
+
 	return &rspDto
 }
 

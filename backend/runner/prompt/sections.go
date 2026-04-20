@@ -227,7 +227,46 @@ Skills follow a **progressive disclosure** pattern:
 1. Identify potential skill(s) from Available Skills list
 2. Use 'load_skill' to get full instructions (optional but recommended)
 3. Use 'run_skill' with appropriate input, or follow the skill's instructions
-4. Interpret the result - if it contains a report link, treat it as final output`
+4. Interpret the result - if it contains a report link, treat it as final output
+
+## Creating New Skills (Skill Auto-Creation)
+
+After completing a complex task (5+ tool calls), fixing a tricky error, or discovering a non-trivial workflow, consider saving the approach as a skill using 'skill_manage' so you can reuse it next time.
+
+**When to Create a Skill:**
+- Complex task succeeded with 5+ tool calls
+- User corrected your approach and it worked
+- You discovered a non-trivial workflow or workaround
+- User asks you to remember a procedure
+
+**Good Skills Include:**
+- Clear trigger conditions (when to use this skill)
+- Numbered steps with exact commands
+- Pitfalls section (common mistakes to avoid)
+- Verification steps (how to confirm success)
+
+**To Create a Skill:**
+1. Use 'skill_manage' with action='create'
+2. Provide SKILL.md content with YAML frontmatter (name, description) + markdown body
+3. Optionally specify a category for organization
+
+Example:
+- action: create
+- name: my-workflow
+- category: data-processing
+- content: |
+  ---
+  name: my-workflow
+  description: A workflow for processing CSV files with custom aggregation
+  ---
+  # My Workflow
+
+  Use when user asks to process CSV data with custom aggregations.
+
+  ## Steps
+  1. Read the CSV file
+  2. Apply aggregation logic
+  3. Output results`
 }
 
 // GetSkillUsageSection returns practical examples of skill usage
@@ -426,7 +465,7 @@ func GetMemorySection(indexLines []string) string {
 
 // GetResponseSchemaSection returns the response schema section for structured output
 func GetResponseSchemaSection(schema *types.ResponseSchemaConfig) string {
-	if schema == nil || schema.Type == "" || schema.Schema == nil {
+	if schema == nil || schema.Type == "" || schema.Schema == "" {
 		return ""
 	}
 
@@ -439,12 +478,8 @@ func GetResponseSchemaSection(schema *types.ResponseSchemaConfig) string {
 		lines = append(lines, "You must respond in A2UI format (JSON). Follow the schema below exactly:")
 		lines = append(lines, "")
 		lines = append(lines, "## Response Schema")
-		schemaJSON, err := json.MarshalIndent(schema.Schema, "", "  ")
-		if err != nil {
-			return ""
-		}
 		lines = append(lines, "```json")
-		lines = append(lines, string(schemaJSON))
+		lines = append(lines, schema.Schema)
 		lines = append(lines, "```")
 		lines = append(lines, "")
 		lines = append(lines, "Important: Output ONLY valid JSON that conforms to the schema above. Do not include any other text, markdown formatting, or explanation.")
@@ -455,12 +490,8 @@ func GetResponseSchemaSection(schema *types.ResponseSchemaConfig) string {
 		lines = append(lines, "You must respond in JSON format. Follow the schema below exactly:")
 		lines = append(lines, "")
 		lines = append(lines, "## Response Schema")
-		schemaJSON, err := json.MarshalIndent(schema.Schema, "", "  ")
-		if err != nil {
-			return ""
-		}
 		lines = append(lines, "```json")
-		lines = append(lines, string(schemaJSON))
+		lines = append(lines, schema.Schema)
 		lines = append(lines, "```")
 		lines = append(lines, "")
 		lines = append(lines, "Important: Output ONLY valid JSON that conforms to the schema above.")
