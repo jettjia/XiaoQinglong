@@ -101,13 +101,13 @@ function extractHtmlFromMarkdown(content: string): { html: string | null; markdo
   const htmlBlockRegex = /```html\s*([\s\S]*?)```/gi;
   const matches = [...content.matchAll(htmlBlockRegex)];
 
-  // 检测报告 URL: /uploads/{sessionID}/reports/*.html 格式
-  const reportUrlRegex = /\/uploads\/[^\/]+\/reports\/[^\s]+\.html/gi;
+  // 检测报告 URL: /uploads/{sessionID}/reports/*.html 或 /reports/{sessionID}/*.html 格式
+  const reportUrlRegex = /(?:\/uploads\/[^\/]+\/reports\/[^\s]+\.html|\/reports\/[^\/\s]+\/[^\s]+\.html)/gi;
   const reportUrlMatch = content.match(reportUrlRegex);
   const reportUrl = reportUrlMatch ? reportUrlMatch[0] : null;
 
-  // 检测 PPT URL: /uploads/{sessionID}/reports/*.pptx 格式
-  const pptUrlRegex = /\/uploads\/[^\/]+\/reports\/[^\s]+\.pptx/gi;
+  // 检测 PPT URL: /uploads/{sessionID}/reports/*.pptx 或 /reports/{sessionID}/*.pptx 格式
+  const pptUrlRegex = /(?:\/uploads\/[^\/]+\/reports\/[^\s]+\.pptx|\/reports\/[^\/\s]+\/[^\s]+\.pptx)/gi;
   const pptUrlMatch = content.match(pptUrlRegex);
   const pptUrl = pptUrlMatch ? pptUrlMatch[0] : null;
 
@@ -121,13 +121,16 @@ function extractHtmlFromMarkdown(content: string): { html: string | null; markdo
 
   // 从 Markdown 中移除 HTML 代码块，保留其他内容
   let markdown = content.replace(htmlBlockRegex, '').trim();
-  // 移除报告 URL 行
-  if (reportUrl) {
-    markdown = markdown.replace(/\S+\/uploads\/[^\/]+\/reports\/[^\s]+\.html\n?/gi, '').trim();
-  }
-  // 移除 PPT URL 行
-  if (pptUrl) {
-    markdown = markdown.replace(/\S+\/uploads\/[^\/]+\/reports\/[^\s]+\.pptx\n?/gi, '').trim();
+  // 只有在有 HTML 内容时才移除报告和 PPT URL 行（匹配两种格式）
+  if (matches.length > 0) {
+    // 移除报告 URL 行
+    if (reportUrl) {
+      markdown = markdown.replace(/(?:\S+\/uploads\/[^\/]+\/reports\/[^\s]+\.html|\S+\/reports\/[^\/\s]+\/[^\s]+\.html)\n?/gi, '').trim();
+    }
+    // 移除 PPT URL 行
+    if (pptUrl) {
+      markdown = markdown.replace(/(?:\S+\/uploads\/[^\/]+\/reports\/[^\s]+\.pptx|\S+\/reports\/[^\/\s]+\/[^\s]+\.pptx)\n?/gi, '').trim();
+    }
   }
 
   return { html: fullHtml, markdown, reportUrl, pptUrl };
@@ -198,7 +201,10 @@ function MessageContent({ content, htmlContent, reportUrl, pptUrl, onReportClick
   // 需要转换成: /api/xiaoqinglong/agent-frame/v1/runner/reports/{sessionID}/{filename}
   const getReportFullUrl = (url: string) => {
     if (!url) return '';
-    // 提取 /uploads/{sessionID}/reports/{filename} 中的 sessionID 和 filename
+    if (url.startsWith('/reports/')) {
+      const path = url.replace(/^\/reports\//, '');
+      return `${API_BASE}/runner/reports/${path}`;
+    }
     const match = url.match(/\/uploads\/([^\/]+)\/reports\/([^/]+\.html)$/);
     if (!match) return '';
     const sessionID = match[1];
@@ -206,10 +212,12 @@ function MessageContent({ content, htmlContent, reportUrl, pptUrl, onReportClick
     return `${API_BASE}/runner/reports/${sessionID}/${filename}`;
   };
 
-  // 构建 PPT 的完整访问 URL
   const getPptFullUrl = (url: string) => {
     if (!url) return '';
-    // 提取 /uploads/{sessionID}/reports/{filename} 中的 sessionID 和 filename
+    if (url.startsWith('/reports/')) {
+      const path = url.replace(/^\/reports\//, '');
+      return `${API_BASE}/runner/reports/${path}`;
+    }
     const match = url.match(/\/uploads\/([^\/]+)\/reports\/([^/]+\.pptx)$/);
     if (!match) return '';
     const sessionID = match[1];
@@ -248,6 +256,52 @@ function MessageContent({ content, htmlContent, reportUrl, pptUrl, onReportClick
   if (reportUrl) {
     return (
       <div className="w-full">
+        {/* 显示原始文本内容 */}
+        {content && (
+          <div className="mb-3">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeHighlight]}
+              components={{
+                code({ className: cls, children, ...rest }) {
+                  const isBlock = /language-/.test(cls ?? "");
+                  if (isBlock) {
+                    return (
+                      <code className={cn("block overflow-x-auto rounded-lg bg-slate-900 text-slate-100 p-3 my-2 text-xs font-mono leading-relaxed border border-slate-700", cls)} {...rest}>
+                        {children}
+                      </code>
+                    );
+                  }
+                  return <code className={cn("px-1.5 py-0.5 rounded bg-slate-100 text-slate-800 text-xs font-mono")} {...rest}>{children}</code>;
+                },
+                pre({ children }) {
+                  return <pre className="overflow-x-auto rounded-lg bg-slate-900 border border-slate-700 p-3 my-2 text-xs font-mono leading-relaxed">{children}</pre>;
+                },
+                a({ href, children, ...rest }) {
+                  if (href && (href.startsWith('/reports/') || href.startsWith('/uploads/'))) {
+                    return (
+                      <a
+                        href={href}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          onReportClick?.(href, typeof children === 'string' ? children : '报告预览');
+                        }}
+                        className="text-sky-600 hover:underline cursor-pointer"
+                        {...rest}
+                      >
+                        {children}
+                      </a>
+                    );
+                  }
+                  return <a href={href} target="_blank" rel="noopener noreferrer" {...rest}>{children}</a>;
+                },
+              }}
+            >
+              {content}
+            </ReactMarkdown>
+          </div>
+        )}
+        {/* 预览按钮 */}
         <div className="flex items-center justify-between mb-2 text-xs text-slate-500">
           <span className="flex items-center gap-1">
             <BarChart3 size={12} className="text-green-500" />
@@ -361,6 +415,24 @@ function MessageContent({ content, htmlContent, reportUrl, pptUrl, onReportClick
             },
             pre({ children }) {
               return <pre className="overflow-x-auto rounded-lg bg-slate-900 border border-slate-700 p-3 my-2 text-xs font-mono leading-relaxed">{children}</pre>;
+            },
+            a({ href, children, ...rest }) {
+              if (href && (href.startsWith('/reports/') || href.startsWith('/uploads/'))) {
+                return (
+                  <a
+                    href={href}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onReportClick?.(href, typeof children === 'string' ? children : '报告预览');
+                    }}
+                    className="text-sky-600 hover:underline cursor-pointer"
+                    {...rest}
+                  >
+                    {children}
+                  </a>
+                );
+              }
+              return <a href={href} target="_blank" rel="noopener noreferrer" {...rest}>{children}</a>;
             },
           }}
         >
