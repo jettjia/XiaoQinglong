@@ -1,5 +1,7 @@
 # XiaoQinglong 小青龙
 
+[English](./README-en.md) | 中文
+
 **企业级智能体运行框架** - 让 AI Agent 在生产环境中真正落地
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
