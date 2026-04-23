@@ -11,6 +11,7 @@ import (
 	"github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/knowledge_base"
 	"github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/memory"
 	"github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/model"
+	"github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/plugin"
 	"github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/skill"
 	"github.com/jettjia/xiaoqinglong/agent-frame/infra/repository/po/user"
 )
@@ -35,6 +36,8 @@ func AutoTable() (err error) {
 		memory.AgentMemory{},
 		memory.MemoryIndex{},
 		job.JobExecutionPO{},
+		plugin.PluginInstancePO{},
+		plugin.OAuthStatePO{},
 	)
 
 	return

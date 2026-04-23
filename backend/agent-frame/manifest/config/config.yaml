@@ -23,3 +23,7 @@ db:
   conn_max_lifetime: 500
   log_mode: 4
   slow_threshold: 10
+
+third:
+  rsa:
+    private_key: ""

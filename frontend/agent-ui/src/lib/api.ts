@@ -1108,3 +1108,145 @@ export const dashboardApi = {
     }
   },
 };
+
+// ====== Plugin APIs ======
+
+export interface Plugin {
+  id: string;
+  name: string;
+  icon: string;
+  description: string;
+  auth_type: 'device' | 'oauth2';
+  version: string;
+  author: string;
+  status: 'available' | 'installed' | 'authorized';
+  instance_id?: string;
+}
+
+export interface PluginInstance {
+  ulid: string;
+  plugin_id: string;
+  status: 'active' | 'revoked' | 'expired';
+  user_info?: PluginUserInfo;
+  authorized_at: number;
+  expires_at?: number;
+}
+
+export interface PluginUserInfo {
+  open_id: string;
+  name: string;
+  avatar: string;
+  email: string;
+}
+
+export interface StartAuthResponse {
+  auth_type: string;
+  auth_url?: string;
+  state: string;
+  device_code?: string;
+  user_code?: string;
+  verification_url?: string;
+  expires_in?: number;
+  interval?: number;
+}
+
+export interface PollAuthResponse {
+  status: 'pending' | 'authorized' | 'expired' | 'denied';
+  instance_id?: string;
+  user_info?: PluginUserInfo;
+}
+
+export const pluginApi = {
+  // 获取插件列表
+  async getPlugins(): Promise<{ plugins: Plugin[] }> {
+    const res = await fetch(`${API_BASE}/plugin/list`);
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to get plugins');
+    }
+    return json.data || json;
+  },
+
+  // 获取用户插件实例
+  async getUserInstances(): Promise<{ instances: PluginInstance[] }> {
+    const res = await fetch(`${API_BASE}/plugin/instances`);
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to get user instances');
+    }
+    return json.data || json;
+  },
+
+  // 获取实例详情
+  async getInstanceById(ulid: string): Promise<PluginInstance> {
+    const res = await fetch(`${API_BASE}/plugin/instance/${ulid}`);
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to get instance');
+    }
+    return json.data || json;
+  },
+
+  // 删除插件实例
+  async deleteInstance(ulid: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/plugin/instance/${ulid}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      const json = await res.json();
+      throw new Error(json.message || 'Failed to delete instance');
+    }
+  },
+
+  // 刷新令牌
+  async refreshToken(ulid: string): Promise<{ status: 'active' | 'expired' }> {
+    const res = await fetch(`${API_BASE}/plugin/instance/${ulid}/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ulid }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to refresh token');
+    }
+    return json.data || json;
+  },
+
+  // 开始授权
+  async startAuth(pluginId: string): Promise<StartAuthResponse> {
+    const res = await fetch(`${API_BASE}/plugin/auth/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plugin_id: pluginId }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to start auth');
+    }
+    return json.data || json;
+  },
+
+  // 轮询授权状态
+  async pollAuth(state: string): Promise<PollAuthResponse> {
+    const res = await fetch(`${API_BASE}/plugin/auth/poll`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to poll auth');
+    }
+    return json.data || json;
+  },
+
+  // 获取RSA公钥
+  async getPublicKey(): Promise<{ public_key: string }> {
+    const res = await fetch(`${API_BASE}/plugin/public-key`);
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.message || 'Failed to get public key');
+    }
+    return json.data || json;
+  },
+};

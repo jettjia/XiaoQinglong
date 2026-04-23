@@ -15,6 +15,7 @@ import (
 	handJob "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/job"
 	handDashboard "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/dashboard"
 	handCommand "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/command"
+	handPlugin "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/plugin"
 
 	channelDispatcher "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/channel"
 	feishuHandler "github.com/jettjia/xiaoqinglong/agent-frame/api/http/handler/public/channel/feishu"
@@ -34,6 +35,7 @@ func SetPublicRouter(Router *gin.RouterGroup) {
 	handJob := handJob.NewHandler()
 	handDashboard := handDashboard.NewHandler()
 	handCommand := handCommand.NewHandler()
+	handPlugin := handPlugin.NewHandler()
 
 	GRouter := Router.Group("/user")
 	{
@@ -198,5 +200,19 @@ func SetPublicRouter(Router *gin.RouterGroup) {
 	CommandRouter := Router.Group("/command")
 	{
 		CommandRouter.POST("/execute", handCommand.Execute) // 执行命令
+	}
+
+	// plugin - 插件管理
+	PluginRouter := Router.Group("/plugin")
+	{
+		PluginRouter.GET("/list", handPlugin.GetPlugins)                           // 获取插件列表
+		PluginRouter.GET("/instances", handPlugin.GetUserInstances)               // 获取用户插件实例
+		PluginRouter.GET("/instance/:ulid", handPlugin.GetInstanceById)           // 获取实例详情
+		PluginRouter.DELETE("/instance/:ulid", handPlugin.DeleteInstance)         // 删除插件实例
+		PluginRouter.POST("/instance/:ulid/refresh", handPlugin.RefreshToken)     // 刷新令牌
+		PluginRouter.POST("/auth/start", handPlugin.StartAuth)                    // 开始授权
+		PluginRouter.POST("/auth/poll", handPlugin.PollAuth)                      // 轮询授权状态
+		PluginRouter.GET("/auth/url", handPlugin.GetAuthUrl)                      // 获取授权URL
+		PluginRouter.GET("/public-key", handPlugin.GetPublicKey)                  // 获取RSA公钥
 	}
 }

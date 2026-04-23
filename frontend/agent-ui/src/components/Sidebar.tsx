@@ -12,7 +12,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Globe,
-  Inbox
+  Inbox,
+  Plug
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { View } from '../types';
@@ -35,6 +36,7 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
     { id: 'chat', label: t('sidebar.chat'), icon: MessageSquare },
     { id: 'skills', label: t('sidebar.skills'), icon: Zap },
     { id: 'knowledge', label: t('sidebar.knowledge'), icon: Database },
+    { id: 'plugins', label: t('sidebar.plugins'), icon: Plug },
     { id: 'models', label: t('sidebar.models'), icon: Cpu },
   ];
 

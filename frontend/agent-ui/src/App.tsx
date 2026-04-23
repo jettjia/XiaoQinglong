@@ -15,6 +15,7 @@ import { ModelManager } from './components/ModelManager';
 import { Settings } from './components/Settings';
 import { Inbox } from './components/Inbox';
 import { CommandCenter } from './components/CommandCenter';
+import { PluginMarket } from './components/PluginMarket';
 import { View, Agent } from './types';
 import { AnimatePresence, motion } from 'motion/react';
 import { Toaster } from 'sonner';
@@ -50,6 +51,8 @@ export default function App() {
         }} />
       case 'models':
         return <ModelManager />;
+      case 'plugins':
+        return <PluginMarket />;
       case 'settings':
         return <Settings />;
       case 'inbox':

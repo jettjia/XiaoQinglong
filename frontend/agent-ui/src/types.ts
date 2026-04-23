@@ -1,4 +1,4 @@
-export type View = 'dashboard' | 'orchestrator' | 'agents' | 'skills' | 'knowledge' | 'models' | 'chat' | 'settings' | 'inbox';
+export type View = 'dashboard' | 'orchestrator' | 'agents' | 'skills' | 'knowledge' | 'models' | 'chat' | 'settings' | 'inbox' | 'plugins';
 
 export interface Agent {
   ulid?: string;
@@ -285,4 +285,50 @@ export interface JobExecution {
   latency_ms: number;
   created_at: number;
   updated_at: number;
+}
+
+// ====== Plugin types ======
+export interface Plugin {
+  id: string;
+  name: string;
+  icon: string;
+  description: string;
+  auth_type: 'device' | 'oauth2';
+  version: string;
+  author: string;
+  status: 'available' | 'installed' | 'authorized';
+  instance_id?: string;
+}
+
+export interface PluginInstance {
+  ulid: string;
+  plugin_id: string;
+  status: 'active' | 'revoked' | 'expired';
+  user_info?: PluginUserInfo;
+  authorized_at: number;
+  expires_at?: number;
+}
+
+export interface PluginUserInfo {
+  open_id: string;
+  name: string;
+  avatar: string;
+  email: string;
+}
+
+export interface StartAuthResponse {
+  auth_type: string;
+  auth_url?: string;
+  state: string;
+  device_code?: string;
+  user_code?: string;
+  verification_url?: string;
+  expires_in?: number;
+  interval?: number;
+}
+
+export interface PollAuthResponse {
+  status: 'pending' | 'authorized' | 'expired' | 'denied';
+  instance_id?: string;
+  user_info?: PluginUserInfo;
 }

@@ -23,6 +23,7 @@ const resources = {
         skills: 'Skills',
         knowledge: 'Knowledge Base',
         models: 'Models',
+        plugins: 'Plugins',
         settings: 'Settings'
       },
       dashboard: {
@@ -469,6 +470,7 @@ const resources = {
         skills: '技能',
         knowledge: '知识库',
         models: '模型',
+        plugins: '插件',
         settings: '设置'
       },
       dashboard: {
