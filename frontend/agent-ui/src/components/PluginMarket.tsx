@@ -283,11 +283,13 @@ export function PluginMarket() {
                       </div>
                     )}
                     <span className="text-gray-700">{instance.user_info?.name || 'User'}</span>
-                    <span className={cn(
-                      "px-1.5 py-0.5 text-xs rounded",
-                      instance.status === 'active' ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-                    )}>
-                      {instance.status}
+                    {/* Active status indicator */}
+                    <span className="flex items-center gap-1">
+                      <span className={cn(
+                        "w-2 h-2 rounded-full",
+                        instance.status === 'active' ? "bg-green-500 animate-pulse" : "bg-red-500"
+                      )} />
+                      <span className="text-xs text-gray-500 capitalize">{instance.status}</span>
                     </span>
                   </div>
                   {instance.expires_at && (

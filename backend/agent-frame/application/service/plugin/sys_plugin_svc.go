@@ -389,6 +389,15 @@ func (s *SysPluginService) GetPublicKey(ctx context.Context) (*dtoPlugin.GetPubl
 func (s *SysPluginService) findUserInstances(ctx context.Context) ([]*entityPlugin.PluginInstance, error) {
 	userID := getValueFromCtx(ctx, "user_id")
 
+	// 如果 userID 为空（未认证场景），查询所有实例用于演示
+	if userID == "" {
+		instances, err := s.getDomainSvc().FindAllInstance(ctx, nil)
+		if err != nil {
+			return []*entityPlugin.PluginInstance{}, nil
+		}
+		return instances, nil
+	}
+
 	instance, err := s.getDomainSvc().FindInstanceByUserAndPlugin(ctx, userID, "")
 	if err != nil {
 		return []*entityPlugin.PluginInstance{}, nil
